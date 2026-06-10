@@ -1,7 +1,7 @@
 import json
-import logging
+import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import structlog
@@ -743,12 +743,20 @@ def list_focus_sessions(
 
 
 # --- Static Files (SPA) ---
-import os
 
-static_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-assets_dir = os.path.join(static_dir, "assets")
-if os.path.isdir(assets_dir):
-    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+_possible_static_dirs = [
+    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"),
+    "/app/static",
+]
+
+static_dir = None
+for d in _possible_static_dirs:
+    if os.path.isdir(os.path.join(d, "assets")):
+        static_dir = d
+        break
+
+if static_dir:
+    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
     index_path = os.path.join(static_dir, "index.html")
 
     if os.path.isfile(index_path):
@@ -758,3 +766,5 @@ if os.path.isdir(assets_dir):
             if os.path.isfile(file_path):
                 return FileResponse(file_path)
             return FileResponse(index_path, media_type="text/html")
+else:
+    logger.warning("static_dir_not_found", message="Frontend dist not found — SPA routes will 404")
