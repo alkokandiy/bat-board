@@ -757,14 +757,19 @@ for d in _possible_static_dirs:
 
 if static_dir:
     app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
-    index_path = os.path.join(static_dir, "index.html")
 
-    if os.path.isfile(index_path):
-        @app.get("/{full_path:path}")
-        async def serve_spa(full_path: str):
-            file_path = os.path.join(static_dir, full_path)
-            if os.path.isfile(file_path):
-                return FileResponse(file_path)
+    _spa_static_dir = static_dir
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file_path = os.path.join(_spa_static_dir, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        index_path = os.path.join(_spa_static_dir, "index.html")
+        if os.path.isfile(index_path):
             return FileResponse(index_path, media_type="text/html")
+        raise HTTPException(status_code=404, detail="Not found")
 else:
     logger.warning("static_dir_not_found", message="Frontend dist not found — SPA routes will 404")
