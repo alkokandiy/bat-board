@@ -58,7 +58,9 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, v: str) -> str:
-        if v.startswith("postgresql://") and "+" not in v:
+        if v.startswith("postgres://") and "+" not in v:
+            v = v.replace("postgres://", "postgresql+psycopg2://", 1)
+        elif v.startswith("postgresql://") and "+" not in v:
             v = v.replace("postgresql://", "postgresql+psycopg2://", 1)
         return v
 

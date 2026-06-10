@@ -52,7 +52,12 @@ logger = structlog.get_logger()
 limiter = Limiter(key_func=get_remote_address)
 
 # --- Database Initialization ---
-create_db_tables()
+try:
+    create_db_tables()
+    logger.info("database_tables_ready")
+except Exception as e:
+    logger.error("database_init_failed", error=str(e))
+    raise
 
 app = FastAPI(
     title=settings.app_name,

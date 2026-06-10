@@ -28,4 +28,4 @@ COPY --from=frontend-builder /app/frontend/dist /app/static
 EXPOSE 8000
 
 # Railway provides PORT env, but we bind to 8000 internally
-CMD ["gunicorn", "main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "--keep-alive", "5", "--log-level", "info"]
+CMD gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 4 --timeout 120 --keep-alive 5 --log-level info
