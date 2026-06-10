@@ -1,8 +1,8 @@
 # Build frontend
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+COPY frontend/package.json ./
+RUN npm install
 COPY frontend/ .
 RUN npm run build
 
@@ -27,11 +27,5 @@ COPY --from=frontend-builder /app/frontend/dist /app/static
 
 EXPOSE 8000
 
-# Railway provides PORT env, but we use 8000 internally
-CMD gunicorn main:app \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --bind 0.0.0.0:${PORT:-8000} \
-    --workers 4 \
-    --timeout 120 \
-    --keep-alive 5 \
-    --log-level info
+# Railway provides PORT env, but we bind to 8000 internally
+CMD ["gunicorn", "main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "--keep-alive", "5", "--log-level", "info"]
