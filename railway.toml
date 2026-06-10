@@ -1,0 +1,26 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["backend/**", "frontend/**"]
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+
+[[service.variables]]
+key = "ENVIRONMENT"
+value = "production"
+
+[[service.variables]]
+key = "LOG_FORMAT"
+value = "json"
+
+[[service.variables]]
+key = "CORS_ORIGINS"
+value = '["*"]'
+
+[[service.variables]]
+key = "SECRET_KEY"
+value = "set-this-to-a-random-64-char-string-in-railway"

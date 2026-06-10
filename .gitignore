@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+.venv/
+venv/
+env/
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Railway
+railway.json
+
+# Docker
+docker-compose.override.yml
+
+# Alembic
+backend/alembic/versions/*.pyc
+backend/alembic/__pycache__/
+
+# Vite
+frontend/public/tracks/*.mp3
+!frontend/public/tracks/.gitkeep
