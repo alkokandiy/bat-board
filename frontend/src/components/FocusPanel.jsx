@@ -9,16 +9,19 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange }) {
   const timerRef = useRef(null);
 
   useEffect(() => {
-    if (isActive && timeLeft > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (timeLeft === 0) {
-      clearInterval(timerRef.current);
-      setIsActive(false);
-    }
+    if (!isActive) return;
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current);
+          setIsActive(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
     return () => clearInterval(timerRef.current);
-  }, [isActive, timeLeft]);
+  }, [isActive]);
 
   const toggleTimer = () => {
     if (!isActive && timeLeft === 0) {

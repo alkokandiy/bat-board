@@ -8,7 +8,7 @@ const trackPresets = [
 
 export { trackPresets };
 
-export default function AudioPlayer({ activeTrack, isPlaying, onToggle, onTrackChange }) {
+export default function AudioPlayer({ activeTrack, isPlaying, onToggle = () => {}, onTrackChange = () => {} }) {
   const audioRef = useRef(null);
 
   useEffect(() => {

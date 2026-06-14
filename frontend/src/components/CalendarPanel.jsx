@@ -18,9 +18,10 @@ function getMonthDays(year, month) {
 export default function CalendarPanel() {
   const [events, setEvents] = useState([]);
   const [missions, setMissions] = useState([]);
-  const [today] = useState(() => new Date());
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const [now] = useState(() => new Date());
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+  const getToday = () => new Date();
   const [showForm, setShowForm] = useState(false);
   const [editEvent, setEditEvent] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -106,7 +107,7 @@ export default function CalendarPanel() {
     } catch (err) { console.error(err); }
   };
 
-  const isToday = (d) => d && d.toDateString() === today.toDateString();
+  const isToday = (d) => d && d.toDateString() === getToday().toDateString();
   const getEventsForDay = (d) => events.filter(e => new Date(e.start_time).toDateString() === d.toDateString());
   const getMissionsForDay = (d) => missionDueMap[d.toDateString()] || [];
 
@@ -143,10 +144,10 @@ export default function CalendarPanel() {
                   {getMissionsForDay(d).slice(0, 2).map(m => (
                     <div key={m.id} className="text-[7px] bg-red-950/40 text-red-400 px-1 py-0.5 rounded truncate mb-0.5 leading-tight">{m.title}</div>
                   ))}
-                  {getEventsForDay(d).slice(0, 2).map(e => (
-                    <div key={e.id} onClick={e => { e.stopPropagation(); openEditForm(e); }} className="text-[7px] px-1 py-0.5 rounded truncate mb-0.5 leading-tight cursor-pointer hover:opacity-80"
-                      style={{ backgroundColor: e.color + '30', color: e.color }}>
-                      {e.title}
+                  {getEventsForDay(d).slice(0, 2).map(evt => (
+                    <div key={evt.id} onClick={evtClick => { evtClick.stopPropagation(); openEditForm(evt); }} className="text-[7px] px-1 py-0.5 rounded truncate mb-0.5 leading-tight cursor-pointer hover:opacity-80"
+                      style={{ backgroundColor: evt.color + '30', color: evt.color }}>
+                      {evt.title}
                     </div>
                   ))}
                   {(getMissionsForDay(d).length + getEventsForDay(d).length) > 3 && (

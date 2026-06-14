@@ -51,7 +51,7 @@ export default function CountdownPanel() {
 
   const saveGoals = (g) => {
     setGoals(g);
-    localStorage.setItem('bat_countdown_goals', JSON.stringify(g));
+    try { localStorage.setItem('bat_countdown_goals', JSON.stringify(g)); } catch {}
   };
 
   const addGoal = () => {

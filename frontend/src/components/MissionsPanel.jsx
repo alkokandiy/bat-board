@@ -335,7 +335,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
                   <div key={m.id} className="bg-dark-slate p-3 rounded border border-slate-800 opacity-50 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <span className="text-slate-500 line-through text-xs">{m.title}</span>
-                      <button onClick={() => api.updateMission(m.id, { is_dismissed: false, status: 'pending' }).then(onRefreshMissions)} className="text-[9px] text-slate-600 hover:text-slate-300">(restore)</button>
+                      <button onClick={async () => { try { await api.updateMission(m.id, { is_dismissed: false, status: 'pending' }); onRefreshMissions(); } catch (e) { console.error(e); } }} className="text-[9px] text-slate-600 hover:text-slate-300">(restore)</button>
                     </div>
                     <button onClick={() => handleDelete(m.id)} className="text-slate-600 hover:text-red-500 text-[10px]">✕</button>
                   </div>

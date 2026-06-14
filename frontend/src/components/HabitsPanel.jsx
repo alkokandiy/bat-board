@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { api } from '../utils/api';
 
-export default function HabitsPanel({ habits, onRefreshHabits, onRefreshAccount }) {
+export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAccount }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [frequency, setFrequency] = useState('daily');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -35,22 +36,24 @@ export default function HabitsPanel({ habits, onRefreshHabits, onRefreshAccount 
 
   const handleCheckIn = async (habitId) => {
     try {
+      setActionError(null);
       await api.checkInHabit(habitId);
       await onRefreshHabits();
       await onRefreshAccount();
     } catch (err) {
-      console.error(err);
+      setActionError(err.message || "Check-in failed");
     }
   };
 
   const handleDelete = async (id) => {
     if (!confirm("Are you sure you want to delete this recurring ritual?")) return;
     try {
+      setActionError(null);
       await api.deleteHabit(id);
       await onRefreshHabits();
       await onRefreshAccount();
     } catch (err) {
-      console.error(err);
+      setActionError(err.message || "Delete failed");
     }
   };
 
@@ -122,6 +125,11 @@ export default function HabitsPanel({ habits, onRefreshHabits, onRefreshAccount 
 
         {/* Habits List */}
         <div className="lg:col-span-2 space-y-3">
+          {actionError && (
+            <div className="p-3 bg-red-950/40 border border-red-900 rounded text-red-400 text-xs">
+              {actionError}
+            </div>
+          )}
           <div className="flex justify-between items-center text-xs font-mono text-slate-500 uppercase tracking-wider px-1">
             <span>Active Rituals</span>
             <span>{habits.length} LOGGED</span>

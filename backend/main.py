@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 import structlog
-from fastapi import FastAPI, Depends, HTTPException, status, Request, Body
+from fastapi import FastAPI, Depends, HTTPException, status, Request, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -131,7 +131,6 @@ def auto_log_event(db: Session, owner_id: int, event_type: str, details_dict: di
         details=json.dumps(details_dict)
     )
     db.add(log_entry)
-    db.commit()
 
 # --- Pydantic Schemas ---
 class BatAccountSchema(BaseModel):
@@ -459,28 +458,14 @@ def update_mission(
         raise HTTPException(status_code=404, detail="Mission not found")
 
     old_status = mission.status
+    old_points = current_user.points
 
-    if payload.title is not None:
-        mission.title = payload.title
-    if payload.description is not None:
-        mission.description = payload.description
-    if payload.due_date is not None:
-        mission.due_date = payload.due_date
-    if payload.priority is not None:
-        mission.priority = payload.priority
-    if payload.tags is not None:
-        mission.tags = payload.tags
-    if payload.is_pinned is not None:
-        mission.is_pinned = payload.is_pinned
-    if payload.is_dismissed is not None:
-        mission.is_dismissed = payload.is_dismissed
-    if payload.location is not None:
-        mission.location = payload.location
-    if payload.notes is not None:
-        mission.notes = payload.notes
-    if payload.subtasks is not None:
-        mission.subtasks = payload.subtasks
-    if payload.status is not None:
+    for field in payload.model_fields_set:
+        if field == 'status':
+            continue
+        setattr(mission, field, getattr(payload, field))
+
+    if 'status' in payload.model_fields_set:
         mission.status = payload.status
         if payload.status == "completed" and old_status != "completed":
             mission.completed_at = datetime.utcnow()
@@ -493,19 +478,20 @@ def update_mission(
                 reward = 50
 
             current_user.points += reward
-            old_level = current_user.bat_level
             current_user.bat_level = calculate_bat_level(current_user.points)
 
             auto_log_event(db, current_user.id, "points_modified", {
                 "reason": f"Completed mission '{mission.title}'",
                 "points_delta": reward,
-                "old_points": current_user.points - reward,
+                "old_points": old_points,
                 "new_points": current_user.points,
-                "old_level": old_level,
+                "old_level": current_user.bat_level,
                 "new_level": current_user.bat_level
             })
         elif payload.status != "completed" and old_status == "completed":
             mission.completed_at = None
+            current_user.points = old_points
+            current_user.bat_level = calculate_bat_level(current_user.points)
 
     db.commit()
     db.refresh(mission)
@@ -595,24 +581,18 @@ def update_calendar_event(
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    if event_data.title is not None:
-        event.title = event_data.title
-    if event_data.description is not None:
-        event.description = event_data.description
-    if event_data.start_time is not None:
-        event.start_time = event_data.start_time
-    if event_data.end_time is not None:
-        event.end_time = event_data.end_time
-    if event_data.color is not None:
-        event.color = event_data.color
-    if event_data.mission_id is not None:
-        mission = db.query(models.BatMission).filter(
-            models.BatMission.id == event_data.mission_id,
-            models.BatMission.owner_id == current_user.id
-        ).first()
-        if not mission:
-            raise HTTPException(status_code=404, detail="Mission not found")
-        event.mission_id = event_data.mission_id
+    for field in event_data.model_fields_set:
+        if field == 'mission_id':
+            if event_data.mission_id is not None:
+                mission = db.query(models.BatMission).filter(
+                    models.BatMission.id == event_data.mission_id,
+                    models.BatMission.owner_id == current_user.id
+                ).first()
+                if not mission:
+                    raise HTTPException(status_code=404, detail="Mission not found")
+            event.mission_id = event_data.mission_id
+        else:
+            setattr(event, field, getattr(event_data, field))
 
     db.commit()
     db.refresh(event)
@@ -683,14 +663,8 @@ def update_habit(
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
 
-    if payload.name is not None:
-        habit.name = payload.name
-    if payload.description is not None:
-        habit.description = payload.description
-    if payload.frequency is not None:
-        habit.frequency = payload.frequency
-    if payload.streak is not None:
-        habit.streak = payload.streak
+    for field in payload.model_fields_set:
+        setattr(habit, field, getattr(payload, field))
 
     db.commit()
     db.refresh(habit)
@@ -799,13 +773,13 @@ def check_in_habit(
 # --- Logs Endpoints ---
 @app.get("/api/logs", response_model=List[BatLogSchema])
 def list_logs(
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
     return db.query(models.BatLog).filter(
         models.BatLog.owner_id == current_user.id
-    ).order_by(models.BatLog.timestamp.desc()).limit(min(limit, 200)).all()
+    ).order_by(models.BatLog.timestamp.desc()).limit(limit).all()
 
 @app.post("/api/logs", response_model=BatLogSchema, status_code=status.HTTP_201_CREATED)
 def create_log(
@@ -859,11 +833,14 @@ def end_focus_session(
     if not session:
         raise HTTPException(status_code=404, detail="Focus session not found")
 
-    session.end_time = payload.end_time or datetime.utcnow()
-    if payload.duration_minutes is not None:
-        session.duration_minutes = payload.duration_minutes
-    if payload.soundtrack_metadata is not None:
-        session.soundtrack_metadata = payload.soundtrack_metadata
+    if 'end_time' in payload.model_fields_set:
+        session.end_time = payload.end_time.replace(tzinfo=None) if payload.end_time else None
+    elif not session.end_time:
+        session.end_time = datetime.utcnow()
+    for field in payload.model_fields_set:
+        if field == 'end_time':
+            continue
+        setattr(session, field, getattr(payload, field))
 
     if session.duration_minutes is None and session.end_time:
         delta = session.end_time - session.start_time
@@ -890,13 +867,13 @@ def end_focus_session(
 
 @app.get("/api/focus/sessions", response_model=List[BatFocusSchema])
 def list_focus_sessions(
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
     return db.query(models.BatFocus).filter(
         models.BatFocus.owner_id == current_user.id
-    ).order_by(models.BatFocus.start_time.desc()).limit(min(limit, 100)).all()
+    ).order_by(models.BatFocus.start_time.desc()).limit(limit).all()
 
 
 # --- Static Files (SPA) ---

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { trackPresets } from './AudioPlayer';
 
 const PHASES = [
   { id: 0, label: 'PREP', name: 'PREPARATION', dur: 10 * 60, type: 'prep', isBomb: false },
@@ -28,8 +29,6 @@ const TRANS_DATA = [
   { code: 'RELOAD COMPLETE', title: 'FINAL\nSTAND', sub: 'Last engagement. Make it count.', next: 'NEXT: ENGAGEMENT III — 50 MIN' },
   { code: 'ENGAGEMENT III DONE', title: 'LAST\nMAN DOWN', sub: 'The hard work is done.', next: 'NEXT: EXFILTRATION — 20 MIN' },
 ];
-
-import { trackPresets } from './AudioPlayer';
 
 const VIDEOS = [
   { src: '', label: 'PREPARING FOR WAR' },
@@ -110,6 +109,8 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
     const dripContainer = bloodBgRef.current;
     let dripIntervals = [];
 
+    const timeouts = [];
+
     const spawnDrip = () => {
       const d = document.createElement('div');
       d.className = 'jw-drip';
@@ -122,15 +123,15 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
       d.style.animationDelay = (Math.random() * 8) + 's';
       d.style.opacity = (Math.random() * 0.5 + 0.2) + '';
       dripContainer.appendChild(d);
-      setTimeout(() => d.remove(), (dur + 8) * 1000);
+      timeouts.push(setTimeout(() => d.remove(), (dur + 8) * 1000));
     };
 
     for (let i = 0; i < 20; i++) spawnDrip();
     const interval = setInterval(spawnDrip, 800);
-    dripIntervals.push(interval);
 
     return () => {
       clearInterval(interval);
+      timeouts.forEach(clearTimeout);
       dripContainer.innerHTML = '';
     };
   }, [page]);
@@ -152,6 +153,13 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
     }
     return () => clearInterval(timerRef.current);
   }, [running]);
+
+  // AUTO-ADVANCE when timer runs out
+  useEffect(() => {
+    if (!running && timeLeft === 0 && page === 'running') {
+      onPhaseEnd();
+    }
+  }, [running, timeLeft, page]);
 
   // FLASH
   const flash = useCallback((color, ms) => {

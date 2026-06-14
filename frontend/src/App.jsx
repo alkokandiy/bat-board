@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
@@ -124,6 +124,7 @@ export default function App() {
         setAccount(null);
       } else {
         setError(err.message);
+        setIsAuthenticated(true);
       }
     } finally {
       setLoading(false);
@@ -150,7 +151,11 @@ export default function App() {
   }, [fetchAllData]);
 
   const handleLogin = async () => {
-    await fetchAllData();
+    try {
+      await fetchAllData();
+    } catch {
+      // error is already set by fetchAllData
+    }
   };
 
   const handleRefreshAccount = async () => {
@@ -214,11 +219,7 @@ export default function App() {
     }
   };
 
-  if (!isAuthenticated) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
-
-  if (loading) {
+  if (loading && localStorage.getItem('bat_access_token')) {
     return (
       <div className="min-h-screen bg-matte-obsidian text-slate-100 flex flex-col items-center justify-center font-sans">
         <div className="text-center space-y-4">
@@ -227,6 +228,10 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen onLogin={handleLogin} />;
   }
 
   if (error) {
