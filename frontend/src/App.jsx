@@ -3,6 +3,7 @@ import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
 import FocusPanel from './components/FocusPanel';
+import JohnWickPanel from './components/JohnWickPanel';
 import { api } from './utils/api';
 
 function LoginScreen({ onLogin }) {
@@ -241,6 +242,8 @@ export default function App() {
         );
       case 'focus':
         return <FocusPanel />;
+      case 'johnwick':
+        return <JohnWickPanel />;
       case 'logs':
         return (
           <div className="space-y-6">

@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JOHN WICK — THE MAN OF FOCUS</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Playfair+Display:ital,wght@0,900;1,900&family=Share+Tech+Mono&family=Cinzel:wght@900&display=swap');
+
+:root {
+  --blood: #7a0000;
+  --blood2: #c0112b;
+  --gold: #d4a017;
+  --gold2: #f5c842;
+  --dark: #060608;
+  --darker: #030304;
+  --charcoal: #111115;
+  --smoke: #1c1c22;
+  --text: #c8bfa8;
+  --text2: #7a7060;
+  --white: #ede8de;
+}
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:var(--darker); overflow:hidden; font-family:'Share Tech Mono',monospace; cursor:crosshair; }
+
+#bgCanvas { position:fixed; inset:0; z-index:0; pointer-events:none; }
+.grain { position:fixed; inset:0; z-index:200; pointer-events:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.07'/%3E%3C/svg%3E"); opacity:0.5; mix-blend-mode:overlay; }
+.vignette { position:fixed; inset:0; z-index:199; pointer-events:none; background:radial-gradient(ellipse at 50% 50%, transparent 35%, rgba(0,0,0,0.92) 100%); }
+.scanlines { position:fixed; inset:0; z-index:198; pointer-events:none; background:repeating-linear-gradient(0deg, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 4px); }
+
+/* PAGES */
+.page { position:fixed; inset:0; z-index:10; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none; transition:opacity 0.6s ease; }
+.page.active { opacity:1; pointer-events:all; }
+
+/* BLOOD BG */
+#blood-bg { position:fixed; inset:0; z-index:1; pointer-events:none; overflow:hidden; }
+.drip { position:absolute; top:0; width:2px; background:linear-gradient(to bottom, var(--blood2), var(--blood), transparent); border-radius:0 0 50% 50%; animation:drip-fall linear infinite; opacity:0; }
+@keyframes drip-fall { 0%{height:0;opacity:0;transform:translateY(-20px)} 5%{opacity:0.8} 85%{opacity:0.6} 100%{height:40vh;opacity:0;transform:translateY(0)} }
+
+/* Continental seal bg */
+.continental-bg { position:fixed; inset:0; z-index:2; pointer-events:none; display:flex; align-items:center; justify-content:center; }
+.continental-seal { width:500px; height:500px; opacity:0.04; animation:seal-rotate 60s linear infinite; }
+@keyframes seal-rotate { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+
+/* LANDING */
+#page-landing { flex-direction:column; }
+.landing-inner { position:relative; z-index:10; display:flex; flex-direction:column; align-items:center; gap:0; animation:fadeSlideUp 1s ease both; }
+@keyframes fadeSlideUp { from{opacity:0;transform:translateY(40px)} to{opacity:1;transform:translateY(0)} }
+
+.badge { font-family:'Cinzel',serif; font-size:10px; letter-spacing:8px; color:var(--gold); margin-bottom:18px; opacity:0.7; animation:fadeSlideUp 1s 0.2s ease both; }
+.hero-title { font-family:'Bebas Neue',sans-serif; font-size:clamp(80px,12vw,140px); line-height:0.85; color:var(--white); text-shadow:0 0 40px rgba(212,160,23,0.3),0 0 80px rgba(192,17,43,0.2); letter-spacing:6px; animation:fadeSlideUp 1s 0.1s ease both; }
+.hero-title span { display:block; font-size:0.32em; letter-spacing:18px; color:var(--gold); text-shadow:0 0 20px rgba(212,160,23,0.6); }
+.rule { width:100%; height:1px; margin:22px 0; background:linear-gradient(to right, transparent,var(--gold),var(--blood2),var(--gold),transparent); opacity:0.5; animation:fadeSlideUp 1s 0.3s ease both; }
+.mission-label { font-family:'Cinzel',serif; font-size:11px; letter-spacing:6px; color:var(--text2); text-transform:uppercase; margin-bottom:14px; animation:fadeSlideUp 1s 0.4s ease both; }
+.mission-input-wrap { position:relative; width:min(560px,85vw); animation:fadeSlideUp 1s 0.5s ease both; }
+.mission-input { width:100%; background:transparent; border:none; border-bottom:2px solid var(--gold); color:var(--white); font-family:'Bebas Neue',sans-serif; font-size:28px; letter-spacing:3px; text-align:center; padding:12px 0; outline:none; caret-color:var(--blood2); transition:border-color 0.3s; }
+.mission-input::placeholder { color:rgba(212,160,23,0.25); font-size:22px; }
+.mission-input:focus { border-bottom-color:var(--blood2); }
+.input-glow { position:absolute; bottom:-2px; left:50%; width:0; height:2px; background:var(--blood2); transform:translateX(-50%); transition:width 0.4s ease; box-shadow:0 0 12px var(--blood2); }
+.mission-input:focus ~ .input-glow { width:100%; }
+.start-btn { margin-top:32px; font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:8px; color:var(--darker); background:linear-gradient(135deg,var(--gold2),var(--gold)); border:none; padding:18px 56px; cursor:crosshair; position:relative; overflow:hidden; clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%); transition:all 0.3s; animation:fadeSlideUp 1s 0.6s ease both; }
+.start-btn::after { content:''; position:absolute; inset:0; background:rgba(255,255,255,0.15); transform:translateX(-100%) skewX(-20deg); transition:transform 0.4s; }
+.start-btn:hover::after { transform:translateX(100%) skewX(-20deg); }
+.start-btn:hover { box-shadow:0 0 30px rgba(245,200,66,0.5),0 0 60px rgba(192,17,43,0.3); }
+.start-btn:active { transform:scale(0.97); }
+.meta-row { margin-top:28px; font-size:10px; letter-spacing:4px; color:var(--text2); animation:fadeSlideUp 1s 0.7s ease both; }
+
+/* FOCUS PAGE */
+#page-focus { display:grid; grid-template-columns:1fr 340px 1fr; width:100%; height:100%; align-items:center; }
+.left-panel { grid-column:1; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; padding:20px; position:relative; overflow:hidden; }
+.center-panel { grid-column:2; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:0; padding:20px 0; position:relative; z-index:20; }
+.right-panel { grid-column:3; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; padding:20px; gap:24px; }
+
+.mission-header { position:fixed; top:0; left:0; right:0; z-index:50; display:flex; align-items:center; justify-content:space-between; padding:14px 32px; background:linear-gradient(to bottom, rgba(0,0,0,0.9), transparent); }
+.mh-left { font-family:'Bebas Neue',sans-serif; font-size:13px; letter-spacing:5px; color:var(--gold); opacity:0.7; }
+.mh-target { font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:3px; color:var(--blood2); text-shadow:0 0 10px rgba(192,17,43,0.5); max-width:300px; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mh-abort { font-family:'Bebas Neue',sans-serif; font-size:12px; letter-spacing:4px; color:var(--text2); background:none; border:1px solid rgba(122,112,96,0.3); padding:6px 16px; cursor:crosshair; transition:all 0.3s; }
+.mh-abort:hover { color:var(--blood2); border-color:var(--blood2); }
+
+.phase-eyebrow { font-family:'Cinzel',serif; font-size:9px; letter-spacing:6px; color:var(--text2); text-transform:uppercase; margin-bottom:6px; }
+
+/* CHAMBER TIMER */
+.chamber-wrap { position:relative; width:260px; height:260px; margin:8px 0; }
+.chamber-svg { width:100%; height:100%; filter:drop-shadow(0 0 20px rgba(212,160,23,0.2)); }
+.chamber-inner { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
+.timer-digits { font-family:'Bebas Neue',sans-serif; font-size:64px; color:var(--gold2); letter-spacing:2px; line-height:1; text-shadow:0 0 20px rgba(245,200,66,0.5),0 0 40px rgba(245,200,66,0.2); }
+.timer-digits.urgent { color:var(--blood2); text-shadow:0 0 20px rgba(192,17,43,0.6),0 0 40px rgba(192,17,43,0.3); animation:urgentPulse 0.5s ease infinite; }
+@keyframes urgentPulse { 0%,100%{text-shadow:0 0 20px rgba(192,17,43,0.6)} 50%{text-shadow:0 0 40px rgba(192,17,43,1),0 0 80px rgba(192,17,43,0.5)} }
+.phase-tag { font-family:'Cinzel',serif; font-size:9px; letter-spacing:4px; color:var(--text2); text-transform:uppercase; }
+
+.ctrl-row { display:flex; gap:12px; align-items:center; margin:14px 0 10px; }
+.ctrl-btn { font-family:'Bebas Neue',sans-serif; font-size:15px; letter-spacing:5px; padding:13px 36px; border:1px solid var(--gold); color:var(--gold); background:transparent; cursor:crosshair; position:relative; overflow:hidden; clip-path:polygon(6px 0%,100% 0%,calc(100% - 6px) 100%,0% 100%); transition:all 0.3s; }
+.ctrl-btn::before { content:''; position:absolute; inset:0; background:var(--gold); transform:translateX(-101%); transition:transform 0.3s ease; }
+.ctrl-btn:hover::before { transform:translateX(0); }
+.ctrl-btn:hover { color:var(--darker); }
+.ctrl-btn span { position:relative; z-index:1; }
+.skip-btn { font-family:'Bebas Neue',sans-serif; font-size:11px; letter-spacing:3px; color:var(--text2); background:none; border:none; cursor:crosshair; padding:6px 10px; transition:color 0.3s; }
+.skip-btn:hover { color:var(--white); }
+
+.phase-dots { display:flex; gap:6px; margin-top:8px; }
+.phase-dot { width:28px; height:3px; background:var(--smoke); transition:all 0.5s ease; }
+.phase-dot.done { background:var(--blood); }
+.phase-dot.active { background:var(--gold2); box-shadow:0 0 8px var(--gold2); }
+
+/* BOMB */
+.bomb-display { display:none; flex-direction:column; align-items:center; gap:6px; }
+.bomb-display.visible { display:flex; }
+.bomb-digits { font-family:'Share Tech Mono',monospace; font-size:72px; color:#ff2020; text-shadow:0 0 10px rgba(255,32,32,0.8),0 0 30px rgba(255,32,32,0.5),0 0 60px rgba(255,32,32,0.3); letter-spacing:4px; animation:bombTick 1s steps(1) infinite; }
+@keyframes bombTick { 0%,99%{opacity:1} 50%{opacity:0.7} }
+.bomb-wire { display:flex; gap:8px; align-items:center; }
+.wire { height:3px; width:40px; border-radius:2px; }
+.wire.red { background:var(--blood2); animation:wirePulse 1s ease infinite; }
+.wire.blue { background:#1a6aff; animation:wirePulse 1s 0.3s ease infinite; }
+.wire.green { background:#1a8a2a; animation:wirePulse 1s 0.6s ease infinite; }
+@keyframes wirePulse { 0%,100%{box-shadow:0 0 4px currentColor;opacity:0.8} 50%{box-shadow:0 0 12px currentColor;opacity:1} }
+.bomb-label { font-size:9px; letter-spacing:5px; color:var(--blood2); opacity:0.6; animation:labelBreathe 1s ease infinite; }
+@keyframes labelBreathe { 0%,100%{opacity:0.5} 50%{opacity:1} }
+
+/* VIDEO PANEL */
+.anim-stage {
+  width: min(300px, 30vw);
+  height: min(360px, 52vh);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The video element itself */
+.phase-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border: 1px solid rgba(212,160,23,0.15);
+  /* Cinematic letterbox feel */
+  box-shadow: 0 0 40px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(212,160,23,0.1);
+}
+
+/* Shown when no video is loaded — placeholder overlay */
+.video-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(6,5,8,0.92);
+  border: 1px solid rgba(212,160,23,0.12);
+  pointer-events: none;
+}
+.vp-icon {
+  font-size: 36px;
+  opacity: 0.25;
+}
+.vp-text {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--text2);
+  text-align: center;
+  line-height: 1.8;
+  padding: 0 20px;
+}
+.vp-text span {
+  display: block;
+  color: var(--gold);
+  opacity: 0.5;
+  font-size: 8px;
+  margin-top: 4px;
+}
+
+/* gold corner brackets around video */
+.anim-stage::before,
+.anim-stage::after {
+  content: '';
+  position: absolute;
+  width: 20px; height: 20px;
+  border-color: rgba(212,160,23,0.4);
+  border-style: solid;
+  pointer-events: none;
+  z-index: 5;
+}
+.anim-stage::before { top: 0; left: 0; border-width: 2px 0 0 2px; }
+.anim-stage::after  { bottom: 0; right: 0; border-width: 0 2px 2px 0; }
+
+.anim-label { font-family:'Bebas Neue',sans-serif; font-size:11px; letter-spacing:6px; color:var(--blood2); margin-top:10px; text-shadow:0 0 10px rgba(192,17,43,0.6); animation:labelBreathe 3s ease infinite; }
+.quote-area { max-width:200px; text-align:center; margin-top:16px; }
+.q-text { font-family:'Playfair Display',serif; font-style:italic; font-size:13px; line-height:1.65; color:var(--text2); }
+.q-attr { font-family:'Bebas Neue',sans-serif; font-size:10px; letter-spacing:4px; color:var(--gold); margin-top:8px; opacity:0.6; }
+
+/* TIMELINE */
+.timeline-card { width:100%; max-width:220px; }
+.tc-title { font-family:'Cinzel',serif; font-size:9px; letter-spacing:5px; color:var(--gold); margin-bottom:12px; text-transform:uppercase; opacity:0.6; }
+.tc-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border-left:2px solid transparent; transition:all 0.4s; opacity:0.3; }
+.tc-item.t-done { opacity:0.2; border-left-color:var(--blood); }
+.tc-item.t-active { opacity:1; border-left-color:var(--gold2); background:rgba(212,160,23,0.04); }
+.tc-bullet { width:5px; height:5px; border-radius:50%; background:var(--text2); flex-shrink:0; }
+.tc-item.t-active .tc-bullet { background:var(--gold2); box-shadow:0 0 8px var(--gold2); }
+.tc-item.t-done .tc-bullet { background:var(--blood); }
+.tc-name { font-family:'Cinzel',serif; font-size:8px; letter-spacing:2px; color:var(--text); text-transform:uppercase; flex:1; }
+.tc-dur { font-family:'Bebas Neue',sans-serif; font-size:12px; letter-spacing:2px; color:var(--text2); }
+
+/* CHECKLIST */
+.checklist-card { width:100%; max-width:220px; }
+.cl-title { font-family:'Cinzel',serif; font-size:9px; letter-spacing:5px; color:var(--blood2); margin-bottom:10px; text-transform:uppercase; opacity:0.6; }
+.cl-item { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid rgba(212,160,23,0.07); cursor:crosshair; }
+.cl-box { width:14px; height:14px; border:1px solid rgba(212,160,23,0.3); position:relative; flex-shrink:0; transition:all 0.3s; }
+.cl-item.checked .cl-box { background:var(--blood); border-color:var(--blood2); }
+.cl-item.checked .cl-box::after { content:'✕'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:9px; }
+.cl-label { font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:1px; color:var(--text); text-transform:uppercase; transition:all 0.3s; }
+.cl-item.checked .cl-label { color:var(--text2); text-decoration:line-through; }
+
+/* TRANSITION PAGE */
+#page-transition { flex-direction:column; background:rgba(0,0,0,0.92); z-index:100; }
+.trans-inner { text-align:center; animation:transIn 0.5s ease both; }
+@keyframes transIn { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
+.trans-code { font-family:'Bebas Neue',sans-serif; font-size:11px; letter-spacing:8px; color:var(--blood2); margin-bottom:8px; }
+.trans-title { font-family:'Bebas Neue',sans-serif; font-size:clamp(60px,8vw,100px); line-height:1; color:var(--white); letter-spacing:4px; }
+.trans-sub { font-family:'Cinzel',serif; font-size:13px; letter-spacing:4px; color:var(--gold); margin-top:10px; }
+.trans-divider { width:300px; height:1px; margin:20px auto; background:linear-gradient(to right,transparent,var(--gold),transparent); opacity:0.5; }
+.trans-next { font-family:'Share Tech Mono',monospace; font-size:12px; letter-spacing:3px; color:var(--text2); margin-bottom:24px; }
+.trans-btn { font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:6px; padding:16px 48px; border:1px solid var(--gold); color:var(--gold); background:transparent; cursor:crosshair; clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%); transition:all 0.3s; }
+.trans-btn:hover { background:var(--gold); color:var(--darker); }
+
+/* COMPLETE */
+#page-complete { flex-direction:column; background:rgba(0,0,0,0.95); z-index:150; }
+.complete-inner { text-align:center; animation:fadeSlideUp 0.8s ease both; }
+.c-eyebrow { font-family:'Share Tech Mono',monospace; font-size:11px; letter-spacing:8px; color:var(--gold); opacity:0.5; margin-bottom:20px; }
+.c-title { font-family:'Bebas Neue',sans-serif; font-size:clamp(70px,10vw,130px); line-height:0.85; letter-spacing:4px; color:var(--white); text-shadow:0 0 60px rgba(212,160,23,0.3); }
+.c-title span { display:block; color:var(--gold2); font-size:0.45em; letter-spacing:14px; }
+.c-rule { width:200px; height:1px; margin:24px auto; background:linear-gradient(to right,transparent,var(--gold),transparent); }
+.c-mission { font-family:'Playfair Display',serif; font-style:italic; font-size:20px; color:var(--text); margin-bottom:8px; }
+.c-stats { font-family:'Share Tech Mono',monospace; font-size:10px; letter-spacing:3px; color:var(--text2); margin-bottom:32px; }
+.c-btn { font-family:'Bebas Neue',sans-serif; font-size:16px; letter-spacing:6px; color:var(--darker); background:linear-gradient(135deg,var(--gold2),var(--gold)); border:none; padding:16px 48px; cursor:crosshair; clip-path:polygon(8px 0%,100% 0%,calc(100% - 8px) 100%,0% 100%); transition:all 0.3s; }
+.c-btn:hover { box-shadow:0 0 30px rgba(245,200,66,0.4); }
+
+#flash-overlay { position:fixed; inset:0; z-index:500; pointer-events:none; opacity:0; transition:opacity 0.1s; }
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<div class="grain"></div>
+<div class="vignette"></div>
+<div class="scanlines"></div>
+<div id="flash-overlay"></div>
+<div id="blood-bg"></div>
+
+<!-- LANDING -->
+<div class="page active" id="page-landing">
+  <div class="continental-bg">
+    <svg class="continental-seal" viewBox="0 0 400 400" fill="none">
+      <circle cx="200" cy="200" r="190" stroke="#c9a84c" stroke-width="1"/>
+      <circle cx="200" cy="200" r="170" stroke="#c9a84c" stroke-width="0.5"/>
+      <circle cx="200" cy="200" r="150" stroke="#c9a84c" stroke-width="1"/>
+      <line x1="200" y1="10" x2="200" y2="50" stroke="#c9a84c" stroke-width="2"/>
+      <line x1="200" y1="350" x2="200" y2="390" stroke="#c9a84c" stroke-width="2"/>
+      <line x1="10" y1="200" x2="50" y2="200" stroke="#c9a84c" stroke-width="2"/>
+      <line x1="350" y1="200" x2="390" y2="200" stroke="#c9a84c" stroke-width="2"/>
+      <circle cx="200" cy="200" r="30" stroke="#c9a84c" stroke-width="1"/>
+      <circle cx="200" cy="200" r="8" fill="#c9a84c" opacity="0.3"/>
+      <line x1="170" y1="200" x2="190" y2="200" stroke="#c9a84c" stroke-width="1"/>
+      <line x1="210" y1="200" x2="230" y2="200" stroke="#c9a84c" stroke-width="1"/>
+      <line x1="200" y1="170" x2="200" y2="190" stroke="#c9a84c" stroke-width="1"/>
+      <line x1="200" y1="210" x2="200" y2="230" stroke="#c9a84c" stroke-width="1"/>
+      <g stroke="#c9a84c" stroke-width="0.5" opacity="0.6">
+        <line x1="79" y1="79" x2="86" y2="86"/><line x1="321" y1="79" x2="314" y2="86"/>
+        <line x1="79" y1="321" x2="86" y2="314"/><line x1="321" y1="321" x2="314" y2="314"/>
+      </g>
+      <path id="topArc" d="M 40,200 A 160,160 0 0,1 360,200" fill="none"/>
+      <text font-family="Cinzel,serif" font-size="11" fill="#c9a84c" letter-spacing="8">
+        <textPath href="#topArc" startOffset="8%">THE CONTINENTAL · RULES ARE EVERYTHING</textPath>
+      </text>
+      <path id="botArc" d="M 40,200 A 160,160 0 0,0 360,200" fill="none"/>
+      <text font-family="Cinzel,serif" font-size="11" fill="#c9a84c" letter-spacing="8">
+        <textPath href="#botArc" startOffset="8%">NEW YORK · ROME · PARIS · TOKYO</textPath>
+      </text>
+    </svg>
+  </div>
+  <div class="landing-inner">
+    <div class="badge">Continental Productivity System · Est. 2014</div>
+    <div class="hero-title"><span>THE MAN OF</span>FOCUS</div>
+    <div class="rule"></div>
+    <div class="mission-label">What is your target, Mr. Wick?</div>
+    <div class="mission-input-wrap">
+      <input class="mission-input" id="missionInput" type="text" placeholder="Eliminate the deadline..." maxlength="60" autocomplete="off" spellcheck="false"/>
+      <div class="input-glow"></div>
+    </div>
+    <button class="start-btn" onclick="startMission()">ACCEPT THE CONTRACT</button>
+    <div class="meta-row">10 · 50 · 10 · 50 · 10 · 50 · 20 &nbsp;·&nbsp; 7 PHASES &nbsp;·&nbsp; 3H 40M</div>
+  </div>
+</div>
+
+<!-- FOCUS MODE -->
+<div class="page" id="page-focus">
+  <div class="mission-header">
+    <div class="mh-left">CONTRACT ACTIVE</div>
+    <div class="mh-target" id="mhTarget">—</div>
+    <button class="mh-abort" onclick="abortMission()">ABORT</button>
+  </div>
+  <div class="left-panel">
+    <div class="anim-stage">
+
+      <!--
+      ═══════════════════════════════════════════════════
+        VIDEO PANEL — HOW TO ADD YOUR JOHN WICK CLIPS
+      ═══════════════════════════════════════════════════
+
+        THERE ARE 7 PHASES. Each phase has its own video.
+        Recommended clip duration per phase:
+          Phase 0 (PREP)          → loop a ~30–60 sec clip
+          Phase 1 (ENGAGEMENT I)  → loop a ~60 sec clip
+          Phase 2 (REGROUP)       → loop a ~30 sec clip
+          Phase 3 (ENGAGEMENT II) → loop a ~60 sec clip
+          Phase 4 (RELOAD)        → loop a ~30 sec clip
+          Phase 5 (ENGAGEMENT III)→ loop a ~60 sec clip
+          Phase 6 (EXFIL)         → loop a ~30 sec clip
+
+        SUPPORTED FORMATS: MP4 (H.264) is best for browsers.
+          Also supported: WebM, OGG.
+
+        HOW TO ADD:
+          1. Put your video files in the same folder as this HTML.
+          2. Name them:  phase0.mp4, phase1.mp4 ... phase6.mp4
+          3. In the JavaScript below, find the VIDEOS array
+             and replace the src values with your filenames.
+          4. Open the HTML in a browser — videos will auto-play
+             muted and loop when each phase starts.
+
+        ALTERNATIVELY — use YouTube/external clips:
+          Replace <video> with an <iframe> per phase
+          and control it via the YouTube IFrame API.
+
+        TIPS FOR BEST LOOK:
+          - Crop clips to ~9:5 aspect ratio (300×180px area)
+          - Dark/moody scenes work best (night, rain, action)
+          - Muted is required for autoplay in browsers
+          - Good scene picks: Continental hotel corridors,
+            rain fight scenes, pencil scene, catacombs fight
+
+      ═══════════════════════════════════════════════════
+      -->
+
+      <!-- This video element is swapped per phase by JS -->
+      <video
+        id="phaseVideo"
+        class="phase-video"
+        autoplay
+        muted
+        loop
+        playsinline
+        style="display:none;">
+        <!-- src is set by JavaScript based on phase -->
+      </video>
+
+      <!-- Shown when no video file is loaded yet -->
+      <div class="video-placeholder" id="videoPlaceholder">
+        <div class="vp-icon">🎬</div>
+        <div class="vp-text">
+          ADD YOUR VIDEO CLIPS HERE
+          <span>Place phase0.mp4 → phase6.mp4<br>in the same folder as this file.<br>See the HTML comments for details.</span>
+        </div>
+      </div>
+
+    </div>
+    <div class="anim-label" id="animLabel">STANDING BY</div>
+    <div class="quote-area">
+      <div class="q-text" id="qText">"Focus. It's about focus."</div>
+      <div class="q-attr" id="qAttr">— John Wick</div>
+    </div>
+  </div>
+  <div class="center-panel">
+    <div class="phase-eyebrow" id="phaseEyebrow">PHASE 1 OF 7</div>
+    <div id="standardTimer">
+      <div class="chamber-wrap">
+        <svg class="chamber-svg" id="chamberSvg" viewBox="0 0 260 260">
+          <defs>
+            <linearGradient id="gGold" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#f5c842"/><stop offset="100%" stop-color="#8b6914"/>
+            </linearGradient>
+            <linearGradient id="gBlood" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#c0112b"/><stop offset="100%" stop-color="#4a0010"/>
+            </linearGradient>
+            <filter id="glow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <circle cx="130" cy="130" r="122" fill="#0d0d0f" stroke="#2a2a30" stroke-width="2"/>
+          <circle cx="130" cy="130" r="118" fill="none" stroke="#1a1a20" stroke-width="1"/>
+          <g id="cylinderGroup">
+            <ellipse cx="130" cy="22" rx="12" ry="7" fill="#181820" stroke="#333" stroke-width="1.5"/>
+            <ellipse cx="130" cy="22" rx="7" ry="4" fill="#0a0a0f"/><circle cx="130" cy="22" r="2" fill="#c9a84c" opacity="0.4"/>
+            <ellipse cx="130" cy="22" rx="12" ry="7" fill="#181820" stroke="#333" stroke-width="1.5" transform="rotate(60 130 130)"/>
+            <ellipse cx="130" cy="22" rx="7" ry="4" fill="#0a0a0f" transform="rotate(60 130 130)"/><circle cx="130" cy="22" r="2" fill="#c9a84c" opacity="0.4" transform="rotate(60 130 130)"/>
+            <ellipse cx="130" cy="22" rx="12" ry="7" fill="#181820" stroke="#333" stroke-width="1.5" transform="rotate(120 130 130)"/>
+            <ellipse cx="130" cy="22" rx="7" ry="4" fill="#0a0a0f" transform="rotate(120 130 130)"/><circle cx="130" cy="22" r="2" fill="#c9a84c" opacity="0.4" transform="rotate(120 130 130)"/>
+            <ellipse cx="130" cy="22" rx="12" ry="7" fill="#181820" stroke="#333" stroke-width="1.5" transform="rotate(180 130 130)"/>
+            <ellipse cx="130" cy="22" rx="7" ry="4" fill="#0a0a0f" transform="rotate(180 130 130)"/><circle cx="130" cy="22" r="2" fill="#c9a84c" opacity="0.4" transform="rotate(180 130 130)"/>
+            <ellipse cx="130" cy="22" rx="12" ry="7" fill="#181820" stroke="#333" stroke-width="1.5" transform="rotate(240 130 130)"/>
+            <ellipse cx="130" cy="22" rx="7" ry="4" fill="#0a0a0f" transform="rotate(240 130 130)"/><circle cx="130" cy="22" r="2" fill="#c9a84c" opacity="0.4" transform="rotate(240 130 130)"/>
+            <ellipse cx="130" cy="22" rx="12" ry="7" fill="#181820" stroke="#333" stroke-width="1.5" transform="rotate(300 130 130)"/>
+            <ellipse cx="130" cy="22" rx="7" ry="4" fill="#0a0a0f" transform="rotate(300 130 130)"/><circle cx="130" cy="22" r="2" fill="#c9a84c" opacity="0.4" transform="rotate(300 130 130)"/>
+          </g>
+          <circle cx="130" cy="130" r="100" fill="none" stroke="#1a1a20" stroke-width="14"/>
+          <circle id="progressArc" cx="130" cy="130" r="100" fill="none" stroke="url(#gGold)" stroke-width="14" stroke-linecap="round" stroke-dasharray="628.3" stroke-dashoffset="0" transform="rotate(-90 130 130)" filter="url(#glow)"/>
+          <circle cx="130" cy="130" r="82" fill="#0a0a0c" stroke="#1e1e24" stroke-width="1.5"/>
+          <g stroke="#2a2a35" stroke-width="1">
+            <line x1="130" y1="52" x2="130" y2="62"/><line x1="130" y1="52" x2="130" y2="62" transform="rotate(30 130 130)"/>
+            <line x1="130" y1="52" x2="130" y2="62" transform="rotate(60 130 130)"/><line x1="130" y1="52" x2="130" y2="62" transform="rotate(90 130 130)"/>
+            <line x1="130" y1="52" x2="130" y2="62" transform="rotate(120 130 130)"/><line x1="130" y1="52" x2="130" y2="62" transform="rotate(150 130 130)"/>
+            <line x1="130" y1="52" x2="130" y2="62" transform="rotate(180 130 130)"/><line x1="130" y1="52" x2="130" y2="62" transform="rotate(210 130 130)"/>
+            <line x1="130" y1="52" x2="130" y2="62" transform="rotate(240 130 130)"/><line x1="130" y1="52" x2="130" y2="62" transform="rotate(270 130 130)"/>
+            <line x1="130" y1="52" x2="130" y2="62" transform="rotate(300 130 130)"/><line x1="130" y1="52" x2="130" y2="62" transform="rotate(330 130 130)"/>
+          </g>
+          <circle cx="130" cy="130" r="8" fill="#1a1a22" stroke="#333" stroke-width="1.5"/>
+          <circle cx="130" cy="130" r="3" fill="#c9a84c" opacity="0.4"/>
+        </svg>
+        <div class="chamber-inner">
+          <div class="timer-digits" id="timerDigits">10:00</div>
+          <div class="phase-tag" id="phaseTag">PREPARATION</div>
+        </div>
+      </div>
+    </div>
+    <div class="bomb-display" id="bombTimer">
+      <div class="bomb-wire"><div class="wire red"></div><div class="wire blue"></div><div class="wire green"></div></div>
+      <div class="bomb-digits" id="bombDigits">20:00</div>
+      <div class="bomb-wire"><div class="wire green"></div><div class="wire red"></div><div class="wire blue"></div></div>
+      <div class="bomb-label">⬤ DETONATION SEQUENCE ACTIVE</div>
+    </div>
+    <div class="ctrl-row">
+      <button class="ctrl-btn" id="mainCtrl" onclick="toggleTimer()"><span>ENGAGE</span></button>
+      <button class="skip-btn" onclick="skipPhase()">SKIP →</button>
+    </div>
+    <div class="phase-dots" id="phaseDots"></div>
+  </div>
+  <div class="right-panel">
+    <div class="timeline-card">
+      <div class="tc-title">Mission Timeline</div>
+      <div class="tc-list" id="tcList"></div>
+    </div>
+    <div style="width:100%;max-width:220px;height:1px;background:linear-gradient(to right,transparent,rgba(212,160,23,0.2),transparent)"></div>
+    <div class="checklist-card">
+      <div class="cl-title">Continental Rules</div>
+      <div id="clItems">
+        <div class="cl-item" onclick="this.classList.toggle('checked')"><div class="cl-box"></div><div class="cl-label">Clear the area</div></div>
+        <div class="cl-item" onclick="this.classList.toggle('checked')"><div class="cl-box"></div><div class="cl-label">Silence all contacts</div></div>
+        <div class="cl-item" onclick="this.classList.toggle('checked')"><div class="cl-box"></div><div class="cl-label">Fuel and water ready</div></div>
+        <div class="cl-item" onclick="this.classList.toggle('checked')"><div class="cl-box"></div><div class="cl-label">Define the objective</div></div>
+        <div class="cl-item" onclick="this.classList.toggle('checked')"><div class="cl-box"></div><div class="cl-label">No business on grounds</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TRANSITION -->
+<div class="page" id="page-transition">
+  <div class="trans-inner">
+    <div class="trans-code" id="transCode">PHASE COMPLETE</div>
+    <div class="trans-title" id="transTitle">TARGET<br>ELIMINATED</div>
+    <div class="trans-divider"></div>
+    <div class="trans-sub" id="transSub">Stand down. Regroup.</div>
+    <div class="trans-next" id="transNext">NEXT: REGROUP — 10 MIN</div>
+    <button class="trans-btn" onclick="continueToNext()">CONTINUE</button>
+  </div>
+</div>
+
+<!-- COMPLETE -->
+<div class="page" id="page-complete">
+  <div class="complete-inner">
+    <div class="c-eyebrow">CONTRACT FULFILLED</div>
+    <div class="c-title">MISSION<br><span>ACCOMPLISHED</span></div>
+    <div class="c-rule"></div>
+    <div class="c-mission" id="cMission">"The deadline"</div>
+    <div class="c-stats">3H 40M · 7 PHASES · CONTRACT CLOSED</div>
+    <button class="c-btn" onclick="newMission()">NEW CONTRACT</button>
+  </div>
+</div>
+
+<script>
+const PHASES=[
+  {id:0,label:'PREP',name:'PREPARATION',dur:10*60,type:'prep',isBomb:false},
+  {id:1,label:'WORK',name:'ENGAGEMENT I',dur:50*60,type:'work',isBomb:false},
+  {id:2,label:'BREAK',name:'REGROUP',dur:10*60,type:'break',isBomb:false},
+  {id:3,label:'WORK',name:'ENGAGEMENT II',dur:50*60,type:'work',isBomb:false},
+  {id:4,label:'BREAK',name:'RELOAD',dur:10*60,type:'break',isBomb:false},
+  {id:5,label:'WORK',name:'ENGAGEMENT III',dur:50*60,type:'work',isBomb:false},
+  {id:6,label:'BREAK',name:'EXFILTRATION',dur:20*60,type:'exfil',isBomb:true},
+];
+const QUOTES=[
+  {t:'"Stay sharp. Stay ready."',a:'— John Wick'},
+  {t:'"Be focused. Be exceptional."',a:'— John Wick'},
+  {t:'"Whatever is in front of you, push through."',a:'— John Wick'},
+  {t:'"Consequences. There are always consequences."',a:'— Winston'},
+  {t:'"Rules. Without them we live with the animals."',a:'— Winston'},
+  {t:'"I need a focus. Give me a focus."',a:'— John Wick'},
+  {t:'"You stabbed the devil in the back."',a:'— Winston'},
+];
+const TRANS_DATA=[
+  {code:'PHASE 1 COMPLETE',title:'WEAPONS\nLOADED',sub:'Preparation done. Time to work.',next:'NEXT: ENGAGEMENT I — 50 MIN'},
+  {code:'ENGAGEMENT I DONE',title:'TARGET\nNEUTRALIZED',sub:'First wave down. Regroup.',next:'NEXT: REGROUP — 10 MIN'},
+  {code:'REGROUP COMPLETE',title:'BACK\nIN ACTION',sub:'Loaded up. Round two.',next:'NEXT: ENGAGEMENT II — 50 MIN'},
+  {code:'ENGAGEMENT II DONE',title:'SECOND\nACT CLOSED',sub:'Hold the line. Almost there.',next:'NEXT: RELOAD — 10 MIN'},
+  {code:'RELOAD COMPLETE',title:'FINAL\nSTAND',sub:'Last engagement. Make it count.',next:'NEXT: ENGAGEMENT III — 50 MIN'},
+  {code:'ENGAGEMENT III DONE',title:'LAST\nMAN DOWN',sub:'The hard work is done.',next:'NEXT: EXFILTRATION — 20 MIN'},
+];
+
+
+let mission='',phase=0,timeLeft=0,running=false,tick_interval=null;
+let cylinderAngle=0;
+
+// BG CANVAS
+const bgCanvas=document.getElementById('bgCanvas');
+const bgCtx=bgCanvas.getContext('2d');
+let bgParts=[];
+function resizeBg(){bgCanvas.width=window.innerWidth;bgCanvas.height=window.innerHeight;}
+resizeBg();window.addEventListener('resize',resizeBg);
+function initParts(){bgParts=[];for(let i=0;i<60;i++)bgParts.push({x:Math.random()*bgCanvas.width,y:Math.random()*bgCanvas.height,r:Math.random()*1.5+0.3,vx:(Math.random()-0.5)*0.2,vy:Math.random()*0.15+0.05,alpha:Math.random()*0.4+0.1,color:Math.random()>0.6?'#c0112b':'#d4a017'});}
+initParts();
+function drawBg(){bgCtx.clearRect(0,0,bgCanvas.width,bgCanvas.height);bgParts.forEach(p=>{bgCtx.save();bgCtx.globalAlpha=p.alpha;bgCtx.fillStyle=p.color;bgCtx.shadowColor=p.color;bgCtx.shadowBlur=4;bgCtx.beginPath();bgCtx.arc(p.x,p.y,p.r,0,Math.PI*2);bgCtx.fill();bgCtx.restore();p.x+=p.vx;p.y+=p.vy;if(p.y>bgCanvas.height+10){p.y=-5;p.x=Math.random()*bgCanvas.width;}if(p.x<0||p.x>bgCanvas.width)p.vx*=-1;});requestAnimationFrame(drawBg);}
+drawBg();
+
+// BLOOD DRIPS
+function spawnDrip(){const d=document.createElement('div');d.className='drip';d.style.left=Math.random()*100+'vw';d.style.height=(Math.random()*30+10)+'vh';d.style.width=(Math.random()*3+1)+'px';const dur=Math.random()*6+4;d.style.animationDuration=dur+'s';d.style.animationDelay=(Math.random()*8)+'s';d.style.opacity=(Math.random()*0.5+0.2)+'';document.getElementById('blood-bg').appendChild(d);setTimeout(()=>d.remove(),(dur+8)*1000);}
+for(let i=0;i<20;i++)spawnDrip();setInterval(spawnDrip,800);
+
+// PAGES
+function showPage(id){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.getElementById('page-'+id).classList.add('active');}
+
+// LANDING
+document.getElementById('missionInput').addEventListener('keydown',e=>{if(e.key==='Enter')startMission();});
+function startMission(){
+  mission=document.getElementById('missionInput').value.trim()||'Unnamed Target';
+  flash('#c0112b',200);
+  setTimeout(()=>{
+    document.getElementById('mhTarget').textContent=mission.toUpperCase();
+    document.getElementById('cMission').textContent='"'+mission+'"';
+    phase=0;buildTimeline();buildDots();setPhase(0);showPage('focus');
+  },250);
+}
+function abortMission(){if(!confirm('Abort the contract?'))return;stopTimer();showPage('landing');}
+function newMission(){stopTimer();document.getElementById('missionInput').value='';showPage('landing');}
+
+// TIMELINE
+function buildTimeline(){const list=document.getElementById('tcList');list.innerHTML='';PHASES.forEach((p,i)=>{const div=document.createElement('div');div.className='tc-item';div.id='tc-'+i;div.innerHTML=`<div class="tc-bullet"></div><div class="tc-name">${p.name}</div><div class="tc-dur">${Math.floor(p.dur/60)}m</div>`;list.appendChild(div);});}
+function buildDots(){const wrap=document.getElementById('phaseDots');wrap.innerHTML='';PHASES.forEach((_,i)=>{const d=document.createElement('div');d.className='phase-dot';d.id='dot-'+i;wrap.appendChild(d);});}
+function updateTimeline(){PHASES.forEach((_,i)=>{const el=document.getElementById('tc-'+i);const dot=document.getElementById('dot-'+i);if(!el||!dot)return;el.className='tc-item';dot.className='phase-dot';if(i<phase){el.classList.add('t-done');dot.classList.add('done');}else if(i===phase){el.classList.add('t-active');dot.classList.add('active');}});}
+
+// PHASE SETUP
+function setPhase(idx){
+  phase=idx;const p=PHASES[idx];timeLeft=p.dur;
+  document.getElementById('phaseEyebrow').textContent=`PHASE ${idx+1} OF 7`;
+  const isBomb=p.isBomb;
+  document.getElementById('standardTimer').style.display=isBomb?'none':'block';
+  document.getElementById('bombTimer').className='bomb-display'+(isBomb?' visible':'');
+  const arc=document.getElementById('progressArc');
+  arc.setAttribute('stroke',(p.type==='break'||p.type==='exfil')?'url(#gBlood)':'url(#gGold)');
+  document.getElementById('phaseTag').textContent=p.name;
+  document.getElementById('mainCtrl').querySelector('span').textContent='ENGAGE';
+  running=false;updateTimerDisplay();updateTimeline();
+  const q=QUOTES[idx%QUOTES.length];
+  document.getElementById('qText').textContent=q.t;
+  document.getElementById('qAttr').textContent=q.a;
+  loadPhaseVideo(idx);
+}
+
+// TIMER
+function toggleTimer(){
+  running=!running;
+  const btn=document.getElementById('mainCtrl').querySelector('span');
+  if(running){tick_interval=setInterval(timerTick,1000);btn.textContent='STAND DOWN';}
+  else{clearInterval(tick_interval);btn.textContent='ENGAGE';}
+}
+function stopTimer(){running=false;clearInterval(tick_interval);}
+function skipPhase(){stopTimer();onPhaseEnd();}
+function timerTick(){
+  if(timeLeft<=0){onPhaseEnd();return;}
+  timeLeft--;updateTimerDisplay();
+  cylinderAngle+=0.3;
+  document.getElementById('cylinderGroup').setAttribute('transform',`rotate(${cylinderAngle} 130 130)`);
+}
+function updateTimerDisplay(){
+  const m=Math.floor(timeLeft/60).toString().padStart(2,'0');
+  const s=(timeLeft%60).toString().padStart(2,'0');
+  const str=m+':'+s;
+  const p=PHASES[phase];
+  if(p.isBomb){document.getElementById('bombDigits').textContent=str;}
+  else{const el=document.getElementById('timerDigits');el.textContent=str;el.className='timer-digits'+(timeLeft<=60?' urgent':'');}
+  const pct=1-(timeLeft/p.dur);
+  document.getElementById('progressArc').style.strokeDashoffset=628.3*(1-pct);
+}
+function onPhaseEnd(){
+  stopTimer();flash(PHASES[phase].type==='work'?'#c0112b':'#d4a017',300);
+  if(phase>=PHASES.length-1){setTimeout(()=>showPage('complete'),400);return;}
+  const td=TRANS_DATA[phase]||TRANS_DATA[TRANS_DATA.length-1];
+  document.getElementById('transCode').textContent=td.code;
+  document.getElementById('transTitle').innerHTML=td.title.replace('\n','<br>');
+  document.getElementById('transSub').textContent=td.sub;
+  const next=PHASES[phase+1];
+  document.getElementById('transNext').textContent=`NEXT: ${next.name} — ${Math.floor(next.dur/60)} MIN`;
+  setTimeout(()=>showPage('transition'),400);
+}
+function continueToNext(){phase++;setPhase(phase);showPage('focus');flash('#d4a017',200);}
+
+// FLASH
+function flash(color,ms){const f=document.getElementById('flash-overlay');f.style.background=color;f.style.opacity='0.35';setTimeout(()=>f.style.opacity='0',ms);}
+
+// ═══════════════════════════════════════════════════════
+//  VIDEO CONFIGURATION
+//  ─────────────────────────────────────────────────────
+//  Add the filename for each phase's video clip below.
+//  Files must be in the SAME FOLDER as this HTML file.
+//
+//  Recommended format : MP4 (H.264) — best browser support
+//  Recommended length : 30–90 seconds (they loop automatically)
+//  Aspect ratio       : Any — the player crops to fit (object-fit:cover)
+//
+//  Good John Wick scene ideas per phase:
+//    phase0 (PREP)          → JW suiting up / loading guns / hotel corridor
+//    phase1 (ENGAGEMENT I)  → Club/Red Circle fight scene (JW1)
+//    phase2 (REGROUP)       → Walking scene / Winston conversation
+//    phase3 (ENGAGEMENT II) → Museum / catacombs fight (JW2)
+//    phase4 (RELOAD)        → Car reloading scene / bathroom patch-up
+//    phase5 (ENGAGEMENT III)→ Continental rooftop / castle fight (JW3)
+//    phase6 (EXFIL)         → JW walking away in the rain / alley escape
+//
+//  HOW TO USE:
+//    1. Edit the src strings below to match your filenames
+//    2. Save the HTML and open in browser
+//    3. If src is empty (''), the placeholder card shows instead
+// ═══════════════════════════════════════════════════════
+
+const VIDEOS = [
+  { src: '',  label: 'PREPARING FOR WAR'   },  // phase0 — e.g. 'prep.mp4'
+  { src: '',  label: 'ELIMINATING TARGETS' },  // phase1 — e.g. 'engagement1.mp4'
+  { src: '',  label: 'TACTICAL RELOAD'     },  // phase2 — e.g. 'regroup.mp4'
+  { src: '',  label: 'SECOND ASSAULT'      },  // phase3 — e.g. 'engagement2.mp4'
+  { src: '',  label: 'CATCHING BREATH'     },  // phase4 — e.g. 'reload.mp4'
+  { src: '',  label: 'FINAL ENGAGEMENT'    },  // phase5 — e.g. 'engagement3.mp4'
+  { src: '',  label: 'EXFILTRATING'        },  // phase6 — e.g. 'exfil.mp4'
+];
+
+function loadPhaseVideo(idx) {
+  const vid    = document.getElementById('phaseVideo');
+  const holder = document.getElementById('videoPlaceholder');
+  const entry  = VIDEOS[idx] || {};
+
+  document.getElementById('animLabel').textContent = entry.label || '';
+
+  if (entry.src && entry.src.trim() !== '') {
+    // ── Video file is configured — show it ──
+    vid.src = entry.src;
+    vid.style.display = 'block';
+    holder.style.display = 'none';
+    vid.load();
+    vid.play().catch(() => {
+      // Autoplay blocked — show a tap-to-play message
+      holder.style.display = 'flex';
+      holder.querySelector('.vp-text').innerHTML =
+        'TAP TO PLAY<span>' + entry.src + '</span>';
+      holder.style.cursor = 'pointer';
+      holder.onclick = () => { vid.play(); holder.style.display = 'none'; };
+    });
+  } else {
+    // ── No video configured yet — show placeholder ──
+    vid.style.display = 'none';
+    vid.src = '';
+    holder.style.display = 'flex';
+    holder.querySelector('.vp-text').innerHTML =
+      'ADD YOUR VIDEO CLIPS HERE' +
+      '<span>Set src in the VIDEOS array in the script.<br>' +
+      'Phase ' + idx + ': edit VIDEOS[' + idx + '].src<br>' +
+      'Format: MP4 · Same folder as HTML</span>';
+    holder.onclick = null;
+    holder.style.cursor = 'default';
+  }
+}
+
+// KEYBOARD
+document.addEventListener('keydown',e=>{
+  const pg=document.querySelector('.page.active').id;
+  if(e.key==='Enter'&&pg==='page-landing')startMission();
+  if(e.key===' '&&pg==='page-focus'){e.preventDefault();toggleTimer();}
+});
+</script>
+</body>
+</html>
