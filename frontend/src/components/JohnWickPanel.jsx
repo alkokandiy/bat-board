@@ -29,6 +29,8 @@ const TRANS_DATA = [
   { code: 'ENGAGEMENT III DONE', title: 'LAST\nMAN DOWN', sub: 'The hard work is done.', next: 'NEXT: EXFILTRATION — 20 MIN' },
 ];
 
+import { trackPresets } from './AudioPlayer';
+
 const VIDEOS = [
   { src: '', label: 'PREPARING FOR WAR' },
   { src: '', label: 'ELIMINATING TARGETS' },
@@ -39,7 +41,7 @@ const VIDEOS = [
   { src: '', label: 'EXFILTRATING' },
 ];
 
-export default function JohnWickPanel() {
+export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange }) {
   const [page, setPage] = useState('landing');
   const [mission, setMission] = useState('');
   const [missionInput, setMissionInput] = useState('');
@@ -281,7 +283,7 @@ export default function JohnWickPanel() {
   const pct = p ? 1 - (timeLeft / p.dur) : 0;
 
   return (
-    <div className="jw-root">
+    <div className="jw-root" style={{ paddingBottom: '60px' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Playfair+Display:ital,wght@0,900;1,900&family=Share+Tech+Mono&family=Cinzel:wght@900&display=swap');
 
@@ -597,6 +599,39 @@ export default function JohnWickPanel() {
                   <div className="jw-tc-dur">{Math.floor(ph.dur / 60)}m</div>
                 </div>
               ))}
+            </div>
+            <div className="jw-timeline-card" style={{ marginTop: '20px' }}>
+              <div className="jw-tc-title" style={{ color: 'var(--blood2)', fontSize: '9px' }}>Soundtrack</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {trackPresets.map((track) => (
+                  <button
+                    key={track.id}
+                    onClick={() => onTrackChange(activeTrack?.id === track.id ? null : track)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 10px',
+                      borderRadius: '2px',
+                      border: '1px solid ' + (activeTrack?.id === track.id ? 'var(--gold2)' : 'rgba(212,160,23,0.12)'),
+                      background: activeTrack?.id === track.id ? 'rgba(245,200,66,0.06)' : 'transparent',
+                      cursor: 'crosshair',
+                      fontFamily: "'Share Tech Mono', monospace",
+                      fontSize: '9px',
+                      letterSpacing: '1px',
+                      color: activeTrack?.id === track.id ? 'var(--gold2)' : 'var(--text2)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'all 0.3s',
+                    }}
+                  >
+                    <span>{track.title}</span>
+                    <span style={{ fontSize: '8px', opacity: 0.7 }}>
+                      {activeTrack?.id === track.id && isPlaying ? '▶' : activeTrack?.id === track.id ? '❚❚' : ''}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>

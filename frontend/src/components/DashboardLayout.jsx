@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function DashboardLayout({ account, currentView, onViewChange, onLogout, children }) {
+export default function DashboardLayout({ account, currentView, onViewChange, onLogout, activeTrack, isPlaying, onTogglePlay, onTrackChange, children }) {
   const { username = "Loading...", points = 0, bat_level = "Loading..." } = account || {};
 
   const navItems = [

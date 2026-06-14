@@ -1,20 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { trackPresets } from './AudioPlayer';
 
-const trackPresets = [
-  { id: 1, title: "Batmusic #1", src: "/tracks/track1.m4a" },
-  { id: 2, title: "Batmusic #2", src: "/tracks/track2.m4a" },
-  { id: 3, title: "Batmusic #3", src: "/tracks/track3.m4a" },
-];
-
-export default function FocusPanel() {
+export default function FocusPanel({ activeTrack, isPlaying, onTrackChange }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
   const [sessionLength, setSessionLength] = useState(25);
-  const [activeTrack, setActiveTrack] = useState(null);
-  const [trackError, setTrackError] = useState(false);
 
   const timerRef = useRef(null);
-  const audioRef = useRef(null);
 
   useEffect(() => {
     if (isActive && timeLeft > 0) {
@@ -27,21 +19,6 @@ export default function FocusPanel() {
     }
     return () => clearInterval(timerRef.current);
   }, [isActive, timeLeft]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      if (activeTrack) {
-        setTrackError(false);
-        audioRef.current.src = activeTrack.src;
-        audioRef.current.loop = true;
-        audioRef.current.play().catch(() => setTrackError(true));
-      } else {
-        audioRef.current.pause();
-        audioRef.current.src = "";
-        setTrackError(false);
-      }
-    }
-  }, [activeTrack]);
 
   const toggleTimer = () => {
     if (!isActive && timeLeft === 0) {
@@ -63,7 +40,11 @@ export default function FocusPanel() {
   };
 
   const handleTrackSelect = (track) => {
-    setActiveTrack((prev) => (prev?.id === track.id ? null : track));
+    if (activeTrack?.id === track.id && isPlaying) {
+      onTrackChange(null);
+    } else {
+      onTrackChange(track);
+    }
   };
 
   const formatTime = (seconds) => {
@@ -153,21 +134,14 @@ export default function FocusPanel() {
                     }`}
                   >
                     <span className="font-semibold text-[11px] tracking-wide truncate">{track.title}</span>
-                    <span className="text-[10px] font-mono">{isSelected ? 'ON AIR' : 'OFFLINE'}</span>
+                    <span className="text-[10px] font-mono">{isSelected && isPlaying ? 'PLAYING' : isSelected ? 'PAUSED' : 'OFFLINE'}</span>
                   </button>
                 );
               })}
             </div>
-            {trackError && (
-              <p className="text-[10px] text-amber-400 font-mono text-center">
-                Audio file not found. Place .mp3 files in public/tracks/.
-              </p>
-            )}
           </div>
         </div>
       </div>
-
-      <audio ref={audioRef} preload="auto" />
     </div>
   );
 }

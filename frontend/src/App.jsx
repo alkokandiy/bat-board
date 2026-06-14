@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
 import FocusPanel from './components/FocusPanel';
 import JohnWickPanel from './components/JohnWickPanel';
+import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
 function LoginScreen({ onLogin }) {
@@ -97,6 +98,8 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTrack, setActiveTrack] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const fetchAllData = useCallback(async () => {
     try {
@@ -188,6 +191,27 @@ export default function App() {
     setCurrentView('dashboard');
   };
 
+  const handleTrackChange = (track) => {
+    if (!track) {
+      setActiveTrack(null);
+      setIsPlaying(false);
+    } else if (activeTrack?.id === track.id) {
+      setIsPlaying(!isPlaying);
+    } else {
+      setActiveTrack(track);
+      setIsPlaying(true);
+    }
+  };
+
+  const handleTogglePlay = () => {
+    if (!activeTrack) {
+      setActiveTrack(trackPresets[0]);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(!isPlaying);
+    }
+  };
+
   if (!isAuthenticated) {
     return <LoginScreen onLogin={handleLogin} />;
   }
@@ -241,9 +265,9 @@ export default function App() {
           />
         );
       case 'focus':
-        return <FocusPanel />;
+        return <FocusPanel activeTrack={activeTrack} isPlaying={isPlaying} onTrackChange={handleTrackChange} />;
       case 'johnwick':
-        return <JohnWickPanel />;
+        return <JohnWickPanel activeTrack={activeTrack} isPlaying={isPlaying} onTrackChange={handleTrackChange} />;
       case 'logs':
         return (
           <div className="space-y-6">
@@ -352,8 +376,18 @@ export default function App() {
       currentView={currentView}
       onViewChange={setCurrentView}
       onLogout={handleLogout}
+      activeTrack={activeTrack}
+      isPlaying={isPlaying}
+      onTogglePlay={handleTogglePlay}
+      onTrackChange={handleTrackChange}
     >
       {renderView()}
+      <AudioPlayer
+        activeTrack={activeTrack}
+        isPlaying={isPlaying}
+        onToggle={handleTogglePlay}
+        onTrackChange={handleTrackChange}
+      />
     </DashboardLayout>
   );
 }
