@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 const trackPresets = [
-  { id: 1, title: "Batmusic #1", src: "/tracks/track1.mp3" },
-  { id: 2, title: "Batmusic #2", src: "/tracks/track2.mp3" },
-  { id: 3, title: "Batmusic #3", src: "/tracks/track3.mp3" },
+  { id: 1, title: "Batmusic #1", src: "/tracks/track1.m4a" },
+  { id: 2, title: "Batmusic #2", src: "/tracks/track2.m4a" },
+  { id: 3, title: "Batmusic #3", src: "/tracks/track3.m4a" },
 ];
 
 export default function FocusPanel() {
