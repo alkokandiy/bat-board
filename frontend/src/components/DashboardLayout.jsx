@@ -9,6 +9,8 @@ export default function DashboardLayout({ account, currentView, onViewChange, on
     { id: 'habits', label: 'Habits', icon: 'H' },
     { id: 'focus', label: 'Focus', icon: 'F' },
     { id: 'johnwick', label: 'John Wick', icon: 'J' },
+    { id: 'countdown', label: 'Countdown', icon: 'C' },
+    { id: 'calendar', label: 'Calendar', icon: 'D' },
     { id: 'logs', label: 'Logs', icon: 'L' },
   ];
 

@@ -20,6 +20,7 @@ class BatAccount(Base):
     habits = relationship("BatHabit", back_populates="owner", cascade="all, delete-orphan")
     logs = relationship("BatLog", back_populates="owner", cascade="all, delete-orphan")
     focus_sessions = relationship("BatFocus", back_populates="owner", cascade="all, delete-orphan")
+    calendar_events = relationship("CalendarEvent", back_populates="owner", cascade="all, delete-orphan")
 
 
 class BatMission(Base):
@@ -31,11 +32,18 @@ class BatMission(Base):
     due_date = Column(DateTime, nullable=True)
     priority = Column(String, default="medium", nullable=False)
     status = Column(String, default="pending", nullable=False)
+    tags = Column(String, nullable=True)
+    is_pinned = Column(Boolean, default=False, nullable=False)
+    is_dismissed = Column(Boolean, default=False, nullable=False)
+    location = Column(String, nullable=True)
+    notes = Column(String, nullable=True)
+    subtasks = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="missions")
+    calendar_events = relationship("CalendarEvent", back_populates="mission")
 
 
 class BatHabit(Base):
@@ -86,3 +94,20 @@ class BatFocus(Base):
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="focus_sessions")
+
+
+class CalendarEvent(Base):
+    __tablename__ = "bat_calendar_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    color = Column(String, nullable=True)
+    mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
+    owner = relationship("BatAccount", back_populates="calendar_events")
+    mission = relationship("BatMission", back_populates="calendar_events")

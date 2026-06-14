@@ -4,6 +4,8 @@ import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
 import FocusPanel from './components/FocusPanel';
 import JohnWickPanel from './components/JohnWickPanel';
+import CountdownPanel from './components/CountdownPanel';
+import CalendarPanel from './components/CalendarPanel';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
@@ -268,6 +270,10 @@ export default function App() {
         return <FocusPanel activeTrack={activeTrack} isPlaying={isPlaying} onTrackChange={handleTrackChange} />;
       case 'johnwick':
         return <JohnWickPanel activeTrack={activeTrack} isPlaying={isPlaying} onTrackChange={handleTrackChange} />;
+      case 'countdown':
+        return <CountdownPanel />;
+      case 'calendar':
+        return <CalendarPanel />;
       case 'logs':
         return (
           <div className="space-y-6">

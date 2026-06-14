@@ -159,4 +159,10 @@ export const api = {
   startFocusSession: () => request('/focus/sessions', { method: 'POST' }),
   endFocusSession: (id, data) => request(`/focus/sessions/${id}`, { method: 'PUT', body: data }),
   getFocusSessions: (limit = 20) => request(`/focus/sessions?limit=${limit}`),
+
+  // Calendar Events
+  getCalendarEvents: () => request('/calendar/events'),
+  createCalendarEvent: (data) => request('/calendar/events', { method: 'POST', body: data }),
+  updateCalendarEvent: (id, data) => request(`/calendar/events/${id}`, { method: 'PUT', body: data }),
+  deleteCalendarEvent: (id) => request(`/calendar/events/${id}`, { method: 'DELETE' }),
 };

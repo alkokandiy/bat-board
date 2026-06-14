@@ -154,6 +154,12 @@ class BatMissionBase(BaseModel):
     due_date: Optional[datetime] = None
     priority: str = "medium"
     status: str = "pending"
+    tags: Optional[str] = None
+    is_pinned: bool = False
+    is_dismissed: bool = False
+    location: Optional[str] = Field(None, max_length=500)
+    notes: Optional[str] = None
+    subtasks: Optional[str] = None
 
 class BatMissionCreate(BatMissionBase):
     pass
@@ -164,11 +170,47 @@ class BatMissionUpdate(BaseModel):
     due_date: Optional[datetime] = None
     priority: Optional[str] = None
     status: Optional[str] = None
+    tags: Optional[str] = None
+    is_pinned: Optional[bool] = None
+    is_dismissed: Optional[bool] = None
+    location: Optional[str] = Field(None, max_length=500)
+    notes: Optional[str] = None
+    subtasks: Optional[str] = None
 
 class BatMissionSchema(BatMissionBase):
     id: int
     created_at: datetime
     completed_at: Optional[datetime] = None
+    owner_id: int
+
+    class Config:
+        from_attributes = True
+
+class CalendarEventCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    color: Optional[str] = None
+    mission_id: Optional[int] = None
+
+class CalendarEventUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    color: Optional[str] = None
+    mission_id: Optional[int] = None
+
+class CalendarEventSchema(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    color: Optional[str] = None
+    mission_id: Optional[int] = None
+    created_at: datetime
     owner_id: int
 
     class Config:
@@ -381,6 +423,12 @@ def create_mission(
         due_date=mission_data.due_date,
         priority=mission_data.priority,
         status=mission_data.status,
+        tags=mission_data.tags,
+        is_pinned=mission_data.is_pinned,
+        is_dismissed=mission_data.is_dismissed,
+        location=mission_data.location,
+        notes=mission_data.notes,
+        subtasks=mission_data.subtasks,
         owner_id=current_user.id
     )
     db.add(mission)
@@ -420,6 +468,18 @@ def update_mission(
         mission.due_date = payload.due_date
     if payload.priority is not None:
         mission.priority = payload.priority
+    if payload.tags is not None:
+        mission.tags = payload.tags
+    if payload.is_pinned is not None:
+        mission.is_pinned = payload.is_pinned
+    if payload.is_dismissed is not None:
+        mission.is_dismissed = payload.is_dismissed
+    if payload.location is not None:
+        mission.location = payload.location
+    if payload.notes is not None:
+        mission.notes = payload.notes
+    if payload.subtasks is not None:
+        mission.subtasks = payload.subtasks
     if payload.status is not None:
         mission.status = payload.status
         if payload.status == "completed" and old_status != "completed":
@@ -480,6 +540,98 @@ def delete_mission(
     })
 
     db.delete(mission)
+    db.commit()
+    return None
+
+# --- Calendar Event Endpoints ---
+@app.get("/api/calendar/events", response_model=List[CalendarEventSchema])
+def list_calendar_events(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    return db.query(models.CalendarEvent).filter(
+        models.CalendarEvent.owner_id == current_user.id
+    ).order_by(models.CalendarEvent.start_time).all()
+
+@app.post("/api/calendar/events", response_model=CalendarEventSchema, status_code=status.HTTP_201_CREATED)
+def create_calendar_event(
+    event_data: CalendarEventCreate,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    if event_data.mission_id:
+        mission = db.query(models.BatMission).filter(
+            models.BatMission.id == event_data.mission_id,
+            models.BatMission.owner_id == current_user.id
+        ).first()
+        if not mission:
+            raise HTTPException(status_code=404, detail="Mission not found")
+
+    event = models.CalendarEvent(
+        title=event_data.title,
+        description=event_data.description,
+        start_time=event_data.start_time,
+        end_time=event_data.end_time,
+        color=event_data.color,
+        mission_id=event_data.mission_id,
+        owner_id=current_user.id
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+@app.put("/api/calendar/events/{event_id}", response_model=CalendarEventSchema)
+def update_calendar_event(
+    event_id: int,
+    event_data: CalendarEventUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    event = db.query(models.CalendarEvent).filter(
+        models.CalendarEvent.id == event_id,
+        models.CalendarEvent.owner_id == current_user.id
+    ).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    if event_data.title is not None:
+        event.title = event_data.title
+    if event_data.description is not None:
+        event.description = event_data.description
+    if event_data.start_time is not None:
+        event.start_time = event_data.start_time
+    if event_data.end_time is not None:
+        event.end_time = event_data.end_time
+    if event_data.color is not None:
+        event.color = event_data.color
+    if event_data.mission_id is not None:
+        mission = db.query(models.BatMission).filter(
+            models.BatMission.id == event_data.mission_id,
+            models.BatMission.owner_id == current_user.id
+        ).first()
+        if not mission:
+            raise HTTPException(status_code=404, detail="Mission not found")
+        event.mission_id = event_data.mission_id
+
+    db.commit()
+    db.refresh(event)
+    return event
+
+@app.delete("/api/calendar/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_calendar_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    event = db.query(models.CalendarEvent).filter(
+        models.CalendarEvent.id == event_id,
+        models.CalendarEvent.owner_id == current_user.id
+    ).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    db.delete(event)
     db.commit()
     return None
 
