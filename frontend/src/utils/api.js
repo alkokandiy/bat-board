@@ -59,7 +59,7 @@ async function request(endpoint, options = {}) {
 
   const config = { ...options, headers };
 
-  if (config.body && typeof config.body !== 'string') {
+  if (config.body && typeof config.body !== 'string' && !(config.body instanceof URLSearchParams) && !(config.body instanceof FormData)) {
     config.body = JSON.stringify(config.body);
   }
 
