@@ -19,6 +19,9 @@ export default function AudioPlayer({ activeTrack, isPlaying, onToggle = () => {
         audio.src = activeTrack.src;
         audio.loop = true;
         audio.load();
+        const playWhenReady = () => { audio.play().catch(() => {}); };
+        audio.addEventListener('canplay', playWhenReady, { once: true });
+        return () => audio.removeEventListener('canplay', playWhenReady);
       }
       audio.play().catch(() => {});
     } else {

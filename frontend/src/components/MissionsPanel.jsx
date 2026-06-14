@@ -10,7 +10,7 @@ function parseSubtasks(val) {
 function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
   const classify = (m) => {
     const urgent = m.priority === 'critical' || m.priority === 'high';
-    const important = m.priority === 'critical' || m.priority === 'medium';
+    const important = m.priority !== 'low';
     if (urgent && important) return 1;
     if (urgent && !important) return 2;
     if (!urgent && important) return 3;
@@ -76,8 +76,8 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
               <span className={`text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${priorityStyles[mission.priority] || ''}`}>
                 {mission.priority}
               </span>
-              {tags.map(t => (
-                <span key={t} className="text-[8px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+              {tags.map((t, i) => (
+                <span key={t + '-' + i} className="text-[8px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
                   {t}
                 </span>
               ))}
@@ -106,7 +106,7 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
       {subtasks.length > 0 && (
         <div className="mt-2 ml-6 space-y-0.5">
           {subtasks.map((s, i) => (
-            <div key={i} className="flex items-center space-x-1.5 text-[10px]">
+            <div key={s.title + '-' + i} className="flex items-center space-x-1.5 text-[10px]">
               <span className={s.done ? 'text-green-500' : 'text-slate-600'}>{s.done ? '☑' : '☐'}</span>
               <span className={s.done ? 'line-through text-slate-500' : 'text-slate-400'}>{s.title}</span>
             </div>
@@ -218,6 +218,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         location: mission.location,
         notes: mission.notes,
         subtasks: mission.subtasks,
+        is_pinned: false,
         status: 'pending',
       });
       await onRefreshMissions();
@@ -232,7 +233,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   };
 
   const renderForm = () => (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { setShowForm(false); setEditMission(null); resetForm(); }}>
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { if (form.title.trim() && !confirm('Discard unsaved changes?')) return; setShowForm(false); setEditMission(null); resetForm(); }}>
       <div className="bg-dark-slate rounded border border-slate-700 p-5 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
           {editMission ? 'Edit Mission' : 'Queue New Mission'}

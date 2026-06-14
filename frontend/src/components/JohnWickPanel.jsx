@@ -138,28 +138,21 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
 
   // TIMER
   useEffect(() => {
-    if (running && timeLeft > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            setRunning(false);
-            return 0;
-          }
-          return prev - 1;
-        });
-        cylinderAngleRef.current += 0.3;
-      }, 1000);
-    }
+    if (!running || timeLeft <= 0) return;
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => prev - 1);
+      cylinderAngleRef.current += 0.3;
+    }, 1000);
     return () => clearInterval(timerRef.current);
   }, [running]);
 
   // AUTO-ADVANCE when timer runs out
   useEffect(() => {
-    if (!running && timeLeft === 0 && page === 'running') {
+    if (timeLeft === 0 && page === 'running') {
+      setRunning(false);
       onPhaseEnd();
     }
-  }, [running, timeLeft, page]);
+  }, [timeLeft, page]);
 
   // FLASH
   const flash = useCallback((color, ms) => {
@@ -169,13 +162,12 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
 
   // START MISSION
   const startMission = () => {
-    const name = missionInput.trim() || 'Unnamed Target';
+    const name = missionRef.current.trim() || 'Unnamed Target';
     setMission(name);
     flash('#c0112b', 200);
     setTimeout(() => {
       setPhase(0);
-      const p = PHASES[0];
-      setTimeLeft(p.dur);
+      setTimeLeft(PHASES[0].dur);
       setRunning(false);
       setPage('focus');
     }, 250);
@@ -271,6 +263,9 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
     }
   }, [phase, page]);
 
+  const missionRef = useRef(missionInput);
+  missionRef.current = missionInput;
+
   // KEYBOARD
   useEffect(() => {
     const handleKey = (e) => {
@@ -279,7 +274,7 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [page, missionInput, phase, timeLeft, running]);
+  }, [page]);
 
   const formatTime = (s) => {
     const m = Math.floor(s / 60).toString().padStart(2, '0');

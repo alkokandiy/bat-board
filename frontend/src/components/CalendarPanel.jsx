@@ -29,8 +29,10 @@ export default function CalendarPanel() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.getCalendarEvents().then(setEvents).catch(() => {});
-    api.getMissions().then(setMissions).catch(() => {});
+    let cancelled = false;
+    api.getCalendarEvents().then(data => { if (!cancelled) setEvents(data); }).catch(() => {});
+    api.getMissions().then(data => { if (!cancelled) setMissions(data); }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
 
   const refreshEvents = () => api.getCalendarEvents().then(setEvents);
@@ -184,7 +186,7 @@ export default function CalendarPanel() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { setShowForm(false); setEditEvent(null); }}>
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { if (form.title.trim() && !confirm('Discard unsaved changes?')) return; setShowForm(false); setEditEvent(null); }}>
           <div className="bg-dark-slate rounded border border-slate-700 p-5 w-full max-w-md" onClick={e => e.stopPropagation()}>
             <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
               {editEvent ? 'Edit Event' : 'New Event'}

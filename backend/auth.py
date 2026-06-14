@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from config import get_settings
 from database import get_db
@@ -30,7 +30,6 @@ class TokenData(BaseModel):
 class UserCreate(BaseModel):
     username: str
     password: str
-    email: Optional[EmailStr] = None
 
 
 class UserResponse(BaseModel):

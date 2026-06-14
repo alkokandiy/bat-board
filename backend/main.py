@@ -215,14 +215,6 @@ class CalendarEventSchema(BaseModel):
     class Config:
         from_attributes = True
 
-class HabitCompletionLogSchema(BaseModel):
-    id: int
-    completed_at: datetime
-    habit_id: int
-
-    class Config:
-        from_attributes = True
-
 class BatHabitBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)

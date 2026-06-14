@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function DashboardLayout({ account, currentView, onViewChange, onLogout, activeTrack, isPlaying, onTogglePlay, onTrackChange, children }) {
+export default function DashboardLayout({ account, currentView, onViewChange = () => {}, onLogout = () => {}, activeTrack, isPlaying, onTogglePlay, onTrackChange, children }) {
   const { username = "Loading...", points = 0, bat_level = "Loading..." } = account || {};
 
   const navItems = [
@@ -10,7 +10,7 @@ export default function DashboardLayout({ account, currentView, onViewChange, on
     { id: 'focus', label: 'Focus', icon: 'F' },
     { id: 'johnwick', label: 'John Wick', icon: 'J' },
     { id: 'countdown', label: 'Countdown', icon: 'C' },
-    { id: 'calendar', label: 'Calendar', icon: 'D' },
+    { id: 'calendar', label: 'Calendar', icon: 'E' },
     { id: 'logs', label: 'Logs', icon: 'L' },
   ];
 

@@ -143,15 +143,10 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
             ) : (
               habits.map((habit) => {
                 const now = new Date();
-                const todayUTC = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-                const lastCompletedUTC = habit.last_completed 
-                  ? Date.UTC(
-                      new Date(habit.last_completed).getFullYear(),
-                      new Date(habit.last_completed).getMonth(),
-                      new Date(habit.last_completed).getDate()
-                    )
-                  : null;
-                const checkedToday = lastCompletedUTC === todayUTC;
+                const todayStr = now.toDateString();
+                const checkedToday = habit.last_completed
+                  ? new Date(habit.last_completed).toDateString() === todayStr
+                  : false;
 
                 return (
                   <div
