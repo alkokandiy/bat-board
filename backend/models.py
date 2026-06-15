@@ -11,7 +11,7 @@ class BatAccount(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     points = Column(Integer, default=0, nullable=False)
-    bat_level = Column(String, default="Gotham Recruit", nullable=False)
+    bat_level = Column(String, default="The Orphan", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

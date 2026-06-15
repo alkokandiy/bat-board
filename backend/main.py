@@ -112,16 +112,26 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # --- Tier Calculation Helper ---
 def calculate_bat_level(points: int) -> str:
-    if points < 1000:
-        return "Gotham Recruit"
-    elif points < 3000:
-        return "Vigilante of the Shadows"
-    elif points < 5000:
-        return "Caped Crusader"
+    if points < 200:
+        return "The Orphan"
+    elif points < 500:
+        return "The Vigilante"
+    elif points < 1000:
+        return "The Detective"
+    elif points < 2000:
+        return "Son of Gotham"
+    elif points < 3500:
+        return "The Caped Crusader"
+    elif points < 5500:
+        return "Heir of the Demon"
     elif points < 8000:
-        return "Gotham's Protector"
+        return "The Dark Knight"
+    elif points < 12000:
+        return "Faris al-Khorasan"
+    elif points < 18000:
+        return "Sword of the Ummah"
     else:
-        return "Dark Knight of Khorasan 8000+"
+        return "Dark Knight of Khorasan"
 
 # --- Auto Log Helper ---
 def auto_log_event(db: Session, owner_id: int, event_type: str, details_dict: dict):
@@ -295,7 +305,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
         username=user_data.username,
         hashed_password=hashed,
         points=0,
-        bat_level="Gotham Recruit",
+        bat_level="The Orphan",
     )
     db.add(account)
     try:
