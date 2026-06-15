@@ -141,6 +141,7 @@ def auto_log_event(db: Session, owner_id: int, event_type: str, details_dict: di
         details=json.dumps(details_dict)
     )
     db.add(log_entry)
+    db.flush()
 
 # --- Pydantic Schemas ---
 class BatAccountSchema(BaseModel):
@@ -309,7 +310,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
     )
     db.add(account)
     try:
-        db.commit()
+        db.flush()
         db.refresh(account)
     except IntegrityError:
         db.rollback()
@@ -318,6 +319,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
     auto_log_event(db, account.id, "account_created", {
         "message": f"Bat-Board initiated for {user_data.username}"
     })
+    db.commit()
 
     logger.info("user_registered", username=user_data.username)
     return account
@@ -337,6 +339,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
     refresh_token = create_refresh_token(data={"sub": user.username})
 
     auto_log_event(db, user.id, "login", {"message": "User logged in"})
+    db.commit()
     logger.info("user_login", username=user.username)
 
     return Token(access_token=access_token, refresh_token=refresh_token)
@@ -433,7 +436,7 @@ def create_mission(
         owner_id=current_user.id
     )
     db.add(mission)
-    db.commit()
+    db.flush()
     db.refresh(mission)
 
     auto_log_event(db, current_user.id, "mission_created", {
@@ -441,6 +444,7 @@ def create_mission(
         "title": mission.title,
         "priority": mission.priority
     })
+    db.commit()
 
     return mission
 
@@ -495,7 +499,7 @@ def update_mission(
             current_user.points = old_points
             current_user.bat_level = calculate_bat_level(current_user.points)
 
-    db.commit()
+    db.flush()
     db.refresh(mission)
     db.refresh(current_user)
 
@@ -505,6 +509,7 @@ def update_mission(
         "old_status": old_status,
         "new_status": mission.status
     })
+    db.commit()
 
     return mission
 
@@ -639,7 +644,7 @@ def create_habit(
         owner_id=current_user.id
     )
     db.add(habit)
-    db.commit()
+    db.flush()
     db.refresh(habit)
 
     auto_log_event(db, current_user.id, "habit_created", {
@@ -647,6 +652,7 @@ def create_habit(
         "name": habit.name,
         "frequency": habit.frequency
     })
+    db.commit()
 
     return habit
 
@@ -668,13 +674,14 @@ def update_habit(
     for field in payload.model_fields_set:
         setattr(habit, field, getattr(payload, field))
 
-    db.commit()
+    db.flush()
     db.refresh(habit)
 
     auto_log_event(db, current_user.id, "habit_updated", {
         "habit_id": habit.id,
         "name": habit.name
     })
+    db.commit()
 
     return habit
 
@@ -810,13 +817,14 @@ def start_focus_session(
         owner_id=current_user.id
     )
     db.add(session)
-    db.commit()
+    db.flush()
     db.refresh(session)
 
     auto_log_event(db, current_user.id, "focus_session_started", {
         "session_id": session.id,
         "start_time": session.start_time.isoformat()
     })
+    db.commit()
 
     return session
 
@@ -853,7 +861,7 @@ def end_focus_session(
     old_level = current_user.bat_level
     current_user.bat_level = calculate_bat_level(current_user.points)
 
-    db.commit()
+    db.flush()
     db.refresh(session)
     db.refresh(current_user)
 
@@ -864,6 +872,7 @@ def end_focus_session(
         "old_level": old_level,
         "new_level": current_user.bat_level
     })
+    db.commit()
 
     return session
 
