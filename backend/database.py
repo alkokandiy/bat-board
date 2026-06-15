@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import StaticPool
 
@@ -31,4 +31,24 @@ def get_db():
         db.close()
 
 def create_db_tables():
-    Base.metadata.create_all(bind=engine)
+    from alembic.config import Config
+    from alembic import command
+
+    alembic_cfg = Config("alembic.ini")
+    alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
+
+    inspector = inspect(engine)
+    has_version_table = inspector.has_table("alembic_version")
+
+    if not has_version_table:
+        try:
+            command.upgrade(alembic_cfg, "head")
+        except Exception:
+            Base.metadata.create_all(bind=engine)
+            try:
+                command.stamp(alembic_cfg, "head")
+            except Exception:
+                pass
+    else:
+        command.upgrade(alembic_cfg, "head")
+        Base.metadata.create_all(bind=engine)
