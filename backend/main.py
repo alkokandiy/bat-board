@@ -279,6 +279,7 @@ class BatFocusSchema(BaseModel):
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = None
     soundtrack_metadata: Optional[str] = None
+    mission_id: Optional[int] = None
     owner_id: int
 
     class Config:
