@@ -33,8 +33,10 @@ def get_db():
 
 def _ensure_columns():
     inspector = inspect(engine)
+
+    # BatMission columns
     mission_columns = {c["name"] for c in inspector.get_columns("bat_missions")}
-    expected_mission = {"tags", "is_pinned", "is_dismissed", "location", "notes", "subtasks"}
+    expected_mission = {"tags", "is_pinned", "is_dismissed", "location", "notes", "subtasks", "focus_minutes", "completed_focus_sessions"}
     missing_mission = expected_mission - mission_columns
 
     with engine.connect() as conn:
@@ -47,15 +49,30 @@ def _ensure_columns():
                 conn.execute(text(
                     f"ALTER TABLE bat_missions ADD COLUMN {col} VARCHAR"
                 ))
+            elif col in ("focus_minutes", "completed_focus_sessions"):
+                conn.execute(text(
+                    f"ALTER TABLE bat_missions ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                ))
         if missing_mission:
             conn.commit()
 
+    # BatCalendarEvent columns
     if inspector.has_table("bat_calendar_events"):
         ce_columns = {c["name"] for c in inspector.get_columns("bat_calendar_events")}
         if "updated_at" not in ce_columns:
             with engine.connect() as conn:
                 conn.execute(text(
                     "ALTER TABLE bat_calendar_events ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                ))
+                conn.commit()
+
+    # BatFocus columns
+    if inspector.has_table("bat_focus"):
+        focus_columns = {c["name"] for c in inspector.get_columns("bat_focus")}
+        if "mission_id" not in focus_columns:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "ALTER TABLE bat_focus ADD COLUMN mission_id INTEGER REFERENCES bat_missions(id) ON DELETE SET NULL"
                 ))
                 conn.commit()
 

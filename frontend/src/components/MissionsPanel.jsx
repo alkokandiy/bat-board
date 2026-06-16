@@ -60,53 +60,59 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
   };
 
   return (
-    <div className={`bg-dark-slate p-3 rounded border transition-all duration-200 ${isCompleted ? 'border-slate-900 opacity-60' : mission.is_pinned ? 'border-yellow-700/50' : 'border-slate-800 hover:border-slate-700'}`}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start space-x-2.5 min-w-0">
+    <div className={`bg-dark-slate p-4 rounded border transition-all duration-200 ${isCompleted ? 'border-slate-900 opacity-60' : mission.is_pinned ? 'border-yellow-700/50' : 'border-slate-800 hover:border-slate-700'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start space-x-3 min-w-0">
           <button onClick={() => onToggleStatus(mission)}
-            className={`w-4 h-4 rounded border mt-0.5 flex items-center justify-center shrink-0 transition ${isCompleted ? 'bg-electric-bat-yellow border-electric-bat-yellow text-matte-obsidian' : 'border-slate-700 hover:border-electric-bat-yellow'}`}>
-            {isCompleted && <span className="text-[10px] font-bold">✓</span>}
+            className={`w-5 h-5 rounded border mt-0.5 flex items-center justify-center shrink-0 transition ${isCompleted ? 'bg-electric-bat-yellow border-electric-bat-yellow text-matte-obsidian' : 'border-slate-700 hover:border-electric-bat-yellow'}`}>
+            {isCompleted && <span className="text-xs font-bold">✓</span>}
           </button>
           <div className="min-w-0">
             <div className="flex items-center flex-wrap gap-1.5">
-              <h3 className={`text-xs font-semibold tracking-wide truncate max-w-[200px] ${isCompleted ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+              <h3 className={`text-sm font-semibold tracking-wide ${isCompleted ? 'line-through text-slate-500' : 'text-slate-200'}`}>
                 {mission.title}
               </h3>
-              {mission.is_pinned && <span className="text-[9px] text-yellow-500">📌</span>}
-              <span className={`text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${priorityStyles[mission.priority] || ''}`}>
+              {mission.is_pinned && <span className="text-[10px] text-yellow-500">📌</span>}
+              <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${priorityStyles[mission.priority] || ''}`}>
                 {mission.priority}
               </span>
               {tags.map((t, i) => (
-                <span key={t + '-' + i} className="text-[8px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                <span key={t + '-' + i} className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
                   {t}
                 </span>
               ))}
             </div>
             {mission.description && (
-              <p className={`text-[10px] mt-0.5 truncate max-w-[300px] ${isCompleted ? 'text-slate-600' : 'text-slate-400'}`}>
+              <p className={`text-xs mt-0.5 ${isCompleted ? 'text-slate-600' : 'text-slate-400'}`}>
                 {mission.description}
               </p>
             )}
-            <div className="flex items-center gap-3 text-[9px] text-slate-500 font-mono mt-1">
+            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-mono mt-1">
               {mission.due_date && <span>🎯 {new Date(mission.due_date).toLocaleDateString()}</span>}
               {mission.location && <span>📍 {mission.location}</span>}
               {subtasks.length > 0 && <span>✓ {doneSubtasks}/{subtasks.length}</span>}
+              {mission.focus_minutes > 0 && <span>⏱ {mission.focus_minutes}m</span>}
             </div>
+            {mission.completed_focus_sessions > 0 && (
+              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                {mission.completed_focus_sessions} focus session{mission.completed_focus_sessions !== 1 ? 's' : ''}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center space-x-1 shrink-0">
-          <button onClick={() => onEdit(mission)} className="text-slate-600 hover:text-slate-300 transition text-[10px]" title="Edit">✎</button>
-          <button onClick={() => onDuplicate(mission)} className="text-slate-600 hover:text-slate-300 transition text-[10px]" title="Duplicate">⧉</button>
+          <button onClick={() => onEdit(mission)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-slate-300 hover:bg-slate-800 transition text-xs" title="Edit">✎</button>
+          <button onClick={() => onDuplicate(mission)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-slate-300 hover:bg-slate-800 transition text-xs" title="Duplicate">⧉</button>
           {!mission.is_dismissed && (
-            <button onClick={() => onWontDo(mission)} className="text-slate-600 hover:text-amber-400 transition text-[10px]" title="Won't Do">⊘</button>
+            <button onClick={() => onWontDo(mission)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-amber-400 hover:bg-slate-800 transition text-xs" title="Won't Do">⊘</button>
           )}
-          <button onClick={() => onDelete(mission.id)} className="text-slate-600 hover:text-red-500 transition text-[10px]" title="Delete">✕</button>
+          <button onClick={() => onDelete(mission.id)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-red-500 hover:bg-slate-800 transition text-xs" title="Delete">✕</button>
         </div>
       </div>
       {subtasks.length > 0 && (
-        <div className="mt-2 ml-6 space-y-0.5">
+        <div className="mt-2 ml-7 space-y-0.5">
           {subtasks.map((s, i) => (
-            <div key={s.title + '-' + i} className="flex items-center space-x-1.5 text-[10px]">
+            <div key={s.title + '-' + i} className="flex items-center space-x-1.5 text-xs">
               <span className={s.done ? 'text-green-500' : 'text-slate-600'}>{s.done ? '☑' : '☐'}</span>
               <span className={s.done ? 'line-through text-slate-500' : 'text-slate-400'}>{s.title}</span>
             </div>
@@ -125,11 +131,26 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const [dateFilter, setDateFilter] = useState('all');
+
+  const todayStr = new Date().toDateString();
+  const inNext7Days = (d) => {
+    if (!d) return false;
+    const ms = new Date(d).getTime() - new Date().getTime();
+    return ms >= 0 && ms <= 7 * 24 * 60 * 60 * 1000;
+  };
+
   const activeMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
   const completedMissions = missions.filter(m => m.status === 'completed');
   const dismissedMissions = missions.filter(m => m.is_dismissed);
 
-  const sortedMissions = [...activeMissions].sort((a, b) => {
+  const filterByDate = (list) => {
+    if (dateFilter === 'today') return list.filter(m => m.due_date && new Date(m.due_date).toDateString() === todayStr);
+    if (dateFilter === 'week') return list.filter(m => inNext7Days(m.due_date));
+    return list;
+  };
+
+  const sortedMissions = [...filterByDate(activeMissions)].sort((a, b) => {
     if (a.is_pinned && !b.is_pinned) return -1;
     if (!a.is_pinned && b.is_pinned) return 1;
     return (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
@@ -307,6 +328,12 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       <div className="flex items-center space-x-2 text-[10px] font-mono">
         <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded border transition ${viewMode === 'list' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>List</button>
         <button onClick={() => setViewMode('eisenhower')} className={`px-3 py-1.5 rounded border transition ${viewMode === 'eisenhower' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>Eisenhower</button>
+      </div>
+
+      <div className="flex items-center space-x-2 text-[10px] font-mono">
+        <button onClick={() => setDateFilter('all')} className={`px-3 py-1.5 rounded border transition ${dateFilter === 'all' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>All</button>
+        <button onClick={() => setDateFilter('today')} className={`px-3 py-1.5 rounded border transition ${dateFilter === 'today' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>Today</button>
+        <button onClick={() => setDateFilter('week')} className={`px-3 py-1.5 rounded border transition ${dateFilter === 'week' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>This Week</button>
       </div>
 
       {viewMode === 'eisenhower' ? (

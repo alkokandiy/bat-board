@@ -272,9 +272,27 @@ export default function App() {
           />
         );
       case 'focus':
-        return <FocusPanel activeTrack={activeTrack} isPlaying={isPlaying} onTrackChange={handleTrackChange} />;
+        return (
+          <FocusPanel
+            activeTrack={activeTrack}
+            isPlaying={isPlaying}
+            onTrackChange={handleTrackChange}
+            missions={missions}
+            onRefreshMissions={handleRefreshMissions}
+            onRefreshAccount={handleRefreshAccount}
+          />
+        );
       case 'johnwick':
-        return <JohnWickPanel activeTrack={activeTrack} isPlaying={isPlaying} onTrackChange={handleTrackChange} />;
+        return (
+          <JohnWickPanel
+            activeTrack={activeTrack}
+            isPlaying={isPlaying}
+            onTrackChange={handleTrackChange}
+            missions={missions}
+            onRefreshMissions={handleRefreshMissions}
+            onRefreshAccount={handleRefreshAccount}
+          />
+        );
       case 'countdown':
         return <CountdownPanel />;
       case 'calendar':

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { trackPresets } from './AudioPlayer';
+import { api } from '../utils/api';
 
 const PHASES = [
   { id: 0, label: 'PREP', name: 'PREPARATION', dur: 10 * 60, type: 'prep', isBomb: false },
@@ -40,10 +41,11 @@ const VIDEOS = [
   { src: '', label: 'EXFILTRATING' },
 ];
 
-export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange }) {
+export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount }) {
   const [page, setPage] = useState('landing');
   const [mission, setMission] = useState('');
   const [missionInput, setMissionInput] = useState('');
+  const [selectedMissionId, setSelectedMissionId] = useState('');
   const [phase, setPhase] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [running, setRunning] = useState(false);
@@ -54,6 +56,8 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
   const bloodBgRef = useRef(null);
   const cylinderAngleRef = useRef(0);
   const videoRef = useRef(null);
+  const focusSessionIdRef = useRef(null);
+  const totalWorkSecondsRef = useRef(0);
 
   // BG CANVAS
   useEffect(() => {
@@ -146,6 +150,21 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
     return () => clearInterval(timerRef.current);
   }, [running]);
 
+  // END FOCUS SESSION
+  const endFocusSession = useCallback(async () => {
+    const sid = focusSessionIdRef.current;
+    if (!sid) return;
+    focusSessionIdRef.current = null;
+    const workMin = Math.round(totalWorkSecondsRef.current / 60);
+    try {
+      await api.endFocusSession(sid, { duration_minutes: workMin || 1 });
+      onRefreshMissions();
+      onRefreshAccount();
+    } catch (err) {
+      console.error(err);
+    }
+  }, [onRefreshMissions, onRefreshAccount]);
+
   // AUTO-ADVANCE when timer runs out
   useEffect(() => {
     if (timeLeft === 0 && page === 'running') {
@@ -161,9 +180,18 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
   }, []);
 
   // START MISSION
-  const startMission = () => {
+  const startMission = async () => {
     const name = missionRef.current.trim() || 'Unnamed Target';
     setMission(name);
+    totalWorkSecondsRef.current = 0;
+    if (selectedMissionId) {
+      try {
+        const session = await api.startFocusSession({ mission_id: parseInt(selectedMissionId) });
+        focusSessionIdRef.current = session.id;
+      } catch (err) {
+        console.error(err);
+      }
+    }
     flash('#c0112b', 200);
     setTimeout(() => {
       setPhase(0);
@@ -190,17 +218,22 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
   };
 
   // ABORT
-  const abortMission = () => {
+  const abortMission = async () => {
     if (!window.confirm('Abort the contract?')) return;
     setRunning(false);
     clearInterval(timerRef.current);
+    await endFocusSession();
     setPage('landing');
   };
 
   // PHASE END
-  const onPhaseEnd = () => {
+  const onPhaseEnd = async () => {
+    if (PHASES[phase]?.type === 'work') {
+      totalWorkSecondsRef.current += PHASES[phase].dur;
+    }
     flash(PHASES[phase].type === 'work' ? '#c0112b' : '#d4a017', 300);
     if (phase >= PHASES.length - 1) {
+      await endFocusSession();
       setTimeout(() => { setPage('complete'); setRunning(false); }, 400);
       return;
     }
@@ -491,6 +524,29 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange })
               spellCheck="false"
             />
             <div className="jw-input-glow" />
+          </div>
+          <div style={{ marginTop: '16px', width: 'min(360px, 70vw)' }}>
+            <select
+              value={selectedMissionId}
+              onChange={e => setSelectedMissionId(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'transparent',
+                border: '1px solid rgba(212,160,23,0.3)',
+                color: '#c8bfa8',
+                fontFamily: "'Bebas Neue', sans-serif",
+                fontSize: '16px',
+                letterSpacing: '3px',
+                padding: '10px 14px',
+                outline: 'none',
+                cursor: 'crosshair',
+              }}
+            >
+              <option value="" style={{ background: '#060608' }}>— No Linked Mission —</option>
+              {missions.filter(m => m.status !== 'completed' && !m.is_dismissed).map(m => (
+                <option key={m.id} value={m.id} style={{ background: '#060608' }}>{m.title}</option>
+              ))}
+            </select>
           </div>
           <button className="jw-start-btn" onClick={startMission}>ACCEPT THE CONTRACT</button>
           <div className="jw-meta-row">10 · 50 · 10 · 50 · 10 · 50 · 20 &nbsp;·&nbsp; 7 PHASES &nbsp;·&nbsp; 3H 40M</div>

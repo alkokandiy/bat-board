@@ -1,12 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { trackPresets } from './AudioPlayer';
+import { api } from '../utils/api';
 
-export default function FocusPanel({ activeTrack, isPlaying, onTrackChange }) {
+export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
   const [sessionLength, setSessionLength] = useState(25);
+  const [selectedMissionId, setSelectedMissionId] = useState('');
 
   const timerRef = useRef(null);
+  const focusSessionIdRef = useRef(null);
+  const sessionLengthRef = useRef(sessionLength);
+  sessionLengthRef.current = sessionLength;
+
+  const endSession = useRef(async () => {
+    const sid = focusSessionIdRef.current;
+    if (!sid) return;
+    focusSessionIdRef.current = null;
+    try {
+      await api.endFocusSession(sid, { duration_minutes: sessionLengthRef.current });
+      onRefreshMissions();
+      onRefreshAccount();
+    } catch (err) {
+      console.error(err);
+    }
+  }).current;
 
   useEffect(() => {
     if (!isActive) return;
@@ -15,23 +33,50 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange }) {
         if (prev <= 1) {
           clearInterval(timerRef.current);
           setIsActive(false);
+          endSession();
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timerRef.current);
-  }, [isActive]);
+  }, [isActive, endSession]);
+
+  const startSession = async () => {
+    try {
+      const data = selectedMissionId ? { mission_id: parseInt(selectedMissionId) } : {};
+      const session = await api.startFocusSession(data);
+      focusSessionIdRef.current = session.id;
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const toggleTimer = () => {
-    if (!isActive && timeLeft === 0) {
-      setTimeLeft(sessionLength * 60);
+    if (!isActive) {
+      if (timeLeft === 0) {
+        setTimeLeft(sessionLength * 60);
+      }
+      startSession();
     }
     setIsActive(!isActive);
   };
 
-  const resetTimer = () => {
+  const resetTimer = async () => {
     clearInterval(timerRef.current);
+    if (isActive) {
+      const sid = focusSessionIdRef.current;
+      if (sid) {
+        focusSessionIdRef.current = null;
+        try {
+          await api.endFocusSession(sid, { duration_minutes: sessionLength });
+        } catch (err) {
+          console.error(err);
+        }
+        onRefreshMissions();
+        onRefreshAccount();
+      }
+    }
     setIsActive(false);
     setTimeLeft(sessionLength * 60);
   };
@@ -105,6 +150,20 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange }) {
             <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2">
               Parameters
             </h2>
+            <div className="text-xs">
+              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Mission Target</label>
+              <select
+                value={selectedMissionId}
+                onChange={e => setSelectedMissionId(e.target.value)}
+                disabled={isActive}
+                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
+              >
+                <option value="">— No Mission —</option>
+                {missions.filter(m => m.status !== 'completed' && !m.is_dismissed).map(m => (
+                  <option key={m.id} value={m.id}>{m.title}</option>
+                ))}
+              </select>
+            </div>
             <div className="text-xs">
               <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Session Length (Minutes)</label>
               <input

@@ -38,6 +38,8 @@ class BatMission(Base):
     location = Column(String, nullable=True)
     notes = Column(String, nullable=True)
     subtasks = Column(String, nullable=True)
+    focus_minutes = Column(Integer, default=0, nullable=False)
+    completed_focus_sessions = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
 
@@ -91,6 +93,9 @@ class BatFocus(Base):
     end_time = Column(DateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
     soundtrack_metadata = Column(String, nullable=True)
+
+    mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
+    mission = relationship("BatMission")
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="focus_sessions")

@@ -156,7 +156,7 @@ export const api = {
   createLog: (data) => request('/logs', { method: 'POST', body: data }),
 
   // Focus
-  startFocusSession: () => request('/focus/sessions', { method: 'POST' }),
+  startFocusSession: (data) => request('/focus/sessions', { method: 'POST', body: data }),
   endFocusSession: (id, data) => request(`/focus/sessions/${id}`, { method: 'PUT', body: data }),
   getFocusSessions: (limit = 20) => request(`/focus/sessions?limit=${limit}`),
 

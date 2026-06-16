@@ -192,6 +192,8 @@ class BatMissionSchema(BatMissionBase):
     created_at: datetime
     completed_at: Optional[datetime] = None
     owner_id: int
+    focus_minutes: int = 0
+    completed_focus_sessions: int = 0
 
     class Config:
         from_attributes = True
@@ -269,6 +271,7 @@ class BatFocusCreate(BaseModel):
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = None
     soundtrack_metadata: Optional[str] = None
+    mission_id: Optional[int] = None
 
 class BatFocusSchema(BaseModel):
     id: int
@@ -362,11 +365,13 @@ def refresh_token(request: Request, refresh_token: str = Body(...), db: Session 
 
 @app.get("/api/auth/me", response_model=UserResponse)
 def get_me(current_user: models.BatAccount = Depends(get_current_active_user)):
+    current_user.bat_level = calculate_bat_level(current_user.points)
     return current_user
 
 # --- Account Endpoints ---
 @app.get("/api/account", response_model=BatAccountSchema)
 def get_account(current_user: models.BatAccount = Depends(get_current_active_user)):
+    current_user.bat_level = calculate_bat_level(current_user.points)
     return current_user
 
 @app.put("/api/account", response_model=BatAccountSchema)
@@ -809,12 +814,22 @@ def create_log(
 # --- Focus Endpoints ---
 @app.post("/api/focus/sessions", response_model=BatFocusSchema, status_code=status.HTTP_201_CREATED)
 def start_focus_session(
+    payload: Optional[BatFocusCreate] = Body(None),
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
+    if payload and payload.mission_id:
+        mission = db.query(models.BatMission).filter(
+            models.BatMission.id == payload.mission_id,
+            models.BatMission.owner_id == current_user.id
+        ).first()
+        if not mission:
+            raise HTTPException(status_code=404, detail="Mission not found")
+
     session = models.BatFocus(
         start_time=datetime.utcnow(),
-        owner_id=current_user.id
+        owner_id=current_user.id,
+        mission_id=payload.mission_id if payload else None,
     )
     db.add(session)
     db.flush()
@@ -822,7 +837,8 @@ def start_focus_session(
 
     auto_log_event(db, current_user.id, "focus_session_started", {
         "session_id": session.id,
-        "start_time": session.start_time.isoformat()
+        "start_time": session.start_time.isoformat(),
+        "mission_id": session.mission_id,
     })
     db.commit()
 
@@ -856,6 +872,15 @@ def end_focus_session(
         delta = session.end_time - session.start_time
         session.duration_minutes = int(delta.total_seconds() / 60)
 
+    if session.mission_id and session.duration_minutes:
+        mission = db.query(models.BatMission).filter(
+            models.BatMission.id == session.mission_id,
+            models.BatMission.owner_id == current_user.id
+        ).first()
+        if mission:
+            mission.focus_minutes = (mission.focus_minutes or 0) + session.duration_minutes
+            mission.completed_focus_sessions = (mission.completed_focus_sessions or 0) + 1
+
     reward = session.duration_minutes * 2 if session.duration_minutes else 0
     current_user.points += reward
     old_level = current_user.bat_level
@@ -868,6 +893,7 @@ def end_focus_session(
     auto_log_event(db, current_user.id, "focus_session_ended", {
         "session_id": session.id,
         "duration_minutes": session.duration_minutes,
+        "mission_id": session.mission_id,
         "points_awarded": reward,
         "old_level": old_level,
         "new_level": current_user.bat_level
