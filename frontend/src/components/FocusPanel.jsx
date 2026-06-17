@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { trackPresets } from './AudioPlayer';
 import { api } from '../utils/api';
+import FlipTimer from './FlipTimer';
+import BatProgress from './BatProgress';
 
 export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
@@ -124,12 +126,6 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
     }
   };
 
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
   const progress = sessionLength > 0 ? (timeLeft / (sessionLength * 60)) * 100 : 0;
 
   return (
@@ -143,14 +139,9 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
         <div className="lg:col-span-2 bg-dark-slate p-8 rounded border border-slate-800 flex flex-col items-center justify-center space-y-6">
           <div className="text-center">
             <span className="text-slate-500 text-[10px] font-mono uppercase tracking-widest">Cognitive State Isolation</span>
-            <div className="text-7xl font-bold font-mono tracking-widest text-slate-100 mt-2 select-none">
-              {formatTime(timeLeft)}
-            </div>
-            <div className="h-1.5 w-64 bg-matte-obsidian rounded-full overflow-hidden mt-4 mx-auto border border-slate-800">
-              <div
-                className="h-full bg-electric-bat-yellow transition-all duration-300"
-                style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-              />
+            <div className="mt-4 flex flex-col items-center gap-4">
+              <FlipTimer seconds={timeLeft} className="scale-[1.8] origin-center" />
+              <BatProgress progress={progress} />
             </div>
           </div>
 
