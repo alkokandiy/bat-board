@@ -102,6 +102,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTrack, setActiveTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
   const fetchAllData = useCallback(async () => {
     try {
@@ -147,7 +148,17 @@ export default function App() {
       setLogs([]);
     };
     window.addEventListener('auth:logout', handleLogout);
-    return () => window.removeEventListener('auth:logout', handleLogout);
+
+    const refreshInterval = setInterval(async () => {
+      try {
+        await api.refreshToken();
+      } catch {}
+    }, 60 * 60 * 1000);
+
+    return () => {
+      window.removeEventListener('auth:logout', handleLogout);
+      clearInterval(refreshInterval);
+    };
   }, [fetchAllData]);
 
   const handleLogin = async () => {
@@ -280,6 +291,7 @@ export default function App() {
             missions={missions}
             onRefreshMissions={handleRefreshMissions}
             onRefreshAccount={handleRefreshAccount}
+            onFocusModeChange={setFocusMode}
           />
         );
       case 'johnwick':
@@ -291,6 +303,7 @@ export default function App() {
             missions={missions}
             onRefreshMissions={handleRefreshMissions}
             onRefreshAccount={handleRefreshAccount}
+            onFocusModeChange={setFocusMode}
           />
         );
       case 'countdown':
@@ -409,6 +422,7 @@ export default function App() {
       isPlaying={isPlaying}
       onTogglePlay={handleTogglePlay}
       onTrackChange={handleTrackChange}
+      focusMode={focusMode}
     >
       {renderView()}
       <AudioPlayer

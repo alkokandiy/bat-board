@@ -41,7 +41,7 @@ const VIDEOS = [
   { src: '', label: 'EXFILTRATING' },
 ];
 
-export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount }) {
+export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
   const [page, setPage] = useState('landing');
   const [mission, setMission] = useState('');
   const [missionInput, setMissionInput] = useState('');
@@ -58,6 +58,32 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, m
   const videoRef = useRef(null);
   const focusSessionIdRef = useRef(null);
   const totalWorkSecondsRef = useRef(0);
+  const wakeLockRef = useRef(null);
+
+  const releaseWakeLock = async () => {
+    if (wakeLockRef.current) {
+      try { await wakeLockRef.current.release(); } catch {}
+      wakeLockRef.current = null;
+    }
+  };
+
+  const requestWakeLock = async () => {
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+    } catch {}
+  };
+
+  const enterFocusMode = async () => {
+    await requestWakeLock();
+    onFocusModeChange(true);
+    try { await document.documentElement.requestFullscreen(); } catch {}
+  };
+
+  const exitFocusMode = async () => {
+    await releaseWakeLock();
+    onFocusModeChange(false);
+    if (document.fullscreenElement) await document.exitFullscreen();
+  };
 
   // BG CANVAS
   useEffect(() => {
@@ -192,6 +218,7 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, m
         console.error(err);
       }
     }
+    enterFocusMode();
     flash('#c0112b', 200);
     setTimeout(() => {
       setPhase(0);
@@ -223,6 +250,7 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, m
     setRunning(false);
     clearInterval(timerRef.current);
     await endFocusSession();
+    await exitFocusMode();
     setPage('landing');
   };
 
@@ -234,6 +262,7 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, m
     flash(PHASES[phase].type === 'work' ? '#c0112b' : '#d4a017', 300);
     if (phase >= PHASES.length - 1) {
       await endFocusSession();
+      await exitFocusMode();
       setTimeout(() => { setPage('complete'); setRunning(false); }, 400);
       return;
     }

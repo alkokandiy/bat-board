@@ -19,8 +19,8 @@ class Settings(BaseSettings):
 
     secret_key: str = Field(default="change-me-to-a-secure-random-string-in-production")
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
-    refresh_token_expire_days: int = 7
+    access_token_expire_minutes: int = 1440
+    refresh_token_expire_days: int = 30
 
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 

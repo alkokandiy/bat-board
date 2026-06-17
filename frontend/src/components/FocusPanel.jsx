@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { trackPresets } from './AudioPlayer';
 import { api } from '../utils/api';
 
-export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount }) {
+export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
   const [sessionLength, setSessionLength] = useState(25);
@@ -12,6 +12,20 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
   const focusSessionIdRef = useRef(null);
   const sessionLengthRef = useRef(sessionLength);
   sessionLengthRef.current = sessionLength;
+  const wakeLockRef = useRef(null);
+
+  const releaseWakeLock = async () => {
+    if (wakeLockRef.current) {
+      try { await wakeLockRef.current.release(); } catch {}
+      wakeLockRef.current = null;
+    }
+  };
+
+  const requestWakeLock = async () => {
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request('screen');
+    } catch {}
+  };
 
   const endSession = useRef(async () => {
     const sid = focusSessionIdRef.current;
@@ -26,6 +40,12 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
     }
   }).current;
 
+  const exitFocusMode = async () => {
+    await releaseWakeLock();
+    onFocusModeChange(false);
+    if (document.fullscreenElement) await document.exitFullscreen();
+  };
+
   useEffect(() => {
     if (!isActive) return;
     timerRef.current = setInterval(() => {
@@ -34,6 +54,7 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
           clearInterval(timerRef.current);
           setIsActive(false);
           endSession();
+          exitFocusMode();
           return 0;
         }
         return prev - 1;
@@ -41,6 +62,12 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
     }, 1000);
     return () => clearInterval(timerRef.current);
   }, [isActive, endSession]);
+
+  const enterFocusMode = async () => {
+    await requestWakeLock();
+    onFocusModeChange(true);
+    try { await document.documentElement.requestFullscreen(); } catch {}
+  };
 
   const startSession = async () => {
     try {
@@ -58,6 +85,7 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
         setTimeLeft(sessionLength * 60);
       }
       startSession();
+      enterFocusMode();
     }
     setIsActive(!isActive);
   };
@@ -77,6 +105,7 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
         onRefreshAccount();
       }
     }
+    await exitFocusMode();
     setIsActive(false);
     setTimeLeft(sessionLength * 60);
   };
