@@ -57,6 +57,8 @@ class BatHabit(Base):
     frequency = Column(String, default="daily", nullable=False)
     streak = Column(Integer, default=0, nullable=False)
     last_completed = Column(DateTime, nullable=True)
+    focus_minutes = Column(Integer, default=0, nullable=False)
+    target_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
@@ -96,6 +98,8 @@ class BatFocus(Base):
 
     mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
     mission = relationship("BatMission")
+    habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="SET NULL"), nullable=True)
+    habit = relationship("BatHabit")
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="focus_sessions")

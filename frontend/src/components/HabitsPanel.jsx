@@ -57,6 +57,15 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
     }
   };
 
+  const handleSetTargetDate = async (habitId, dateStr) => {
+    try {
+      await api.updateHabit(habitId, { target_date: dateStr || null });
+      await onRefreshHabits();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
@@ -176,6 +185,12 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                             {habit.streak} {habit.streak === 1 ? 'day' : 'days'}
                           </span>
                         </div>
+
+                        {(habit.focus_minutes || 0) > 0 && (
+                          <div className="text-slate-500">
+                            ⏱ {habit.focus_minutes}m
+                          </div>
+                        )}
                         
                         {habit.streak > 2 && (
                           <span className="text-[9px] bg-orange-950/20 text-orange-400 border border-orange-950 px-1.5 py-0.5 rounded uppercase tracking-wider">
@@ -185,9 +200,24 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
 
                         {habit.last_completed && (
                           <div className="text-slate-500">
-                            Last checked: {new Date(habit.last_completed).toLocaleDateString()}
+                            Last: {new Date(habit.last_completed).toLocaleDateString()}
                           </div>
                         )}
+
+                        {habit.target_date && (
+                          <div className={`${new Date(habit.target_date) < new Date() ? 'text-red-400' : 'text-slate-500'}`}>
+                            End: {new Date(habit.target_date).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 pt-1 text-[10px] font-mono">
+                        <span className="text-slate-500">Target end date:</span>
+                        <input
+                          type="date"
+                          defaultValue={habit.target_date ? habit.target_date.split('T')[0] : ''}
+                          onChange={e => handleSetTargetDate(habit.id, e.target.value || null)}
+                          className="bg-matte-obsidian border border-slate-800 rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-electric-bat-yellow w-auto"
+                        />
                       </div>
                     </div>
 

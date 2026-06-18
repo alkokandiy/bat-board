@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { trackPresets } from './AudioPlayer';
 import { api } from '../utils/api';
 
-export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
+export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, habits, onRefreshMissions, onRefreshHabits, onRefreshAccount, onFocusModeChange }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
   const [sessionLength, setSessionLength] = useState(25);
   const [selectedMissionId, setSelectedMissionId] = useState('');
+  const [selectedHabitId, setSelectedHabitId] = useState('');
 
   const timerRef = useRef(null);
   const focusSessionIdRef = useRef(null);
@@ -71,7 +72,9 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
 
   const startSession = async () => {
     try {
-      const data = selectedMissionId ? { mission_id: parseInt(selectedMissionId) } : {};
+      const data = {};
+      if (selectedMissionId) data.mission_id = parseInt(selectedMissionId);
+      if (selectedHabitId) data.habit_id = parseInt(selectedHabitId);
       const session = await api.startFocusSession(data);
       focusSessionIdRef.current = session.id;
     } catch (err) {
@@ -178,6 +181,20 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
                 <option value="">— No Mission —</option>
                 {missions.filter(m => m.status !== 'completed' && !m.is_dismissed).map(m => (
                   <option key={m.id} value={m.id}>{m.title}</option>
+                ))}
+              </select>
+            </div>
+            <div className="text-xs">
+              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Habit Target</label>
+              <select
+                value={selectedHabitId}
+                onChange={e => setSelectedHabitId(e.target.value)}
+                disabled={isActive}
+                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
+              >
+                <option value="">— No Habit —</option>
+                {habits.filter(h => h.streak >= 0).map(h => (
+                  <option key={h.id} value={h.id}>{h.name}</option>
                 ))}
               </select>
             </div>

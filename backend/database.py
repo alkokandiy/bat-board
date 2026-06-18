@@ -66,14 +66,34 @@ def _ensure_columns():
                 ))
                 conn.commit()
 
+    # BatHabit columns
+    if inspector.has_table("bat_habits"):
+        habit_columns = {c["name"] for c in inspector.get_columns("bat_habits")}
+        with engine.connect() as conn:
+            if "focus_minutes" not in habit_columns:
+                conn.execute(text(
+                    "ALTER TABLE bat_habits ADD COLUMN focus_minutes INTEGER NOT NULL DEFAULT 0"
+                ))
+            if "target_date" not in habit_columns:
+                conn.execute(text(
+                    "ALTER TABLE bat_habits ADD COLUMN target_date TIMESTAMP"
+                ))
+            if "focus_minutes" not in habit_columns or "target_date" not in habit_columns:
+                conn.commit()
+
     # BatFocus columns
     if inspector.has_table("bat_focus"):
         focus_columns = {c["name"] for c in inspector.get_columns("bat_focus")}
-        if "mission_id" not in focus_columns:
-            with engine.connect() as conn:
+        with engine.connect() as conn:
+            if "mission_id" not in focus_columns:
                 conn.execute(text(
                     "ALTER TABLE bat_focus ADD COLUMN mission_id INTEGER REFERENCES bat_missions(id) ON DELETE SET NULL"
                 ))
+            if "habit_id" not in focus_columns:
+                conn.execute(text(
+                    "ALTER TABLE bat_focus ADD COLUMN habit_id INTEGER REFERENCES bat_habits(id) ON DELETE SET NULL"
+                ))
+            if "mission_id" not in focus_columns or "habit_id" not in focus_columns:
                 conn.commit()
 
 

@@ -152,7 +152,12 @@ export const api = {
   checkInHabit: (id) => request(`/habits/${id}/check-in`, { method: 'POST' }),
 
   // Logs
-  getLogs: (limit = 50) => request(`/logs?limit=${limit}`),
+  getLogs: (limit = 50, start_date = '', end_date = '') => {
+    let url = `/logs?limit=${limit}`;
+    if (start_date) url += `&start_date=${encodeURIComponent(start_date)}`;
+    if (end_date) url += `&end_date=${encodeURIComponent(end_date)}`;
+    return request(url);
+  },
   createLog: (data) => request('/logs', { method: 'POST', body: data }),
 
   // Focus

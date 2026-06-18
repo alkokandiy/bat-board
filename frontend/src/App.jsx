@@ -7,6 +7,7 @@ import JohnWickPanel from './components/JohnWickPanel';
 import CountdownPanel from './components/CountdownPanel';
 import CalendarPanel from './components/CalendarPanel';
 import ProfileSettings from './components/ProfileSettings';
+import LogsPanel from './components/LogsPanel';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
@@ -290,7 +291,9 @@ export default function App() {
             isPlaying={isPlaying}
             onTrackChange={handleTrackChange}
             missions={missions}
+            habits={habits}
             onRefreshMissions={handleRefreshMissions}
+            onRefreshHabits={handleRefreshHabits}
             onRefreshAccount={handleRefreshAccount}
             onFocusModeChange={setFocusMode}
           />
@@ -315,55 +318,10 @@ export default function App() {
         return <ProfileSettings account={account} onRefreshAccount={handleRefreshAccount} />;
       case 'logs':
         return (
-          <div className="space-y-6">
-            <div className="border-l-4 border-electric-bat-yellow pl-4 py-1 flex justify-between items-center">
-              <div>
-                <h1 className="text-2xl font-bold tracking-wider">LEDGER SECURITY LOG</h1>
-                <p className="text-xs text-slate-400">Cryptographically secure immutable history tracking account modifications.</p>
-              </div>
-              <button
-                onClick={handleRefreshLogs}
-                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-800 rounded font-mono text-[10px] tracking-wider transition"
-              >
-                REFRESH FEED
-              </button>
-            </div>
-            <div className="bg-dark-slate rounded border border-slate-800 overflow-hidden">
-              <div className="p-4 border-b border-slate-800 bg-matte-obsidian flex justify-between items-center">
-                <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">LOG METADATA RECORD</span>
-                <span className="text-xs font-mono text-slate-500">Showing last {logs.length} entries</span>
-              </div>
-              <div className="divide-y divide-slate-800 font-mono text-xs">
-                {logs.length === 0 ? (
-                  <div className="p-6 text-center text-slate-500">No cryptographic log ledger entries captured yet.</div>
-                ) : (
-                  logs.map((log) => {
-                    let parsedDetails = {};
-                    try {
-                      parsedDetails = JSON.parse(log.details);
-                    } catch {
-                      parsedDetails = { raw: log.details };
-                    }
-                    return (
-                      <div key={log.id} className="p-4 hover:bg-slate-900 transition flex flex-col md:flex-row md:items-center justify-between gap-2">
-                        <div className="space-y-1">
-                          <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] mr-2">
-                            {log.event_type}
-                          </span>
-                          <span className="text-slate-300">
-                            {parsedDetails.message || parsedDetails.reason || JSON.stringify(parsedDetails)}
-                          </span>
-                        </div>
-                        <span className="text-slate-500 text-[10px] shrink-0">
-                          {new Date(log.timestamp).toLocaleString()}
-                        </span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
+          <LogsPanel
+            initialLogs={logs}
+            onRefreshLogs={handleRefreshLogs}
+          />
         );
       default:
         return (

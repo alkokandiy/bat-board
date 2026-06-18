@@ -241,11 +241,14 @@ class BatHabitUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     frequency: Optional[str] = None
     streak: Optional[int] = None
+    target_date: Optional[datetime] = None
 
 class BatHabitSchema(BatHabitBase):
     id: int
     streak: int
     last_completed: Optional[datetime] = None
+    focus_minutes: int = 0
+    target_date: Optional[datetime] = None
     created_at: datetime
     owner_id: int
 
@@ -272,6 +275,7 @@ class BatFocusCreate(BaseModel):
     duration_minutes: Optional[int] = None
     soundtrack_metadata: Optional[str] = None
     mission_id: Optional[int] = None
+    habit_id: Optional[int] = None
 
 class BatFocusSchema(BaseModel):
     id: int
@@ -280,6 +284,7 @@ class BatFocusSchema(BaseModel):
     duration_minutes: Optional[int] = None
     soundtrack_metadata: Optional[str] = None
     mission_id: Optional[int] = None
+    habit_id: Optional[int] = None
     owner_id: int
 
     class Config:
@@ -825,12 +830,17 @@ def check_in_habit(
 @app.get("/api/logs", response_model=List[BatLogSchema])
 def list_logs(
     limit: int = Query(50, ge=1, le=200),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return db.query(models.BatLog).filter(
-        models.BatLog.owner_id == current_user.id
-    ).order_by(models.BatLog.timestamp.desc()).limit(limit).all()
+    q = db.query(models.BatLog).filter(models.BatLog.owner_id == current_user.id)
+    if start_date:
+        q = q.filter(models.BatLog.timestamp >= start_date)
+    if end_date:
+        q = q.filter(models.BatLog.timestamp <= end_date)
+    return q.order_by(models.BatLog.timestamp.desc()).limit(limit).all()
 
 @app.post("/api/logs", response_model=BatLogSchema, status_code=status.HTTP_201_CREATED)
 def create_log(
@@ -855,18 +865,27 @@ def start_focus_session(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    if payload and payload.mission_id:
-        mission = db.query(models.BatMission).filter(
-            models.BatMission.id == payload.mission_id,
-            models.BatMission.owner_id == current_user.id
-        ).first()
-        if not mission:
-            raise HTTPException(status_code=404, detail="Mission not found")
+    if payload:
+        if payload.mission_id:
+            mission = db.query(models.BatMission).filter(
+                models.BatMission.id == payload.mission_id,
+                models.BatMission.owner_id == current_user.id
+            ).first()
+            if not mission:
+                raise HTTPException(status_code=404, detail="Mission not found")
+        if payload.habit_id:
+            habit = db.query(models.BatHabit).filter(
+                models.BatHabit.id == payload.habit_id,
+                models.BatHabit.owner_id == current_user.id
+            ).first()
+            if not habit:
+                raise HTTPException(status_code=404, detail="Habit not found")
 
     session = models.BatFocus(
         start_time=datetime.utcnow(),
         owner_id=current_user.id,
         mission_id=payload.mission_id if payload else None,
+        habit_id=payload.habit_id if payload else None,
     )
     db.add(session)
     db.flush()
@@ -876,6 +895,7 @@ def start_focus_session(
         "session_id": session.id,
         "start_time": session.start_time.isoformat(),
         "mission_id": session.mission_id,
+        "habit_id": session.habit_id,
     })
     db.commit()
 
@@ -909,14 +929,22 @@ def end_focus_session(
         delta = session.end_time - session.start_time
         session.duration_minutes = int(delta.total_seconds() / 60)
 
-    if session.mission_id and session.duration_minutes:
-        mission = db.query(models.BatMission).filter(
-            models.BatMission.id == session.mission_id,
-            models.BatMission.owner_id == current_user.id
-        ).first()
-        if mission:
-            mission.focus_minutes = (mission.focus_minutes or 0) + session.duration_minutes
-            mission.completed_focus_sessions = (mission.completed_focus_sessions or 0) + 1
+    if session.duration_minutes:
+        if session.mission_id:
+            mission = db.query(models.BatMission).filter(
+                models.BatMission.id == session.mission_id,
+                models.BatMission.owner_id == current_user.id
+            ).first()
+            if mission:
+                mission.focus_minutes = (mission.focus_minutes or 0) + session.duration_minutes
+                mission.completed_focus_sessions = (mission.completed_focus_sessions or 0) + 1
+        if session.habit_id:
+            habit = db.query(models.BatHabit).filter(
+                models.BatHabit.id == session.habit_id,
+                models.BatHabit.owner_id == current_user.id
+            ).first()
+            if habit:
+                habit.focus_minutes = (habit.focus_minutes or 0) + session.duration_minutes
 
     reward = session.duration_minutes if session.duration_minutes else 0
     current_user.points += reward
@@ -931,6 +959,7 @@ def end_focus_session(
         "session_id": session.id,
         "duration_minutes": session.duration_minutes,
         "mission_id": session.mission_id,
+        "habit_id": session.habit_id,
         "points_awarded": reward,
         "old_level": old_level,
         "new_level": current_user.bat_level
