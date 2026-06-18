@@ -6,6 +6,7 @@ import FocusPanel from './components/FocusPanel';
 import JohnWickPanel from './components/JohnWickPanel';
 import CountdownPanel from './components/CountdownPanel';
 import CalendarPanel from './components/CalendarPanel';
+import ProfileSettings from './components/ProfileSettings';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
@@ -310,6 +311,8 @@ export default function App() {
         return <CountdownPanel />;
       case 'calendar':
         return <CalendarPanel />;
+      case 'profile':
+        return <ProfileSettings account={account} onRefreshAccount={handleRefreshAccount} />;
       case 'logs':
         return (
           <div className="space-y-6">

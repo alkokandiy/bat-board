@@ -112,23 +112,23 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # --- Tier Calculation Helper ---
 def calculate_bat_level(points: int) -> str:
-    if points < 200:
+    if points < 2000:
         return "The Orphan"
-    elif points < 500:
+    elif points < 5000:
         return "The Vigilante"
-    elif points < 1000:
+    elif points < 10000:
         return "The Detective"
-    elif points < 2000:
+    elif points < 20000:
         return "Son of Gotham"
-    elif points < 3500:
+    elif points < 35000:
         return "The Caped Crusader"
-    elif points < 5500:
+    elif points < 55000:
         return "Heir of the Demon"
-    elif points < 8000:
+    elif points < 80000:
         return "The Dark Knight"
-    elif points < 12000:
+    elif points < 120000:
         return "Faris al-Khorasan"
-    elif points < 18000:
+    elif points < 180000:
         return "Sword of the Ummah"
     else:
         return "Dark Knight of Khorasan"
@@ -413,6 +413,42 @@ def update_account(
     db.refresh(current_user)
     return current_user
 
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.put("/api/account/password", response_model=dict)
+def change_password(
+    payload: ChangePassword,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    from auth import verify_password, get_password_hash
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    current_user.hashed_password = get_password_hash(payload.new_password)
+    auto_log_event(db, current_user.id, "password_changed", {"message": "Password changed"})
+    db.commit()
+    return {"detail": "Password updated successfully"}
+
+@app.post("/api/account/reset-points", response_model=BatAccountSchema)
+def reset_points(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    old_points = current_user.points
+    current_user.points = 0
+    current_user.bat_level = calculate_bat_level(0)
+    auto_log_event(db, current_user.id, "points_reset", {
+        "old_points": old_points,
+        "new_points": 0,
+        "old_level": current_user.bat_level,
+        "new_level": current_user.bat_level
+    })
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
 # --- Mission Endpoints ---
 @app.get("/api/missions", response_model=List[BatMissionSchema])
 def list_missions(
@@ -481,13 +517,13 @@ def update_mission(
         mission.status = payload.status
         if payload.status == "completed" and old_status != "completed":
             mission.completed_at = datetime.utcnow()
-            reward = 100
+            reward = 10
             if mission.priority == "high":
-                reward = 200
+                reward = 20
             elif mission.priority == "critical":
-                reward = 500
-            elif mission.priority == "low":
                 reward = 50
+            elif mission.priority == "low":
+                reward = 5
 
             current_user.points += reward
             current_user.bat_level = calculate_bat_level(current_user.points)
@@ -751,8 +787,8 @@ def check_in_habit(
 
         habit.last_completed = now
 
-        streak_bonus = min(habit.streak * 10, 100)
-        reward = 50 + streak_bonus
+        streak_bonus = min(habit.streak, 10)
+        reward = 5 + streak_bonus
 
         current_user.points += reward
         old_level = current_user.bat_level
@@ -882,7 +918,7 @@ def end_focus_session(
             mission.focus_minutes = (mission.focus_minutes or 0) + session.duration_minutes
             mission.completed_focus_sessions = (mission.completed_focus_sessions or 0) + 1
 
-    reward = session.duration_minutes * 2 if session.duration_minutes else 0
+    reward = session.duration_minutes if session.duration_minutes else 0
     current_user.points += reward
     old_level = current_user.bat_level
     current_user.bat_level = calculate_bat_level(current_user.points)

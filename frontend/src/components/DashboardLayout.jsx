@@ -12,6 +12,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
     { id: 'countdown', label: 'Countdown', icon: 'C' },
     { id: 'calendar', label: 'Calendar', icon: 'E' },
     { id: 'logs', label: 'Logs', icon: 'L' },
+    { id: 'profile', label: 'Profile', icon: 'P' },
   ];
 
   return (

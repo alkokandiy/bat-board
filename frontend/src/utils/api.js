@@ -160,6 +160,11 @@ export const api = {
   endFocusSession: (id, data) => request(`/focus/sessions/${id}`, { method: 'PUT', body: data }),
   getFocusSessions: (limit = 20) => request(`/focus/sessions?limit=${limit}`),
 
+  // Account
+  changePassword: (current_password, new_password) =>
+    request('/account/password', { method: 'PUT', body: { current_password, new_password } }),
+  resetPoints: () => request('/account/reset-points', { method: 'POST' }),
+
   // Calendar Events
   getCalendarEvents: () => request('/calendar/events'),
   createCalendarEvent: (data) => request('/calendar/events', { method: 'POST', body: data }),
