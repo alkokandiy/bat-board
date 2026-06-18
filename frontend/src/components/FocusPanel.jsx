@@ -1,16 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { trackPresets } from './AudioPlayer';
 import { api } from '../utils/api';
-import FlipTimer from './FlipTimer';
-import BatSymbolProgress from './BatSymbolProgress';
-import BatmobileProgress from './BatmobileProgress';
 
 export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
   const [sessionLength, setSessionLength] = useState(25);
   const [selectedMissionId, setSelectedMissionId] = useState('');
-  const [displayMode, setDisplayMode] = useState('flip');
 
   const timerRef = useRef(null);
   const focusSessionIdRef = useRef(null);
@@ -128,8 +124,6 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
     }
   };
 
-  const progress = sessionLength > 0 ? (timeLeft / (sessionLength * 60)) * 100 : 0;
-
   return (
     <div className="space-y-6">
       <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
@@ -141,48 +135,11 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
         <div className="lg:col-span-2 bg-dark-slate p-8 rounded border border-slate-800 flex flex-col items-center justify-center space-y-6">
           <div className="text-center">
             <span className="text-slate-500 text-[10px] font-mono uppercase tracking-widest">Cognitive State Isolation</span>
-            <div className="flex gap-1.5 mb-4 bg-matte-obsidian rounded-lg p-1 border border-slate-800">
-              {[
-                { key: 'normal', label: 'N' },
-                { key: 'flip', label: 'F' },
-                { key: 'bat', label: 'B' },
-                { key: 'batmobile', label: 'M' },
-              ].map(m => (
-                <button
-                  key={m.key}
-                  onClick={() => setDisplayMode(m.key)}
-                  className={`w-7 h-7 rounded text-[10px] font-mono font-bold transition ${
-                    displayMode === m.key
-                      ? 'bg-electric-bat-yellow text-matte-obsidian'
-                      : 'bg-transparent text-slate-500 hover:text-slate-300'
-                  }`}
-                  title={{
-                    normal: 'Normal Timer',
-                    flip: 'Flip Digits',
-                    bat: 'Bat Signal',
-                    batmobile: 'Batmobile',
-                  }[m.key]}
-                >
-                  {m.label}
-                </button>
-              ))}
+            <div className={`font-mono font-bold text-electric-bat-yellow tracking-widest tabular-nums transition-all duration-300 ${
+              isActive ? 'text-8xl' : 'text-6xl'
+            }`}>
+              {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
             </div>
-            {displayMode === 'normal' && (
-              <div className="text-6xl font-mono font-bold text-electric-bat-yellow tracking-widest tabular-nums">
-                {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
-              </div>
-            )}
-            {displayMode === 'flip' && (
-              <FlipTimer seconds={timeLeft} className="scale-[1.8] origin-center" />
-            )}
-            {displayMode === 'bat' && (
-              <BatSymbolProgress progress={progress} />
-            )}
-            {displayMode === 'batmobile' && (
-              <div className="w-full max-w-md">
-                <BatmobileProgress progress={progress} />
-              </div>
-            )}
           </div>
 
           <div className="flex items-center space-x-4">
