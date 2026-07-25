@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { trackPresets } from './AudioPlayer';
 import { api } from '../utils/api';
+import BatFocusTimer from './BatFocusTimer';
 
 export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, habits, onRefreshMissions, onRefreshHabits, onRefreshAccount, onFocusModeChange }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
@@ -135,34 +136,14 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-dark-slate p-8 rounded border border-slate-800 flex flex-col items-center justify-center space-y-6">
-          <div className="text-center">
-            <span className="text-slate-500 text-[10px] font-mono uppercase tracking-widest">Cognitive State Isolation</span>
-            <div className={`font-mono font-bold text-electric-bat-yellow tracking-widest tabular-nums transition-all duration-300 ${
-              isActive ? 'text-8xl' : 'text-6xl'
-            }`}>
-              {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={toggleTimer}
-              className={`px-8 py-3 rounded text-xs font-bold font-mono tracking-widest transition duration-200 ${
-                isActive
-                  ? 'bg-amber-950/20 text-amber-500 border border-amber-900/30 hover:bg-amber-950/40'
-                  : 'bg-electric-bat-yellow text-matte-obsidian hover:bg-yellow-400 font-extrabold'
-              }`}
-            >
-              {isActive ? 'SUSPEND FLOW' : 'ENGAGE INTENSITY'}
-            </button>
-            <button
-              onClick={resetTimer}
-              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-xs font-bold font-mono tracking-widest border border-slate-800 transition"
-            >
-              REBOOT
-            </button>
-          </div>
+        <div className="lg:col-span-2">
+          <BatFocusTimer
+            timeLeft={timeLeft}
+            totalTime={sessionLength * 60}
+            running={isActive}
+            onToggleRunning={toggleTimer}
+            onAdjustTime={(delta) => setTimeLeft(prev => Math.max(0, prev + delta))}
+          />
         </div>
 
         <div className="bg-dark-slate p-6 rounded border border-slate-800 space-y-6">
