@@ -11,6 +11,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
     { id: 'johnwick', label: 'John Wick', icon: 'J' },
     { id: 'countdown', label: 'Countdown', icon: 'C' },
     { id: 'calendar', label: 'Calendar', icon: 'E' },
+    { id: 'notes', label: 'Notes', icon: 'N' },
     { id: 'logs', label: 'Logs', icon: 'L' },
     { id: 'profile', label: 'Profile', icon: 'P' },
   ];
