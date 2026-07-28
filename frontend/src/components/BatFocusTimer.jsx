@@ -105,7 +105,7 @@ function ColonSeparator({ running }) {
 }
 
 // ==========================================
-// FIX 4: BATMAN LOGO PIXEL GRID GENERATOR
+// BATMAN LOGO PIXEL GRID GENERATOR
 // ==========================================
 function buildLogoGrid() {
   const grid = [];
@@ -186,24 +186,24 @@ export default function BatFocusTimer({
   const [internalRunning, setInternalRunning] = useState(false);
   const [mode, setMode] = useState('N'); // 'N' | 'F' | 'B' | 'M'
 
-  // FIX 3: Batmobile car track container measurement
+  // PROBLEM 2: Batmobile car track container measurement
   const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(600);
 
   useLayoutEffect(() => {
     if (!containerRef.current) return;
-    const updateWidth = () => {
+    const measure = () => {
       if (containerRef.current) {
-        setContainerWidth(containerRef.current.offsetWidth);
+        setContainerWidth(containerRef.current.getBoundingClientRect().width);
       }
     };
-    updateWidth();
-    const ro = new ResizeObserver(updateWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, [mode]);
 
-  // FIX 1: Escape key listener
+  // Escape key listener
   useEffect(() => {
     const handler = (e) => {
       if (e.key === 'Escape') onClose?.();
@@ -245,7 +245,7 @@ export default function BatFocusTimer({
   const secTens = String(Math.floor((timeLeft % 60) / 10));
   const secUnits = String(timeLeft % 10);
 
-  // FIX 4: Bat-Signal Pixel Logo Grid & Fill logic
+  // Bat-Signal Pixel Logo Grid & Fill logic
   const logoGrid = useMemo(() => buildLogoGrid(), []);
 
   const sortedOvalCells = useMemo(() => {
@@ -297,10 +297,10 @@ export default function BatFocusTimer({
     }
   };
 
-  // FIX 3: Batmobile car position calculation
-  const CAR_WIDTH = 300;
-  const maxTravel = Math.max(0, containerWidth - CAR_WIDTH);
-  const carX = (progress / 100) * maxTravel;
+  // PROBLEM 2: Batmobile car position calculation
+  const CAR_SVG_WIDTH = 300;
+  const maxTravel = Math.max(0, containerWidth - CAR_SVG_WIDTH);
+  const carX = Math.round((progress / 100) * maxTravel);
 
   const timerCard = (
     <div className="relative w-full max-w-[680px] bg-[#0a0e1a] rounded-2xl p-8 min-h-[400px] flex flex-col items-center justify-between text-slate-100 font-sans border border-slate-800/80 shadow-2xl">
@@ -340,7 +340,7 @@ export default function BatFocusTimer({
         }
       `}</style>
 
-      {/* FIX 1: Top-Right ESC / Close Button */}
+      {/* Top-Right ESC / Close Button */}
       {onClose && (
         <button
           onClick={onClose}
@@ -483,28 +483,93 @@ export default function BatFocusTimer({
               style={{
                 position: 'relative',
                 width: '100%',
-                height: 120,
-                overflow: 'hidden',
+                height: '120px',
               }}
             >
+              {/* Car wrapper div with exact pixel placement */}
               <div
                 style={{
                   position: 'absolute',
-                  left: carX,
-                  bottom: 20,
-                  width: CAR_WIDTH,
-                  transition: 'left 0.5s linear',
+                  left: `${carX}px`,
+                  bottom: '20px',
+                  width: `${CAR_SVG_WIDTH}px`,
+                  transition: 'left 0.6s linear',
+                  willChange: 'left',
                 }}
               >
+                {/* PROBLEM 3: Speed lines behind the car (to the left) */}
+                {running && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: '100%',
+                      top: '30px',
+                      width: '40px',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <div
+                      className="h-[1px] mb-[6px]"
+                      style={{
+                        width: '20px',
+                        background: 'linear-gradient(to left, #FFD700, transparent)',
+                        opacity: 0.7,
+                        animation: 'speedPulse 200ms ease-out infinite alternate',
+                      }}
+                    />
+                    <div
+                      className="h-[1px] mb-[6px] ml-[6px]"
+                      style={{
+                        width: '14px',
+                        background: 'linear-gradient(to left, #FFD700, transparent)',
+                        opacity: 0.4,
+                        animation: 'speedPulse 200ms ease-out infinite alternate 50ms',
+                      }}
+                    />
+                    <div
+                      className="h-[1px] mb-[6px]"
+                      style={{
+                        width: '18px',
+                        background: 'linear-gradient(to left, #FFD700, transparent)',
+                        opacity: 0.6,
+                        animation: 'speedPulse 200ms ease-out infinite alternate 100ms',
+                      }}
+                    />
+                    <div
+                      className="h-[1px] ml-[10px]"
+                      style={{
+                        width: '10px',
+                        background: 'linear-gradient(to left, #FFD700, transparent)',
+                        opacity: 0.3,
+                        animation: 'speedPulse 200ms ease-out infinite alternate 150ms',
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* PROBLEM 3: Headlight glow beam to the right (front of car) */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: '100%',
+                    top: '40%',
+                    width: '30px',
+                    height: '20px',
+                    background: 'radial-gradient(ellipse at left, rgba(255,215,0,0.6) 0%, transparent 100%)',
+                    pointerEvents: 'none',
+                  }}
+                />
+
                 {/* 1989 Batmobile SVG */}
-                <svg width={CAR_WIDTH} height="auto" viewBox="0 0 300 100" className="overflow-visible">
+                <svg width={CAR_SVG_WIDTH} height="auto" viewBox="0 0 300 100" className="overflow-visible">
                   <defs>
                     <radialGradient id="headlightGlow" cx="0%" cy="50%" r="100%">
                       <stop offset="0%" stopColor="#FFD700" stopOpacity="0.9" />
                       <stop offset="100%" stopColor="#FFD700" stopOpacity="0" />
                     </radialGradient>
 
-                    <linearGradient id="exhaustGrad" x1="0%" y1="50%" x2="100%" y2="50%">
+                    {/* PROBLEM 3: Exhaust flame gradient facing left */}
+                    <linearGradient id="exhaustGrad" x1="100%" y1="50%" x2="0%" y2="50%">
                       <stop offset="0%" stopColor="#FF4400" />
                       <stop offset="30%" stopColor="#FF8800" />
                       <stop offset="70%" stopColor="#FFCC00" />
@@ -520,10 +585,10 @@ export default function BatFocusTimer({
                     </filter>
                   </defs>
 
-                  {/* Motion details when running */}
-                  {running && (
-                    <g>
-                      {/* Exhaust flame from rear */}
+                  {/* PROBLEM 1: Mirror car horizontally so nose points RIGHT */}
+                  <g transform="scale(-1, 1) translate(-300, 0)">
+                    {/* Motion flame details when running */}
+                    {running && (
                       <ellipse
                         cx="280"
                         cy="75"
@@ -535,100 +600,94 @@ export default function BatFocusTimer({
                           transformOrigin: '275px 75px',
                         }}
                       />
+                    )}
 
-                      {/* Speed lines behind car */}
-                      <line x1="-20" y1="62" x2="0" y2="62" stroke="#FFD700" strokeWidth="0.8" opacity="0.7" style={{ animation: 'speedPulse 200ms ease-out infinite alternate' }} />
-                      <line x1="-14" y1="67" x2="0" y2="67" stroke="#FFD700" strokeWidth="0.8" opacity="0.4" style={{ animation: 'speedPulse 200ms ease-out infinite alternate 50ms' }} />
-                      <line x1="-18" y1="71" x2="0" y2="71" stroke="#FFD700" strokeWidth="0.8" opacity="0.6" style={{ animation: 'speedPulse 200ms ease-out infinite alternate 100ms' }} />
-                      <line x1="-10" y1="76" x2="0" y2="76" stroke="#FFD700" strokeWidth="0.8" opacity="0.3" style={{ animation: 'speedPulse 200ms ease-out infinite alternate 150ms' }} />
+                    {/* 1. Main lower hull */}
+                    <path
+                      d="M 10,75 Q 30,60 60,58 Q 90,56 120,55 Q 150,52 180,53 Q 210,54 240,58 Q 260,65 275,72 L 275,80 Q 240,82 200,82 Q 170,83 140,82 Q 100,83 60,82 Q 30,82 10,80 Z"
+                      fill="#0d1117"
+                      stroke="#FFD700"
+                      strokeWidth="0.3"
+                    />
+
+                    {/* 2. Cockpit canopy */}
+                    <path
+                      d="M 140,55 Q 148,40 158,36 Q 168,33 178,36 Q 188,40 192,50 Q 185,54 165,55 Z"
+                      fill="#1a2535"
+                      stroke="#FFD700"
+                      strokeWidth="0.2"
+                    />
+                    <ellipse cx="165" cy="44" rx="12" ry="5" fill="rgba(255,215,0,0.08)" />
+
+                    {/* 3. Rear bat-wing fins */}
+                    <path d="M 220,55 Q 225,30 235,18 Q 240,12 245,18 Q 248,28 246,45 Q 240,52 230,55 Z" fill="#111827" stroke="#FFD700" strokeWidth="0.3" />
+                    <path d="M 238,55 Q 243,25 250,15 Q 255,8 260,15 Q 263,28 258,50 L 248,55 Z" fill="#111827" stroke="#FFD700" strokeWidth="0.3" />
+                    <path d="M 250,52 Q 256,30 264,20 Q 268,14 272,20 Q 274,32 270,50 Q 265,55 255,55 Z" fill="#111827" stroke="#FFD700" strokeWidth="0.3" />
+
+                    {/* 4. Front nose extension */}
+                    <path d="M 10,68 Q 5,70 2,72 L 2,76 Q 5,76 10,75 Z" fill="#0d1117" />
+
+                    {/* 5. Turbine/exhaust between wheels */}
+                    <ellipse cx="155" cy="72" rx="18" ry="7" fill="#1a2535" stroke="#FFD700" strokeWidth="0.2" />
+                    <line x1="140" y1="69" x2="170" y2="69" stroke="#2a3a4a" strokeWidth="0.5" />
+                    <line x1="140" y1="71" x2="170" y2="71" stroke="#2a3a4a" strokeWidth="0.5" />
+                    <line x1="140" y1="73" x2="170" y2="73" stroke="#2a3a4a" strokeWidth="0.5" />
+                    <line x1="140" y1="75" x2="170" y2="75" stroke="#2a3a4a" strokeWidth="0.5" />
+
+                    {/* 6. Body panel lines */}
+                    <path d="M 60,62 Q 80,64 110,65" stroke="#1e293b" strokeWidth="0.4" fill="none" />
+                    <path d="M 120,60 Q 150,62 180,60" stroke="#1e293b" strokeWidth="0.4" fill="none" />
+
+                    {/* 7. Bat emblem on hood */}
+                    <path d="M 94,66 L 97,64 L 99,67 L 101,64 L 104,66 L 101,69 Z" fill="#FFD700" opacity="0.7" />
+
+                    {/* 8. Front Wheel */}
+                    <g>
+                      <circle cx="65" cy="80" r="14" fill="#0a0e1a" stroke="#1e293b" strokeWidth="0.5" />
+                      <circle cx="65" cy="80" r="9" fill="#111827" stroke="#FFD700" strokeWidth="0.4" />
+                      <circle cx="65" cy="80" r="4" fill="#1e293b" />
+                      {[0, 1, 2, 3, 4].map(k => (
+                        <line
+                          key={`fw-spoke-${k}`}
+                          x1="65"
+                          y1="80"
+                          x2={65 + 9 * Math.cos(k * Math.PI * 0.4)}
+                          y2={80 + 9 * Math.sin(k * Math.PI * 0.4)}
+                          stroke="#FFD700"
+                          strokeWidth="0.4"
+                        />
+                      ))}
                     </g>
-                  )}
 
-                  {/* 1. Main lower hull */}
-                  <path
-                    d="M 10,75 Q 30,60 60,58 Q 90,56 120,55 Q 150,52 180,53 Q 210,54 240,58 Q 260,65 275,72 L 275,80 Q 240,82 200,82 Q 170,83 140,82 Q 100,83 60,82 Q 30,82 10,80 Z"
-                    fill="#0d1117"
-                    stroke="#FFD700"
-                    strokeWidth="0.3"
-                  />
+                    {/* 9. Rear Wheel */}
+                    <g>
+                      <circle cx="220" cy="80" r="18" fill="#0a0e1a" stroke="#1e293b" strokeWidth="0.5" />
+                      <circle cx="220" cy="80" r="12" fill="#111827" stroke="#FFD700" strokeWidth="0.4" />
+                      <circle cx="220" cy="80" r="5" fill="#1e293b" />
+                      {[0, 1, 2, 3, 4].map(k => (
+                        <line
+                          key={`rw-spoke-${k}`}
+                          x1="220"
+                          y1="80"
+                          x2={220 + 12 * Math.cos(k * Math.PI * 0.4)}
+                          y2={80 + 12 * Math.sin(k * Math.PI * 0.4)}
+                          stroke="#FFD700"
+                          strokeWidth="0.4"
+                        />
+                      ))}
+                    </g>
 
-                  {/* 2. Cockpit canopy */}
-                  <path
-                    d="M 140,55 Q 148,40 158,36 Q 168,33 178,36 Q 188,40 192,50 Q 185,54 165,55 Z"
-                    fill="#1a2535"
-                    stroke="#FFD700"
-                    strokeWidth="0.2"
-                  />
-                  <ellipse cx="165" cy="44" rx="12" ry="5" fill="rgba(255,215,0,0.08)" />
+                    {/* 10. Red Tail lights on fins */}
+                    <g filter="url(#redGlow)">
+                      <ellipse cx="268" cy="40" rx="2.5" ry="2.5" fill="#cc2200" />
+                      <ellipse cx="265" cy="47" rx="2" ry="2" fill="#cc2200" />
+                      <ellipse cx="263" cy="53" rx="1.5" ry="1.5" fill="#cc2200" />
+                    </g>
 
-                  {/* 3. Rear bat-wing fins */}
-                  <path d="M 220,55 Q 225,30 235,18 Q 240,12 245,18 Q 248,28 246,45 Q 240,52 230,55 Z" fill="#111827" stroke="#FFD700" strokeWidth="0.3" />
-                  <path d="M 238,55 Q 243,25 250,15 Q 255,8 260,15 Q 263,28 258,50 L 248,55 Z" fill="#111827" stroke="#FFD700" strokeWidth="0.3" />
-                  <path d="M 250,52 Q 256,30 264,20 Q 268,14 272,20 Q 274,32 270,50 Q 265,55 255,55 Z" fill="#111827" stroke="#FFD700" strokeWidth="0.3" />
-
-                  {/* 4. Front nose extension */}
-                  <path d="M 10,68 Q 5,70 2,72 L 2,76 Q 5,76 10,75 Z" fill="#0d1117" />
-
-                  {/* 5. Turbine/exhaust between wheels */}
-                  <ellipse cx="155" cy="72" rx="18" ry="7" fill="#1a2535" stroke="#FFD700" strokeWidth="0.2" />
-                  <line x1="140" y1="69" x2="170" y2="69" stroke="#2a3a4a" strokeWidth="0.5" />
-                  <line x1="140" y1="71" x2="170" y2="71" stroke="#2a3a4a" strokeWidth="0.5" />
-                  <line x1="140" y1="73" x2="170" y2="73" stroke="#2a3a4a" strokeWidth="0.5" />
-                  <line x1="140" y1="75" x2="170" y2="75" stroke="#2a3a4a" strokeWidth="0.5" />
-
-                  {/* 6. Body panel lines */}
-                  <path d="M 60,62 Q 80,64 110,65" stroke="#1e293b" strokeWidth="0.4" fill="none" />
-                  <path d="M 120,60 Q 150,62 180,60" stroke="#1e293b" strokeWidth="0.4" fill="none" />
-
-                  {/* 7. Bat emblem on hood */}
-                  <path d="M 94,66 L 97,64 L 99,67 L 101,64 L 104,66 L 101,69 Z" fill="#FFD700" opacity="0.7" />
-
-                  {/* 8. Front Wheel */}
-                  <g>
-                    <circle cx="65" cy="80" r="14" fill="#0a0e1a" stroke="#1e293b" strokeWidth="0.5" />
-                    <circle cx="65" cy="80" r="9" fill="#111827" stroke="#FFD700" strokeWidth="0.4" />
-                    <circle cx="65" cy="80" r="4" fill="#1e293b" />
-                    {[0, 1, 2, 3, 4].map(k => (
-                      <line
-                        key={`fw-spoke-${k}`}
-                        x1="65"
-                        y1="80"
-                        x2={65 + 9 * Math.cos(k * Math.PI * 0.4)}
-                        y2={80 + 9 * Math.sin(k * Math.PI * 0.4)}
-                        stroke="#FFD700"
-                        strokeWidth="0.4"
-                      />
-                    ))}
+                    {/* 11. Headlight & Beam */}
+                    <ellipse cx="2" cy="70" rx="8" ry="4" fill="url(#headlightGlow)" opacity="0.6" />
+                    <ellipse cx="8" cy="70" rx="3" ry="2" fill="#FFD700" />
                   </g>
-
-                  {/* 9. Rear Wheel */}
-                  <g>
-                    <circle cx="220" cy="80" r="18" fill="#0a0e1a" stroke="#1e293b" strokeWidth="0.5" />
-                    <circle cx="220" cy="80" r="12" fill="#111827" stroke="#FFD700" strokeWidth="0.4" />
-                    <circle cx="220" cy="80" r="5" fill="#1e293b" />
-                    {[0, 1, 2, 3, 4].map(k => (
-                      <line
-                        key={`rw-spoke-${k}`}
-                        x1="220"
-                        y1="80"
-                        x2={220 + 12 * Math.cos(k * Math.PI * 0.4)}
-                        y2={80 + 12 * Math.sin(k * Math.PI * 0.4)}
-                        stroke="#FFD700"
-                        strokeWidth="0.4"
-                      />
-                    ))}
-                  </g>
-
-                  {/* 10. Red Tail lights on fins */}
-                  <g filter="url(#redGlow)">
-                    <ellipse cx="268" cy="40" rx="2.5" ry="2.5" fill="#cc2200" />
-                    <ellipse cx="265" cy="47" rx="2" ry="2" fill="#cc2200" />
-                    <ellipse cx="263" cy="53" rx="1.5" ry="1.5" fill="#cc2200" />
-                  </g>
-
-                  {/* 11. Headlight & Beam */}
-                  <ellipse cx="2" cy="70" rx="8" ry="4" fill="url(#headlightGlow)" opacity="0.6" />
-                  <ellipse cx="8" cy="70" rx="3" ry="2" fill="#FFD700" />
                 </svg>
               </div>
             </div>
@@ -683,7 +742,7 @@ export default function BatFocusTimer({
     </div>
   );
 
-  // FIX 1: Render as modal overlay if onClose is provided
+  // Render as modal overlay if onClose is provided
   if (onClose) {
     return (
       <div
