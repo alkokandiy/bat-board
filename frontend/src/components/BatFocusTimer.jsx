@@ -1,136 +1,168 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
 
 // ==========================================
-// FLIP DIGIT COMPONENT (BUG-FIXED ARCHITECTURE)
+// FIX 2: ICONIC FLIP CLOCK DIGIT COMPONENT
 // ==========================================
 function FlipDigit({ digit }) {
-  const [displayDigit, setDisplayDigit] = useState(digit);
+  const [currentDigit, setCurrentDigit] = useState(digit);
   const [prevDigit, setPrevDigit] = useState(digit);
-  const [flipping, setFlipping] = useState(false);
+  const [phase, setPhase] = useState('idle'); // 'idle' | 'flipping'
+  const animatingRef = useRef(false);
 
   useEffect(() => {
-    if (digit !== displayDigit && !flipping) {
-      setFlipping(true);
-      setPrevDigit(displayDigit);
+    if (digit === currentDigit || animatingRef.current) return;
+    animatingRef.current = true;
+    setPrevDigit(currentDigit);
+    setPhase('flipping');
 
-      const t1 = setTimeout(() => {
-        setDisplayDigit(digit);
-      }, 300);
-
+    const t1 = setTimeout(() => {
+      setCurrentDigit(digit);
       const t2 = setTimeout(() => {
-        setFlipping(false);
-      }, 450);
+        setPhase('idle');
+        animatingRef.current = false;
+      }, 350);
+      return () => clearTimeout(t2);
+    }, 200);
 
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
-    }
-  }, [digit, displayDigit, flipping]);
+    return () => clearTimeout(t1);
+  }, [digit, currentDigit]);
 
   return (
-    <div className="relative w-[60px] h-[80px] rounded-[6px] border border-[#334155] select-none" style={{ perspective: '200px' }}>
-      {/* Static Top Half (shows displayDigit) */}
-      <div className="absolute top-0 left-0 right-0 h-[40px] overflow-hidden bg-[#1e293b] rounded-t-[5px]">
-        <div className="h-[80px] w-full flex items-center justify-center font-share-tech text-[60px] text-[#FFD700] leading-[80px]">
-          {displayDigit}
+    <div
+      className="relative w-[64px] h-[88px] bg-[#1a1f2e] rounded-[8px] border border-[#2a3a5a] select-none"
+      style={{
+        boxShadow: '0 4px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.03)',
+        perspective: '200px',
+      }}
+    >
+      {/* Top half static (shows top 50% of currentDigit) */}
+      <div className="absolute top-0 left-0 w-[64px] h-[44px] overflow-hidden bg-[#1a1f2e] rounded-t-[8px]">
+        <div className="absolute top-0 left-0 w-[64px] h-[88px] flex items-center justify-center font-share-tech text-[64px] text-[#FFD700] leading-[88px]">
+          {currentDigit}
         </div>
       </div>
 
-      {/* Static Bottom Half (shows displayDigit) */}
-      <div className="absolute top-[40px] left-0 right-0 h-[40px] overflow-hidden bg-[#1a2535] rounded-b-[5px]">
-        <div className="h-[80px] w-full flex items-center justify-center font-share-tech text-[60px] text-[#FFD700] leading-[80px] -mt-[40px]">
-          {displayDigit}
+      {/* Bottom half static (shows bottom 50% of currentDigit) */}
+      <div className="absolute top-[44px] left-0 w-[64px] h-[44px] overflow-hidden bg-[#1a1f2e] rounded-b-[8px]">
+        <div className="absolute top-[-44px] left-0 w-[64px] h-[88px] flex items-center justify-center font-share-tech text-[64px] text-[#FFD700] leading-[88px]">
+          {currentDigit}
         </div>
       </div>
 
-      {/* Top Flap Phase 1 (0-300ms): shows prevDigit top half, folds away upward */}
-      {flipping && (
+      {/* Center divider line */}
+      <div className="absolute top-[43px] left-0 w-full h-[2px] bg-[#0a0e1a] z-10 pointer-events-none" />
+
+      {/* FLAP A — "top fold away": overlays top half, shows prevDigit */}
+      {phase === 'flipping' && (
         <div
-          className="absolute top-0 left-0 right-0 h-[40px] overflow-hidden bg-[#1e293b] rounded-t-[5px] z-10"
+          className="absolute top-0 left-0 w-[64px] h-[44px] overflow-hidden bg-[#1a1f2e] rounded-t-[8px] z-20"
           style={{
             transformOrigin: 'center bottom',
-            animation: 'flipTop 300ms ease-in forwards',
-            backfaceVisibility: 'hidden'
+            backfaceVisibility: 'hidden',
+            animation: 'flapTopOut 280ms ease-in forwards',
           }}
         >
-          <div className="h-[80px] w-full flex items-center justify-center font-share-tech text-[60px] text-[#FFD700] leading-[80px]">
+          <div className="absolute top-0 left-0 w-[64px] h-[88px] flex items-center justify-center font-share-tech text-[64px] text-[#FFD700] leading-[88px]">
             {prevDigit}
           </div>
         </div>
       )}
 
-      {/* Bottom Flap Phase 2 (150ms-450ms): shows new digit bottom half, unfolds downward */}
-      {flipping && (
+      {/* FLAP B — "bottom unfold": overlays bottom half, shows new currentDigit */}
+      {phase === 'flipping' && (
         <div
-          className="absolute top-[40px] left-0 right-0 h-[40px] overflow-hidden bg-[#1a2535] rounded-b-[5px] z-10"
+          className="absolute bottom-0 left-0 w-[64px] h-[44px] overflow-hidden bg-[#1a1f2e] rounded-b-[8px] z-20"
           style={{
             transformOrigin: 'center top',
-            animation: 'flipBottom 300ms ease-out 150ms forwards',
-            backfaceVisibility: 'hidden'
+            backfaceVisibility: 'hidden',
+            transform: 'rotateX(90deg)',
+            animation: 'flapBottomIn 280ms ease-out 200ms forwards',
           }}
         >
-          <div className="h-[80px] w-full flex items-center justify-center font-share-tech text-[60px] text-[#FFD700] leading-[80px] -mt-[40px]">
-            {digit}
+          <div className="absolute top-[-44px] left-0 w-[64px] h-[88px] flex items-center justify-center font-share-tech text-[64px] text-[#FFD700] leading-[88px]">
+            {currentDigit}
           </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* 1px dark divider line */}
-      <div className="absolute top-[39.5px] left-0 right-0 h-[1px] bg-[#0a0e1a] z-20 pointer-events-none" />
+// Blinking colon separator for Flip Clock
+function ColonSeparator({ running }) {
+  return (
+    <div className="flex flex-col gap-[12px] my-0 mx-[8px] items-center justify-center">
+      <div
+        className="w-[8px] h-[8px] rounded-full bg-[#FFD700]"
+        style={{ animation: running ? 'colonBlink 1s step-end infinite' : 'none' }}
+      />
+      <div
+        className="w-[8px] h-[8px] rounded-full bg-[#FFD700]"
+        style={{ animation: running ? 'colonBlink 1s step-end infinite' : 'none' }}
+      />
     </div>
   );
 }
 
 // ==========================================
-// BATMAN LOGO PIXEL GRID GENERATOR
+// FIX 4: BATMAN LOGO PIXEL GRID GENERATOR
 // ==========================================
 function buildLogoGrid() {
   const grid = [];
+  const COLS = 40;
+  const ROWS = 28;
 
-  // Left-half bat silhouette matrix (12 rows x 10 cols)
-  // Mirroring across center creates a 20-col wide symmetrical bat shape
-  const BAT_HALF = [
-    [0,0,0,0,1,0,0,0,0,0], // r0: ear tip
-    [0,0,0,1,1,1,0,0,0,0], // r1: ear base
-    [0,0,1,1,1,1,1,0,0,0], // r2: head/shoulder
-    [0,1,1,1,1,1,1,1,0,1], // r3: shoulders & head
-    [1,1,1,1,1,1,1,1,1,1], // r4: wing spread upper
-    [1,1,1,1,1,1,1,1,1,1], // r5: wing spread max
-    [1,1,1,1,1,1,1,1,1,1], // r6: wing body
-    [1,1,1,1,0,1,1,1,1,1], // r7: wing scallop 1
-    [1,1,0,0,0,0,1,1,1,1], // r8: wing scallop 2
-    [0,0,0,0,0,0,0,1,1,1], // r9: bottom body
-    [0,0,0,0,0,0,0,0,1,1], // r10: tail upper
-    [0,0,0,0,0,0,0,0,0,1], // r11: tail tip
+  // BAT_MAP (17 rows x 13 cols)
+  const BAT_MAP = [
+    [0,0,1,0,0,0,1,0,0,1,0,0,0], // Row 0
+    [0,1,1,1,0,0,1,0,1,1,1,0,0], // Row 1
+    [0,1,1,1,1,0,1,0,1,1,1,1,0], // Row 2
+    [1,1,1,1,1,1,1,1,1,1,1,1,1], // Row 3
+    [1,1,1,1,1,1,1,1,1,1,1,1,1], // Row 4
+    [1,1,1,0,1,1,1,1,1,0,1,1,1], // Row 5
+    [1,1,0,0,0,1,1,1,0,0,0,1,1], // Row 6
+    [1,0,0,0,0,0,1,0,0,0,0,0,1], // Row 7
+    [0,0,0,0,0,0,1,0,0,0,0,0,0], // Row 8
+    [0,0,0,0,0,1,1,1,0,0,0,0,0], // Row 9
+    [0,0,0,0,1,1,1,1,1,0,0,0,0], // Row 10
+    [0,0,0,1,1,0,1,0,1,1,0,0,0], // Row 11
+    [0,0,1,1,0,0,1,0,0,1,1,0,0], // Row 12
+    [0,1,1,0,0,0,1,0,0,0,1,1,0], // Row 13
+    [0,0,0,0,0,0,1,0,0,0,0,0,0], // Row 14
+    [0,0,0,0,0,1,1,1,0,0,0,0,0], // Row 15
+    [0,0,0,0,1,1,1,1,1,0,0,0,0], // Row 16
   ];
 
-  for (let r = 0; r < 28; r++) {
+  const cx = 19.5;
+  const cy = 13.5;
+  const a = 19;
+  const b = 12;
+
+  for (let r = 0; r < ROWS; r++) {
     const row = [];
-    for (let c = 0; c < 40; c++) {
-      // Outer yellow ellipse formula: ((col-20)/19)² + ((row-14)/13)² <= 1
-      const normC = (c - 20) / 19;
-      const normR = (r - 14) / 13;
+    for (let c = 0; c < COLS; c++) {
+      // Step 1: Oval test
+      const normC = (c - cx) / a;
+      const normR = (r - cy) / b;
       const inOval = (normC * normC + normR * normR) <= 1.0;
 
       if (!inOval) {
-        row.push(0); // 0 = background outside logo (never fills)
+        row.push(0); // 0 = outside oval
         continue;
       }
 
-      // Bat silhouette inside oval (rows 8..19, cols 10..29)
-      const batR = r - 8;
-      const batC = c - 10;
+      // Step 2: Bat shape overlay at row_offset=5, col_offset=14
+      const batR = r - 5;
+      const batC = c - 14;
       let isBat = false;
 
-      if (batR >= 0 && batR < 12 && batC >= 0 && batC < 20) {
-        const halfC = batC < 10 ? batC : 19 - batC;
-        if (BAT_HALF[batR][halfC] === 1) {
+      if (batR >= 0 && batR < 17 && batC >= 0 && batC < 13) {
+        if (BAT_MAP[batR][batC] === 1) {
           isBat = true;
         }
       }
 
-      row.push(isBat ? 2 : 1); // 2 = black bat (always dark), 1 = yellow oval area
+      row.push(isBat ? 2 : 1); // 2 = black bat, 1 = yellow oval
     }
     grid.push(row);
   }
@@ -147,33 +179,43 @@ export default function BatFocusTimer({
   running: propRunning,
   onToggleRunning,
   onAdjustTime,
+  onClose,
 }) {
   const [internalTimeLeft, setInternalTimeLeft] = useState(25 * 60);
   const [internalTotalTime, setInternalTotalTime] = useState(25 * 60);
   const [internalRunning, setInternalRunning] = useState(false);
   const [mode, setMode] = useState('N'); // 'N' | 'F' | 'B' | 'M'
 
-  const carContainerRef = useRef(null);
+  // FIX 3: Batmobile car track container measurement
+  const containerRef = useRef(null);
   const [containerWidth, setContainerWidth] = useState(600);
+
+  useLayoutEffect(() => {
+    if (!containerRef.current) return;
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.offsetWidth);
+      }
+    };
+    updateWidth();
+    const ro = new ResizeObserver(updateWidth);
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [mode]);
+
+  // FIX 1: Escape key listener
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
 
   const isControlled = propTimeLeft !== undefined;
   const timeLeft = isControlled ? propTimeLeft : internalTimeLeft;
   const totalTime = isControlled ? (propTotalTime || 25 * 60) : internalTotalTime;
   const running = isControlled ? propRunning : internalRunning;
-
-  // Measure car container width for Mode 4
-  useEffect(() => {
-    if (mode === 'M' && carContainerRef.current) {
-      const updateWidth = () => {
-        if (carContainerRef.current) {
-          setContainerWidth(carContainerRef.current.offsetWidth);
-        }
-      };
-      updateWidth();
-      window.addEventListener('resize', updateWidth);
-      return () => window.removeEventListener('resize', updateWidth);
-    }
-  }, [mode]);
 
   // Internal timer countdown logic (when not controlled)
   useEffect(() => {
@@ -203,7 +245,7 @@ export default function BatFocusTimer({
   const secTens = String(Math.floor((timeLeft % 60) / 10));
   const secUnits = String(timeLeft % 10);
 
-  // Mode 3 Pixel Logo data & fill order calculation
+  // FIX 4: Bat-Signal Pixel Logo Grid & Fill logic
   const logoGrid = useMemo(() => buildLogoGrid(), []);
 
   const sortedOvalCells = useMemo(() => {
@@ -225,7 +267,7 @@ export default function BatFocusTimer({
     const set = new Set();
     for (let i = 0; i < filledCount; i++) {
       const { r, c } = sortedOvalCells[i];
-      set.add(`${r}-${c}`);
+      set.add(`${r},${c}`);
     }
     return set;
   }, [sortedOvalCells, filledCount]);
@@ -255,18 +297,33 @@ export default function BatFocusTimer({
     }
   };
 
-  // Batmobile car position
-  const carWidth = 300;
-  const maxTravel = Math.max(0, containerWidth - carWidth);
+  // FIX 3: Batmobile car position calculation
+  const CAR_WIDTH = 300;
+  const maxTravel = Math.max(0, containerWidth - CAR_WIDTH);
   const carX = (progress / 100) * maxTravel;
 
-  return (
-    <div className="w-full bg-[#0a0e1a] rounded-2xl p-8 min-h-[400px] flex flex-col items-center justify-between text-slate-100 font-sans border border-slate-800/80">
+  const timerCard = (
+    <div className="relative w-full max-w-[680px] bg-[#0a0e1a] rounded-2xl p-8 min-h-[400px] flex flex-col items-center justify-between text-slate-100 font-sans border border-slate-800/80 shadow-2xl">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
 
         .font-share-tech {
           font-family: 'Share Tech Mono', monospace;
+        }
+
+        @keyframes flapTopOut {
+          0%   { transform: rotateX(0deg);   }
+          100% { transform: rotateX(-90deg); }
+        }
+
+        @keyframes flapBottomIn {
+          0%   { transform: rotateX(90deg); }
+          100% { transform: rotateX(0deg);  }
+        }
+
+        @keyframes colonBlink {
+          0%, 100% { opacity: 1; }
+          50%      { opacity: 0.2; }
         }
 
         @keyframes flicker {
@@ -281,25 +338,26 @@ export default function BatFocusTimer({
           from { opacity: 0.7; transform: scaleX(1); }
           to   { opacity: 0; transform: scaleX(0.3); }
         }
-
-        @keyframes flipTop {
-          0% { transform: rotateX(0deg); }
-          100% { transform: rotateX(-90deg); }
-        }
-
-        @keyframes flipBottom {
-          0% { transform: rotateX(90deg); }
-          100% { transform: rotateX(0deg); }
-        }
       `}</style>
+
+      {/* FIX 1: Top-Right ESC / Close Button */}
+      {onClose && (
+        <button
+          onClick={onClose}
+          title="Close (Esc)"
+          className="absolute top-[12px] right-[12px] w-[24px] h-[24px] flex items-center justify-center border border-[#334155] bg-transparent text-[#64748b] text-[12px] rounded hover:border-[#FFD700] hover:text-[#FFD700] transition-colors duration-150 cursor-pointer select-none z-30"
+        >
+          ✕
+        </button>
+      )}
 
       {/* Top: Mode selector row */}
       <div className="flex items-center gap-3">
         {[
           { id: 'N', label: 'N', title: 'Normal' },
           { id: 'F', label: 'F', title: 'Flip Clock' },
-          { id: 'B', label: 'B', title: 'Batman Pixel Logo' },
-          { id: 'M', label: 'M', title: '1989 Batmobile' },
+          { id: 'B', label: 'B', title: 'Bat-Signal' },
+          { id: 'M', label: 'M', title: 'Batmobile' },
         ].map(m => {
           const isActive = mode === m.id;
           return (
@@ -339,56 +397,79 @@ export default function BatFocusTimer({
         {/* Mode 2: [F] Flip Clock */}
         {mode === 'F' && (
           <div className="flex flex-col items-center justify-center">
-            <div className="flex items-center justify-center gap-2">
+            <div className="flex items-center justify-center gap-[8px]">
               <FlipDigit digit={minTens} />
               <FlipDigit digit={minUnits} />
-              <span className="font-share-tech text-[52px] text-[#FFD700] pb-2 select-none">:</span>
+              <ColonSeparator running={running} />
               <FlipDigit digit={secTens} />
               <FlipDigit digit={secUnits} />
             </div>
-            <div className="text-[#64748b] text-[12px] font-mono tracking-[2px] mt-4 uppercase">
+            <div className="text-[#64748b] text-[11px] font-mono tracking-[2px] mt-[20px] uppercase">
               {progress}% ELAPSED
             </div>
           </div>
         )}
 
-        {/* Mode 3: [B] Batman Logo Pixel Fill */}
+        {/* Mode 3: [B] Bat-Signal Pixel Logo Grid */}
         {mode === 'B' && (
           <div className="flex flex-col items-center justify-center">
-            {/* Pixel Grid Canvas (40 cols x 28 rows, 9x9px cells with 1px gap) */}
-            <div
-              className="grid gap-[1px] p-2 bg-[#0a0e1a] rounded-lg select-none"
-              style={{
-                gridTemplateColumns: 'repeat(40, 9px)',
-                gridTemplateRows: 'repeat(28, 9px)'
-              }}
-            >
-              {logoGrid.map((row, r) =>
-                row.map((val, c) => {
-                  if (val === 0) {
-                    return <div key={`${r}-${c}`} className="w-[9px] h-[9px] bg-transparent" />;
-                  }
-                  if (val === 2) {
-                    // Black Bat silhouette cell (always dark)
-                    return <div key={`${r}-${c}`} className="w-[9px] h-[9px] rounded-[1px] bg-[#0a0e1a]" />;
-                  }
-                  // val === 1: Yellow Oval area
-                  const isFilled = filledSet.has(`${r}-${c}`);
-                  return (
-                    <div
-                      key={`${r}-${c}`}
-                      className={`w-[9px] h-[9px] rounded-[1px] transition-colors duration-300 ${
-                        isFilled
-                          ? 'bg-[#FFD700] shadow-[0_0_3px_rgba(255,215,0,0.4)]'
-                          : 'bg-[#1e293b]'
-                      }`}
-                    />
-                  );
-                })
-              )}
+            <div className="relative select-none">
+              {/* Radial glow background */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: `radial-gradient(ellipse at center, rgba(255,215,0, ${0.02 + progress * 0.002}) 0%, transparent 65%)`,
+                  pointerEvents: 'none',
+                  zIndex: -1,
+                }}
+              />
+
+              {/* 40x28 Pixel Grid */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(40, 9px)',
+                  gap: '1px',
+                }}
+              >
+                {logoGrid.map((row, r) =>
+                  row.map((val, c) => {
+                    if (val === 0) {
+                      return <div key={`${r},${c}`} className="w-[9px] h-[9px] bg-transparent" />;
+                    }
+                    if (val === 2) {
+                      // Black Bat silhouette cell
+                      return (
+                        <div
+                          key={`${r},${c}`}
+                          className="w-[9px] h-[9px] rounded-[1.5px] bg-[#0a0e1a]"
+                        />
+                      );
+                    }
+                    // val === 1: Yellow Oval area
+                    const isFilled = filledSet.has(`${r},${c}`);
+                    return (
+                      <div
+                        key={`${r},${c}`}
+                        className="w-[9px] h-[9px] rounded-[1.5px]"
+                        style={{
+                          backgroundColor: isFilled ? '#FFD700' : '#1e293b',
+                          boxShadow: isFilled ? '0 0 4px rgba(255,215,0,0.5)' : 'none',
+                          transition: isFilled
+                            ? 'background-color 0.4s ease, box-shadow 0.4s ease'
+                            : 'background-color 0.4s ease',
+                        }}
+                      />
+                    );
+                  })
+                )}
+              </div>
             </div>
-            <div className="text-[#64748b] text-[12px] font-mono tracking-[2px] mt-3 uppercase">
-              {progress}% ELAPSED
+
+            <div className="text-center mt-[12px]">
+              <div className="text-[#FFD700] text-[18px] font-bold font-mono">{progress}%</div>
+              <div className="text-[#64748b] text-[11px] font-mono tracking-[3px]">ELAPSED</div>
             </div>
           </div>
         )}
@@ -396,20 +477,27 @@ export default function BatFocusTimer({
         {/* Mode 4: [M] Realistic 1989 Batmobile */}
         {mode === 'M' && (
           <div className="w-full flex flex-col items-center justify-center px-2">
-            {/* Position relative car container */}
-            <div ref={carContainerRef} className="w-full relative h-[100px] overflow-visible mb-2">
+            {/* Position relative track container */}
+            <div
+              ref={containerRef}
+              style={{
+                position: 'relative',
+                width: '100%',
+                height: 120,
+                overflow: 'hidden',
+              }}
+            >
               <div
                 style={{
                   position: 'absolute',
-                  bottom: '20px',
-                  left: `${carX}px`,
+                  left: carX,
+                  bottom: 20,
+                  width: CAR_WIDTH,
                   transition: 'left 0.5s linear',
-                  width: '300px',
-                  height: '100px'
                 }}
               >
                 {/* 1989 Batmobile SVG */}
-                <svg width="300" height="100" viewBox="0 0 300 100" className="overflow-visible">
+                <svg width={CAR_WIDTH} height="auto" viewBox="0 0 300 100" className="overflow-visible">
                   <defs>
                     <radialGradient id="headlightGlow" cx="0%" cy="50%" r="100%">
                       <stop offset="0%" stopColor="#FFD700" stopOpacity="0.9" />
@@ -444,7 +532,7 @@ export default function BatFocusTimer({
                         fill="url(#exhaustGrad)"
                         style={{
                           animation: 'flicker 120ms ease-in-out infinite alternate',
-                          transformOrigin: '275px 75px'
+                          transformOrigin: '275px 75px',
                         }}
                       />
 
@@ -552,7 +640,7 @@ export default function BatFocusTimer({
                   className="h-full bg-[#FFD700] transition-all duration-300"
                   style={{
                     width: `${progress}%`,
-                    boxShadow: '0 0 8px rgba(255,215,0,0.5)'
+                    boxShadow: '0 0 8px rgba(255,215,0,0.5)',
                   }}
                 />
               </div>
@@ -594,4 +682,22 @@ export default function BatFocusTimer({
       </div>
     </div>
   );
+
+  // FIX 1: Render as modal overlay if onClose is provided
+  if (onClose) {
+    return (
+      <div
+        className="fixed inset-0 bg-black/85 backdrop-blur-[4px] z-[9999] flex items-center justify-center p-4"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        <div className="w-[90vw] max-w-[680px]">
+          {timerCard}
+        </div>
+      </div>
+    );
+  }
+
+  return timerCard;
 }
