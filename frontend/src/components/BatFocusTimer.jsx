@@ -168,12 +168,13 @@ export default function BatFocusTimer({
   isPlaying,
   onTrackChange = () => {},
   onFocusModeChange,
+  initialFocusActive = false,
 }) {
   const [internalTimeLeft, setInternalTimeLeft] = useState(25 * 60);
   const [internalTotalTime, setInternalTotalTime] = useState(25 * 60);
   const [internalRunning, setInternalRunning] = useState(false);
   const [mode, setMode] = useState('N'); // 'N' | 'F' | 'B' | 'M'
-  const [focusActive, setFocusActive] = useState(false);
+  const [focusActive, setFocusActive] = useState(initialFocusActive);
 
   // Car container width measurement for Mode [M]
   const containerRef = useRef(null);

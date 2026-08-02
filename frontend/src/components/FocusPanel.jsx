@@ -145,6 +145,7 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
         isPlaying={isPlaying}
         onTrackChange={onTrackChange}
         onFocusModeChange={onFocusModeChange}
+        initialFocusActive={true}
       />
     );
   }
