@@ -1,145 +1,44 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { trackPresets } from './AudioPlayer';
-import { api } from '../utils/api';
 import BatFocusTimer from './BatFocusTimer';
 
-export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, habits, onRefreshMissions, onRefreshHabits, onRefreshAccount, onFocusModeChange, focusMode }) {
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [isActive, setIsActive] = useState(false);
-  const [sessionLength, setSessionLength] = useState(25);
-  const [selectedMissionId, setSelectedMissionId] = useState('');
-  const [selectedHabitId, setSelectedHabitId] = useState('');
-
-  const timerRef = useRef(null);
-  const focusSessionIdRef = useRef(null);
-  const sessionLengthRef = useRef(sessionLength);
-  sessionLengthRef.current = sessionLength;
-  const wakeLockRef = useRef(null);
-
-  const releaseWakeLock = async () => {
-    if (wakeLockRef.current) {
-      try { await wakeLockRef.current.release(); } catch {}
-      wakeLockRef.current = null;
-    }
-  };
-
-  const requestWakeLock = async () => {
-    try {
-      wakeLockRef.current = await navigator.wakeLock.request('screen');
-    } catch {}
-  };
-
-  const endSession = useRef(async () => {
-    const sid = focusSessionIdRef.current;
-    if (!sid) return;
-    focusSessionIdRef.current = null;
-    try {
-      await api.endFocusSession(sid, { duration_minutes: sessionLengthRef.current });
-      onRefreshMissions();
-      onRefreshAccount();
-    } catch (err) {
-      console.error(err);
-    }
-  }).current;
-
-  const exitFocusMode = async () => {
-    await releaseWakeLock();
-    onFocusModeChange(false);
-    if (document.fullscreenElement) await document.exitFullscreen();
-  };
-
-  useEffect(() => {
-    if (!isActive) return;
-    timerRef.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          setIsActive(false);
-          endSession();
-          exitFocusMode();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timerRef.current);
-  }, [isActive, endSession]);
-
-  const enterFocusMode = async () => {
-    await requestWakeLock();
-    onFocusModeChange(true);
-    try { await document.documentElement.requestFullscreen(); } catch {}
-  };
-
-  const startSession = async () => {
-    try {
-      const data = {};
-      if (selectedMissionId) data.mission_id = parseInt(selectedMissionId);
-      if (selectedHabitId) data.habit_id = parseInt(selectedHabitId);
-      const session = await api.startFocusSession(data);
-      focusSessionIdRef.current = session.id;
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const toggleTimer = () => {
-    if (!isActive) {
-      if (timeLeft === 0) {
-        setTimeLeft(sessionLength * 60);
-      }
-      startSession();
-      enterFocusMode();
-    }
-    setIsActive(!isActive);
-  };
-
-  const resetTimer = async () => {
-    clearInterval(timerRef.current);
-    if (isActive) {
-      const sid = focusSessionIdRef.current;
-      if (sid) {
-        focusSessionIdRef.current = null;
-        try {
-          await api.endFocusSession(sid, { duration_minutes: sessionLength });
-        } catch (err) {
-          console.error(err);
-        }
-        onRefreshMissions();
-        onRefreshAccount();
-      }
-    }
-    await exitFocusMode();
-    setIsActive(false);
-    setTimeLeft(sessionLength * 60);
-  };
-
-  const handleSessionChange = (e) => {
-    const value = Math.max(1, Math.min(180, parseInt(e.target.value) || 1));
-    setSessionLength(value);
-    if (!isActive) setTimeLeft(value * 60);
-  };
-
-  const handleTrackSelect = (track) => {
-    if (activeTrack?.id === track.id && isPlaying) {
-      onTrackChange(null);
-    } else {
-      onTrackChange(track);
-    }
-  };
-
-  const selectedMission = missions.find(m => String(m.id) === selectedMissionId);
+export default function FocusPanel({
+  activeTrack,
+  isPlaying,
+  onTrackChange,
+  missions,
+  habits,
+  onRefreshMissions,
+  onRefreshHabits,
+  onRefreshAccount,
+  onFocusModeChange,
+  focusMode,
+  focusTimeLeft,
+  focusTotalTime,
+  focusRunning,
+  focusSessionLength,
+  focusSelectedMissionId,
+  focusSelectedHabitId,
+  onFocusMissionChange,
+  onFocusHabitChange,
+  onFocusToggle,
+  onFocusAdjustTime,
+  onFocusSessionChange,
+  onFocusReset,
+  onFocusExit,
+}) {
+  const selectedMission = missions.find(m => String(m.id) === focusSelectedMissionId);
   const missionName = selectedMission ? selectedMission.title : '';
 
   if (focusMode) {
     return (
       <BatFocusTimer
-        timeLeft={timeLeft}
-        totalTime={sessionLength * 60}
-        running={isActive}
-        onToggleRunning={toggleTimer}
-        onAdjustTime={(delta) => setTimeLeft(prev => Math.max(0, prev + delta))}
-        onClose={exitFocusMode}
+        timeLeft={focusTimeLeft}
+        totalTime={focusTotalTime}
+        running={focusRunning}
+        onToggleRunning={onFocusToggle}
+        onAdjustTime={onFocusAdjustTime}
+        onClose={onFocusExit}
         missionName={missionName}
         activeTrack={activeTrack}
         isPlaying={isPlaying}
@@ -149,6 +48,19 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
       />
     );
   }
+
+  const handleSessionChange = (e) => {
+    const value = Math.max(1, Math.min(180, parseInt(e.target.value) || 1));
+    onFocusSessionChange(value);
+  };
+
+  const handleTrackSelect = (track) => {
+    if (activeTrack?.id === track.id && isPlaying) {
+      onTrackChange(null);
+    } else {
+      onTrackChange(track);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -160,12 +72,12 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <BatFocusTimer
-            timeLeft={timeLeft}
-            totalTime={sessionLength * 60}
-            running={isActive}
-            onToggleRunning={toggleTimer}
-            onAdjustTime={(delta) => setTimeLeft(prev => Math.max(0, prev + delta))}
-            missionName={missionName} // Pass mission name for compact view as well
+            timeLeft={focusTimeLeft}
+            totalTime={focusTotalTime}
+            running={focusRunning}
+            onToggleRunning={onFocusToggle}
+            onAdjustTime={onFocusAdjustTime}
+            missionName={missionName}
             activeTrack={activeTrack}
             isPlaying={isPlaying}
             onTrackChange={onTrackChange}
@@ -181,9 +93,9 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
             <div className="text-xs">
               <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Mission Target</label>
               <select
-                value={selectedMissionId}
-                onChange={e => setSelectedMissionId(e.target.value)}
-                disabled={isActive}
+                value={focusSelectedMissionId}
+                onChange={e => onFocusMissionChange(e.target.value)}
+                disabled={focusRunning}
                 className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
               >
                 <option value="">— No Mission —</option>
@@ -195,9 +107,9 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
             <div className="text-xs">
               <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Habit Target</label>
               <select
-                value={selectedHabitId}
-                onChange={e => setSelectedHabitId(e.target.value)}
-                disabled={isActive}
+                value={focusSelectedHabitId}
+                onChange={e => onFocusHabitChange(e.target.value)}
+                disabled={focusRunning}
                 className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
               >
                 <option value="">— No Habit —</option>
@@ -212,9 +124,9 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
                 type="number"
                 min="1"
                 max="180"
-                value={sessionLength}
+                value={focusSessionLength}
                 onChange={handleSessionChange}
-                disabled={isActive}
+                disabled={focusRunning}
                 className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
               />
             </div>

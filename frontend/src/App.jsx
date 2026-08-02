@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
@@ -107,6 +107,16 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
 
+  // Focus timer state - persists across tab switches
+  const [focusSessionLength, setFocusSessionLength] = useState(25);
+  const [focusTimeLeft, setFocusTimeLeft] = useState(25 * 60);
+  const [focusRunning, setFocusRunning] = useState(false);
+  const [focusSelectedMissionId, setFocusSelectedMissionId] = useState('');
+  const [focusSelectedHabitId, setFocusSelectedHabitId] = useState('');
+  const focusSessionIdRef = useRef(null);
+  const focusStartTimeRef = useRef(null);
+  const focusTimerRef = useRef(null);
+
   const fetchAllData = useCallback(async () => {
     try {
       setLoading(true);
@@ -205,6 +215,101 @@ export default function App() {
     }
   };
 
+  // Focus timer interval - uses Date.now() for accuracy across browser tab throttling
+  useEffect(() => {
+    if (!focusRunning) {
+      clearInterval(focusTimerRef.current);
+      return;
+    }
+    focusStartTimeRef.current = Date.now();
+    const expectedInterval = 1000;
+    focusTimerRef.current = setInterval(() => {
+      const elapsed = Date.now() - focusStartTimeRef.current;
+      const ticks = Math.floor(elapsed / expectedInterval);
+      if (ticks >= 1) {
+        focusStartTimeRef.current += ticks * expectedInterval;
+        setFocusTimeLeft((prev) => {
+          const next = prev - ticks;
+          if (next <= 0) {
+            clearInterval(focusTimerRef.current);
+            setFocusRunning(false);
+            return 0;
+          }
+          return next;
+        });
+      }
+    }, 200);
+    return () => clearInterval(focusTimerRef.current);
+  }, [focusRunning]);
+
+  const focusSessionLengthRef = useRef(focusSessionLength);
+  focusSessionLengthRef.current = focusSessionLength;
+
+  const endFocusSession = useCallback(async () => {
+    const sid = focusSessionIdRef.current;
+    if (!sid) return;
+    focusSessionIdRef.current = null;
+    try {
+      await api.endFocusSession(sid, { duration_minutes: focusSessionLengthRef.current });
+      handleRefreshMissions();
+      handleRefreshAccount();
+    } catch (err) {
+      console.error(err);
+    }
+  }, [handleRefreshMissions, handleRefreshAccount]);
+
+  const startFocusSession = useCallback(async (missionId, habitId) => {
+    try {
+      const data = {};
+      if (missionId) data.mission_id = parseInt(missionId);
+      if (habitId) data.habit_id = parseInt(habitId);
+      const session = await api.startFocusSession(data);
+      focusSessionIdRef.current = session.id;
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const handleFocusToggle = useCallback(() => {
+    setFocusRunning((prev) => {
+      if (!prev) {
+        // Starting timer
+        if (focusTimeLeft === 0) {
+          setFocusTimeLeft(focusSessionLength * 60);
+        }
+        startFocusSession(focusSelectedMissionId, focusSelectedHabitId);
+      }
+      return !prev;
+    });
+  }, [focusTimeLeft, focusSessionLength, focusSelectedMissionId, focusSelectedHabitId, startFocusSession]);
+
+  const handleFocusAdjustTime = useCallback((delta) => {
+    setFocusTimeLeft((prev) => {
+      const next = Math.max(0, prev + delta);
+      return next;
+    });
+  }, []);
+
+  const handleFocusSessionChange = useCallback((minutes) => {
+    setFocusSessionLength(minutes);
+    setFocusTimeLeft(minutes * 60);
+  }, []);
+
+  const handleFocusReset = useCallback(async () => {
+    clearInterval(focusTimerRef.current);
+    if (focusRunning) {
+      await endFocusSession();
+    }
+    setFocusRunning(false);
+    setFocusTimeLeft(focusSessionLength * 60);
+  }, [focusRunning, focusSessionLength, endFocusSession]);
+
+  const handleFocusExit = useCallback(async () => {
+    await handleFocusReset();
+    setFocusMode(false);
+    if (document.fullscreenElement) await document.exitFullscreen();
+  }, [handleFocusReset]);
+
   const handleLogout = () => {
     api.logout();
     setIsAuthenticated(false);
@@ -298,6 +403,19 @@ export default function App() {
             onRefreshAccount={handleRefreshAccount}
             onFocusModeChange={setFocusMode}
             focusMode={focusMode}
+            focusTimeLeft={focusTimeLeft}
+            focusTotalTime={focusSessionLength * 60}
+            focusRunning={focusRunning}
+            focusSessionLength={focusSessionLength}
+            focusSelectedMissionId={focusSelectedMissionId}
+            focusSelectedHabitId={focusSelectedHabitId}
+            onFocusMissionChange={setFocusSelectedMissionId}
+            onFocusHabitChange={setFocusSelectedHabitId}
+            onFocusToggle={handleFocusToggle}
+            onFocusAdjustTime={handleFocusAdjustTime}
+            onFocusSessionChange={handleFocusSessionChange}
+            onFocusReset={handleFocusReset}
+            onFocusExit={handleFocusExit}
           />
         );
       case 'johnwick':
