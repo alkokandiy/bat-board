@@ -2,10 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --bg-deep: #050810;
+  --bg-card: #0a0f1e;
+  --bg-elevated: #0f1629;
+  --bg-glass: rgba(15, 22, 41, 0.8);
+  --border-dim: rgba(255, 215, 0, 0.06);
+  --border-mid: rgba(255, 215, 0, 0.12);
+  --border-glow: rgba(255, 215, 0, 0.3);
+  --yellow-core: #FFD700;
+  --yellow-dim: #FBBF24;
+  --yellow-ghost: rgba(255, 215, 0, 0.08);
+  --text-primary: #F1F5F9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+}
+
 @layer base {
   body {
     background-color: #1a1a1a; /* matte obsidian baseline */
     color: #f1f5f9;
+    font-family: 'Inter', sans-serif;
   }
 }
 

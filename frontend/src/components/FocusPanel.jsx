@@ -3,7 +3,7 @@ import { trackPresets } from './AudioPlayer';
 import { api } from '../utils/api';
 import BatFocusTimer from './BatFocusTimer';
 
-export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, habits, onRefreshMissions, onRefreshHabits, onRefreshAccount, onFocusModeChange }) {
+export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, missions, habits, onRefreshMissions, onRefreshHabits, onRefreshAccount, onFocusModeChange, focusMode }) {
   const [timeLeft, setTimeLeft] = useState(25 * 60);
   const [isActive, setIsActive] = useState(false);
   const [sessionLength, setSessionLength] = useState(25);
@@ -128,6 +128,27 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
     }
   };
 
+  const selectedMission = missions.find(m => String(m.id) === selectedMissionId);
+  const missionName = selectedMission ? selectedMission.title : '';
+
+  if (focusMode) {
+    return (
+      <BatFocusTimer
+        timeLeft={timeLeft}
+        totalTime={sessionLength * 60}
+        running={isActive}
+        onToggleRunning={toggleTimer}
+        onAdjustTime={(delta) => setTimeLeft(prev => Math.max(0, prev + delta))}
+        onClose={exitFocusMode}
+        missionName={missionName}
+        activeTrack={activeTrack}
+        isPlaying={isPlaying}
+        onTrackChange={onTrackChange}
+        onFocusModeChange={onFocusModeChange}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
@@ -143,6 +164,11 @@ export default function FocusPanel({ activeTrack, isPlaying, onTrackChange, miss
             running={isActive}
             onToggleRunning={toggleTimer}
             onAdjustTime={(delta) => setTimeLeft(prev => Math.max(0, prev + delta))}
+            missionName={missionName} // Pass mission name for compact view as well
+            activeTrack={activeTrack}
+            isPlaying={isPlaying}
+            onTrackChange={onTrackChange}
+            onFocusModeChange={onFocusModeChange}
           />
         </div>
 

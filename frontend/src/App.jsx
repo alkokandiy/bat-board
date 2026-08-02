@@ -297,6 +297,7 @@ export default function App() {
             onRefreshHabits={handleRefreshHabits}
             onRefreshAccount={handleRefreshAccount}
             onFocusModeChange={setFocusMode}
+            focusMode={focusMode}
           />
         );
       case 'johnwick':
@@ -394,6 +395,7 @@ export default function App() {
         isPlaying={isPlaying}
         onToggle={handleTogglePlay}
         onTrackChange={handleTrackChange}
+        hideUI={focusMode}
       />
     </DashboardLayout>
   );

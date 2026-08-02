@@ -1,0 +1,437 @@
+Major redesign of the BatFocusTimer / Focus Hourglass component.
+Four areas: fullscreen mode, mission bar, Apple-quality visual design, 
+and all four mode redesigns. Read everything before touching any code.
+
+---
+
+## PART 1: TRUE FULLSCREEN FOCUS MODE
+
+When focus mode activates (START pressed), enter native browser fullscreen:
+
+```js
+const enterFocus = () => {
+  document.documentElement.requestFullscreen?.()
+  setRunning(true)
+  setFocusActive(true)
+}
+
+const exitFocus = () => {
+  document.exitFullscreen?.()
+  setRunning(false)
+  setFocusActive(false)
+}
+
+// Sync state if user presses Escape natively
+useEffect(() => {
+  const handler = () => {
+    if (!document.fullscreenElement) setFocusActive(false)
+  }
+  document.addEventListener('fullscreenchange', handler)
+  return () => document.removeEventListener('fullscreenchange', handler)
+}, [])
+```
+
+When focusActive === true, the timer component renders as:
+  position: fixed, inset: 0, z-index: 9999
+  background: #050810 (near-black, deeper than current)
+  display: flex, flex-direction: column
+  width: 100vw, height: 100vh
+  overflow: hidden
+
+When focusActive === false, render the compact panel view as before
+(inside the bat-board layout).
+
+The START button now says "ENTER FOCUS" and calls enterFocus().
+In fullscreen, a corner button "EXIT FOCUS" (top-right) calls exitFocus()
+but does NOT stop the timer — timer keeps running.
+  Style: position absolute, top 24px, right 24px
+  Text: "✕ EXIT FOCUS", font-size 11px, color #475569, letter-spacing 1px
+  Hover: color #FFD700
+  No border, no background — ghost button
+
+Also: pressing Escape should NOT stop timer, only exit fullscreen.
+Exiting fullscreen keeps focusActive=true but collapses back to panel.
+
+---
+
+## PART 2: MISSION STRIP — replaces Parameters panel during focus
+
+Remove the Parameters sidebar when in focus mode.
+Instead, show a slim MISSION STRIP at the top of the fullscreen view:
+
+Layout: full width, height 48px, 
+  border-bottom: 1px solid rgba(255,215,0,0.06)
+  background: rgba(255,255,255,0.02)
+  display: flex, align-items: center, justify-content: space-between
+  padding: 0 32px
+
+Left side:
+  A small yellow bat icon (inline SVG, 16px wide) + 
+  mission text: "DEEP WORK  ·  [MISSION NAME]" 
+  If no mission: "DEEP WORK  ·  COGNITIVE ISOLATION"
+  Font: 11px, letter-spacing: 2px, color: #94a3b8, all-caps
+
+Center:
+  Mode selector [N] [F] [B] [M] buttons — same style as before
+  But smaller: 24×24px
+
+Right side:
+  SOUNDTRACK — show as 3 small dot indicators, one per track
+  Each dot: 6px circle
+    Active track: #FFD700, box-shadow 0 0 6px rgba(255,215,0,0.6)
+    Inactive: #1e293b, border 1px solid #334155
+  Clicking a dot activates that track (label shown as tooltip on hover)
+  Label next to dots: "SOUNDTRACK" in 9px #475569 letter-spacing 2px
+
+This strip is present in ALL four modes — it's universal.
+
+---
+
+## PART 3: FULLSCREEN LAYOUT STRUCTURE
+
+┌─────────────────────────────────────────────────┐
+│ MISSION STRIP (48px) [✕ EXIT]│
+├─────────────────────────────────────────────────┤
+│ │
+│ [MODE DISPLAY AREA] │
+│ flex:1, centered, full width │
+│ │
+├─────────────────────────────────────────────────┤
+│ [-30s] [PAUSE / RESUME] [+30s] (56px) │
+└─────────────────────────────────────────────────┘
+
+Control bar at bottom:
+  height: 64px, border-top: 1px solid rgba(255,215,0,0.06)
+  display: flex, align-items: center, justify-content: center, gap: 16px
+
+---
+
+## PART 4: APPLE-QUALITY DESIGN SYSTEM
+
+This is the most critical part. The current design looks amateur.
+Every pixel must feel intentional. Think Apple × Batman.
+
+### Color tokens (replace all current colors):
+  --bg-deep:      #050810   ← fullscreen background
+  --bg-card:      #0a0f1e   ← card/panel surfaces  
+  --bg-elevated:  #0f1629   ← elevated elements
+  --bg-glass:     rgba(15,22,41,0.8)  ← glassmorphism
+  --border-dim:   rgba(255,215,0,0.06)
+  --border-mid:   rgba(255,215,0,0.12)
+  --border-glow:  rgba(255,215,0,0.3)
+  --yellow-core:  #FFD700
+  --yellow-dim:   #FBBF24
+  --yellow-ghost: rgba(255,215,0,0.08)
+  --text-primary: #F1F5F9
+  --text-secondary: #94a3b8
+  --text-muted:   #475569
+
+### Typography rules:
+  All UI labels: font-family 'Inter', sans-serif (import from Google Fonts)
+  All time displays: font-family 'Share Tech Mono', monospace
+  No bold text anywhere except active button labels
+  Letter-spacing on all caps labels: 1.5–2px minimum
+  No text shadows except on the main time display
+
+### Spacing & layout:
+  Everything breathes. Generous padding. Nothing feels cramped.
+  Mode display area: flex:1, display:flex, align-items:center, 
+    justify-content:center, padding: 48px 64px
+
+### Buttons:
+  Control buttons (−30s, +30s):
+    background: transparent
+    border: 1px solid var(--border-mid)
+    color: var(--text-muted)
+    font-family: 'Share Tech Mono'
+    font-size: 11px, letter-spacing: 1px
+    padding: 10px 20px, border-radius: 6px
+    Hover: border-color var(--border-glow), color var(--yellow-dim)
+    transition: all 0.2s ease
+
+  PAUSE/RESUME button:
+    background: var(--yellow-core)
+    color: #050810
+    font-family: 'Share Tech Mono'
+    font-size: 12px, font-weight: 600, letter-spacing: 2px
+    padding: 10px 32px, border-radius: 6px
+    box-shadow: 0 0 24px rgba(255,215,0,0.2)
+    Hover: box-shadow: 0 0 32px rgba(255,215,0,0.35)
+    transition: box-shadow 0.2s ease
+
+---
+
+## PART 5: MODE [N] NORMAL — refined
+
+Clean. Cinematic. No clutter.
+
+Large time display:
+  font-size: clamp(80px, 12vw, 140px)
+  color: var(--yellow-core)
+  letter-spacing: 8px
+  font-family: 'Share Tech Mono'
+  text-shadow: 0 0 60px rgba(255,215,0,0.15), 0 0 120px rgba(255,215,0,0.06)
+  No border. No box. Pure text in void.
+
+Below it:
+  Progress bar: width 320px, height 2px
+    track: var(--border-dim)
+    fill: linear-gradient(to right, #FFD700, #FBBF24)
+    border-radius: 1px
+    fill animated with transition: width 0.5s linear
+  
+  Below bar: "XX% · MM:SS REMAINING" in 11px var(--text-muted) 
+    letter-spacing: 2px, margin-top: 12px
+
+Nothing else. Space is the design.
+
+---
+
+## PART 6: MODE [F] FLIP — iconic redesign
+
+The flip clock must look like a premium physical device.
+
+### Each digit card:
+  Width: 80px, Height: 108px
+  background: var(--bg-elevated)
+  border-radius: 10px
+  border: 1px solid var(--border-dim)
+  box-shadow: 
+    0 20px 60px rgba(0,0,0,0.6),
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 -1px 0 rgba(0,0,0,0.4) inset
+  
+  Font: 'Share Tech Mono', 80px, color: var(--yellow-core), line-height: 108px
+  
+  The center seam (divider):
+    position: absolute, top: 53px, left: 0, right: 0, height: 2px
+    background: #050810
+    z-index: 10
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02)
+
+### Top/bottom halves:
+  Each half: height 54px, overflow: hidden, position: relative
+  
+  Top half inner: 
+    background: linear-gradient(to bottom, var(--bg-elevated), #0c1220)
+  
+  Bottom half inner:
+    background: linear-gradient(to bottom, #0c1220, var(--bg-elevated))
+    The digit positioned at top: -54px to show only bottom half
+
+### Flip animation — KEEP the same logic from previous prompt but:
+  flapTopOut: 260ms cubic-bezier(0.55, 0, 1, 0.45)
+  flapBottomIn: 260ms cubic-bezier(0, 0.55, 0.45, 1), delay: 180ms
+  
+  Flap surfaces have a subtle gradient overlay to simulate 3D depth:
+    top flap: background fades slightly darker toward the fold edge
+    bottom flap: starts darker, lightens as it unfolds
+    
+  Add a very subtle metallic sheen line on each card:
+    position: absolute, top: 8px, left: 8px, right: 8px, height: 1px
+    background: rgba(255,255,255,0.04)
+
+### Colon separator redesign:
+  Two rectangles (not circles): 6×16px each, border-radius: 3px
+  background: var(--yellow-core), opacity: 0.9
+  gap: 10px between them
+  Blink animation only when running (opacity 1 → 0.15, 800ms ease)
+  margin: 0 16px
+
+### Layout gap between digit cards: 6px
+
+### Below flip clock:
+  "MISSION TIME REMAINING" in 10px var(--text-muted) letter-spacing 3px
+  margin-top: 32px
+
+---
+
+## PART 7: MODE [B] BAT SIGNAL — complete visual overhaul
+
+The current pixel grid looks like a broken QR code.
+Redesign as a cinematic, glowing Bat-Signal beam experience.
+
+### Concept: 
+A dark scene. A spotlight beam shoots upward from bottom.
+The Batman logo appears inside the beam, revealed from bottom to top as progress fills.
+This is atmospheric, NOT a pixel grid.
+
+### Structure:
+
+1. SPOTLIGHT BEAM (SVG, behind everything):
+  A cone/triangle shape pointing upward, centered.
+  Path: starts narrow at bottom-center, fans out wide at top.
+  fill: radial gradient from rgba(255,215,0,0.06) center 
+        to rgba(255,215,0,0) edges
+  As progress increases: opacity increases from 0.3 to 1.0
+  Also: feGaussianBlur stdDeviation="8" on beam for soft light scatter
+  
+  Beam SVG: viewBox="0 0 400 320", centered in display area
+  Path: M 200,310 L 60,20 L 340,20 Z (wide cone)
+
+2. BATMAN LOGO — the classic oval with bat:
+  Use a proper SVG, NOT a pixel grid.
+  
+  Outer oval:
+    <ellipse cx="200" cy="160" rx="140" ry="95"/>
+    
+  Bat silhouette path (classic Batman logo, traced accurately):
+  The bat is a single compound path. Here is a correct approximation
+  of the classic 1966/modern Batman logo bat shape:
+  
+  M 200,95
+  C 193,95 185,98 182,103
+  L 168,98 L 155,88 L 148,95
+  C 140,92 128,88 118,90
+  L 108,86 L 100,90
+  C 90,88 80,92 72,100
+  C 68,108 70,118 76,122
+  C 68,126 60,134 58,142
+  C 60,152 70,158 80,156
+  C 76,162 74,170 78,176
+  C 84,182 94,180 100,174
+  C 106,180 110,188 116,192
+  C 122,198 130,200 138,198
+  C 142,204 144,212 148,216
+  C 152,222 158,224 164,222
+  L 170,228 L 176,234 L 182,238
+  L 188,242 L 194,244 L 200,245
+  L 206,244 L 212,242 L 218,238
+  L 224,234 L 230,228 L 236,222
+  C 242,224 248,222 252,216
+  C 256,212 258,204 262,198
+  C 270,200 278,198 284,192
+  C 290,188 294,180 300,174
+  C 306,180 316,182 322,176
+  C 326,170 324,162 320,156
+  C 330,158 340,152 342,142
+  C 340,134 332,126 324,122
+  C 330,118 332,108 328,100
+  C 320,92 310,88 300,90
+  L 292,86 L 282,90
+  C 272,88 260,92 252,95
+  L 244,88 L 234,98
+  L 218,103 C 215,98 207,95 200,95 Z
+  
+  fill: #050810 (the bat is DARK — it's a silhouette inside the oval)
+  
+  The oval fill: var(--yellow-core)
+  
+  So the bat appears as a dark shape PUNCHED OUT of the yellow oval.
+  Use SVG clip-path or a compound path with fill-rule="evenodd"
+  to achieve oval filled yellow, bat shape is void/dark.
+
+3. PROGRESS REVEAL — the fill rises:
+  
+  Use a clipPath on the entire logo group:
+    <clipPath id="revealClip">
+      <rect x="60" y="${320 - (progress/100)*320}" width="280" height="320"/>
+    </clipPath>
+  
+  The logo group has clip-path="url(#revealClip)"
+  As progress 0→100, the rect top moves from y=320 (nothing shown) to y=0 (fully shown)
+  
+  Below the clip: the logo renders in its "unlit" state:
+    Oval: fill #1a2235 (dark, as if unlit), no glow
+    Bat: fill #050810
+  
+  Above the clip (revealed portion):
+    Oval: fill #FFD700, filter: drop-shadow(0 0 20px rgba(255,215,0,0.5))
+    Bat: fill #050810
+  
+  Achieve this with TWO layers:
+    Layer 1 (dim): full logo, no clip, dim colors
+    Layer 2 (lit): full logo, clip applied, bright colors + glow
+
+4. PROGRESS TEXT below logo:
+  "█████░░░░░ XX%" — no, scratch that.
+  Just: large "XX" in 48px Share Tech Mono var(--yellow-core)
+  Followed by "% MISSION ELAPSED" in 11px var(--text-muted) letter-spacing 2px
+  Centered, margin-top: 24px
+
+5. AMBIENT GLOW behind everything:
+  position: absolute, inset: 0
+  background: radial-gradient(ellipse at 50% 60%, 
+    rgba(255,215,0, ${0.03 + progress*0.002}) 0%, 
+    transparent 60%)
+  pointer-events: none
+
+---
+
+## PART 8: MODE [M] BATMOBILE — fix position + upgrade visuals
+
+### Position fix (same as previous prompt, but state it clearly):
+  CAR_WIDTH = 280px (rendered width)
+  carX = (progress/100) * (containerWidth - CAR_WIDTH)
+  Applied as: style={{ left: carX + 'px', transition: 'left 0.6s linear' }}
+  containerRef measures actual offsetWidth via ResizeObserver
+
+### Car faces RIGHT (nose right, fins left):
+  Apply transform: scaleX(-1) to the <svg> element itself.
+  This mirrors the whole car. 
+  Then reverse the exhaust/flame to appear on the LEFT.
+  Speed lines appear to the LEFT of the car wrapper.
+  Headlight glow appears to the RIGHT.
+
+### Visual redesign — the car itself:
+  The SVG should be cleaned up and darkened.
+  Main body fill: #0a0f1e (very dark navy, not pure black)
+  All stroke lines: rgba(255,215,0,0.4) at 0.4–0.6px
+  Wheel hubs: slightly lighter #131d30
+  Cockpit: #0d1828 with a subtle highlight arc rgba(255,255,255,0.05)
+  
+  Add a GROUND SHADOW below the car:
+    <ellipse cx="150" cy="95" rx="130" ry="6"
+      fill="rgba(0,0,0,0.5)" filter="blur(4px)"/>
+
+### Track / progress bar redesign:
+  Height: 40px of vertical space for the car track area
+  
+  Ground line: 
+    y = bottom of car travel area
+    width: 100%, height: 1px
+    background: linear-gradient(to right, transparent, 
+      rgba(255,215,0,0.15) 20%, rgba(255,215,0,0.15) 80%, transparent)
+  
+  Progress fill (thin, below ground line):
+    height: 2px, margin-top: 4px
+    track: rgba(255,215,0,0.06)
+    fill: var(--yellow-core), transition: width 0.6s linear
+    box-shadow: 0 0 8px rgba(255,215,0,0.4)
+
+  Below progress bar:
+    "XX% · GOTHAM TO WAYNE MANOR" in 10px var(--text-muted) letter-spacing 1.5px
+    Feels like a route tracker, not a generic percentage label.
+
+### Exhaust flames (when running):
+  LEFT side of car (which is rear after mirror):
+  <ellipse> with linearGradient going LEFT (the flame extends leftward)
+  @keyframes batFlicker — same as before but also animate opacity 0.6→1.0
+
+### Speed lines:
+  Rendered as absolutely-positioned horizontal lines 
+  to the LEFT of the car wrapper div
+  4 lines, varying y, varying length (16–28px)
+  Each: gradient from #FFD700 (right end) → transparent (left end)
+  @keyframes lineFlash { 0%,100%{opacity:0.7} 50%{opacity:0.2} }
+  Staggered animation-delay for each line
+
+---
+
+## PART 9: REMOVE COMPLETELY
+
+- The Parameters sidebar panel (in focus mode — keep it outside focus mode if it exists)
+- Any visible "PARAMETERS" label in the fullscreen view
+- Any box/card wrapping around mode displays in fullscreen 
+  (the display area should be pure, frameless content on dark void)
+- Any placeholder "OFFLINE" badges in the focus UI
+
+---
+
+## DO NOT CHANGE:
+- The bat-board routing / page structure outside the timer component
+- Timer state logic (interval, timeLeft, totalTime calculations)
+- The mode selector button logic and keyboard shortcuts
+- Any non-timer components in the bat-board app
+
+
