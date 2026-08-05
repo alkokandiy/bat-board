@@ -19,9 +19,9 @@
 
 <div align="center">
 
-| Dashboard | Missions | Habits | Focus Timer |
-|:---------:|:--------:|:------:|:-----------:|
-| ![Dashboard](frontend/src/bat-board1.png) | ![Missions](frontend/src/bat-board2.png) | ![Habits](frontend/src/bat-board3.png) | ![Focus Timer](frontend/src/bat-board4.png) |
+| Focus Timer | Dashboard | Missions | Calendar |
+|:-----------:|:---------:|:--------:|:--------:|
+| ![Focus Timer](frontend/src/bat-board1.png) | ![Dashboard](frontend/src/bat-board2.png) | ![Missions](frontend/src/bat-board3.png) | ![Calendar](frontend/src/bat-board4.png) |
 
 </div>
 
