@@ -9,7 +9,7 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat&logo=postgresql&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4.3-06B6D4?style=flat&logo=tailwindcss&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](https://github.com/alkokandiy/bat-board/blob/main/LICENSE)
 
 </div>
 
