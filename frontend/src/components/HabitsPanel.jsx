@@ -140,8 +140,8 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
             </div>
           )}
           <div className="flex justify-between items-center text-xs font-mono text-slate-500 uppercase tracking-wider px-1">
-            <span>Active Rituals</span>
-            <span>{habits.length} LOGGED</span>
+            <span>Pending Today</span>
+            <span>{habits.filter(h => !h.last_completed || new Date(h.last_completed).toDateString() !== new Date().toDateString()).length} REMAINING</span>
           </div>
 
           <div className="space-y-2.5">
@@ -150,14 +150,28 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                 NO RITUAL LOOPS ENGAGED. CONFIGURE A NEW ROUTINE TO BEGIN TRAINING.
               </div>
             ) : (
-              habits.map((habit) => {
+              (() => {
                 const now = new Date();
                 const todayStr = now.toDateString();
-                const checkedToday = habit.last_completed
-                  ? new Date(habit.last_completed).toDateString() === todayStr
-                  : false;
+                const pendingHabits = habits.filter((habit) => {
+                  const checkedToday = habit.last_completed
+                    ? new Date(habit.last_completed).toDateString() === todayStr
+                    : false;
+                  return !checkedToday;
+                });
+                const completedToday = habits.length - pendingHabits.length;
 
-                return (
+                if (pendingHabits.length === 0) {
+                  return (
+                    <div className="bg-dark-slate p-8 text-center rounded border border-emerald-900/30 text-emerald-400 font-mono text-xs space-y-2">
+                      <div className="text-lg">ALL RITUALS COMPLETED</div>
+                      <div className="text-emerald-400/60">All {completedToday} habit{completedToday !== 1 ? 's' : ''} checked in today. Come back tomorrow.</div>
+                    </div>
+                  );
+                }
+
+                return pendingHabits.map((habit) => {
+                  return (
                   <div
                     key={habit.id}
                     className="bg-dark-slate p-4 rounded border border-slate-800 hover:border-slate-700 transition flex items-center justify-between gap-4"
@@ -180,7 +194,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
 
                       <div className="flex items-center space-x-4 pt-1 text-[10px] font-mono">
                         <div className="flex items-center space-x-1">
-                          <span className="text-slate-500">🔥 Streak:</span>
+                          <span className="text-slate-500">Streak:</span>
                           <span className={`${habit.streak > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'}`}>
                             {habit.streak} {habit.streak === 1 ? 'day' : 'days'}
                           </span>
@@ -188,13 +202,13 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
 
                         {(habit.focus_minutes || 0) > 0 && (
                           <div className="text-slate-500">
-                            ⏱ {habit.focus_minutes}m
+                            {habit.focus_minutes}m focus
                           </div>
                         )}
                         
                         {habit.streak > 2 && (
                           <span className="text-[9px] bg-orange-950/20 text-orange-400 border border-orange-950 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                            ON FIRE ⚡
+                            ON FIRE
                           </span>
                         )}
 
@@ -224,14 +238,9 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                     <div className="flex items-center space-x-3 shrink-0">
                       <button
                         onClick={() => handleCheckIn(habit.id)}
-                        disabled={checkedToday}
-                        className={`px-4 py-2 rounded text-xs font-bold font-mono tracking-wider border transition duration-200 ${
-                          checkedToday
-                            ? 'bg-emerald-950/20 text-emerald-400 border-emerald-900/30 cursor-not-allowed'
-                            : 'bg-electric-bat-yellow text-matte-obsidian border-electric-bat-yellow hover:bg-yellow-400'
-                        }`}
+                        className="px-4 py-2 rounded text-xs font-bold font-mono tracking-wider border transition duration-200 bg-electric-bat-yellow text-matte-obsidian border-electric-bat-yellow hover:bg-yellow-400"
                       >
-                        {checkedToday ? 'COMPLETED' : 'CHECK IN'}
+                        CHECK IN
                       </button>
 
                       <button
@@ -243,8 +252,9 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                       </button>
                     </div>
                   </div>
-                );
-              })
+                  );
+                });
+              })()
             )}
           </div>
         </div>

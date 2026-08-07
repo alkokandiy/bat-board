@@ -133,29 +133,55 @@ export default function LogsPanel({ initialLogs, onRefreshLogs }) {
           {logs.length === 0 ? (
             <div className="p-6 text-center text-slate-500">No cryptographic log ledger entries captured yet.</div>
           ) : (
-            logs.map((log) => {
-              let parsedDetails = {};
-              try {
-                parsedDetails = JSON.parse(log.details);
-              } catch {
-                parsedDetails = { raw: log.details };
-              }
-              return (
-                <div key={log.id} className="p-4 hover:bg-slate-900 transition flex flex-col md:flex-row md:items-center justify-between gap-2">
-                  <div className="space-y-1">
-                    <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] mr-2">
-                      {log.event_type}
-                    </span>
-                    <span className="text-slate-300">
-                      {parsedDetails.message || parsedDetails.reason || JSON.stringify(parsedDetails)}
-                    </span>
+            (() => {
+              const grouped = {};
+              logs.forEach((log) => {
+                const dateKey = new Date(log.timestamp).toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                });
+                if (!grouped[dateKey]) grouped[dateKey] = [];
+                grouped[dateKey].push(log);
+              });
+
+              return Object.entries(grouped).map(([date, entries]) => (
+                <div key={date}>
+                  <div className="px-4 py-2 bg-matte-obsidian border-b border-slate-800 flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-electric-bat-yellow/60" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{date}</span>
+                    <span className="text-[9px] text-slate-600">({entries.length} event{entries.length !== 1 ? 's' : ''})</span>
                   </div>
-                  <span className="text-slate-500 text-[10px] shrink-0">
-                    {new Date(log.timestamp).toLocaleString()}
-                  </span>
+                  {entries.map((log) => {
+                    let parsedDetails = {};
+                    try {
+                      parsedDetails = JSON.parse(log.details);
+                    } catch {
+                      parsedDetails = { raw: log.details };
+                    }
+                    return (
+                      <div key={log.id} className="px-4 py-3 hover:bg-slate-900/50 transition flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-800/50 last:border-b-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-1.5 h-1.5 rounded-full bg-slate-700 shrink-0" />
+                          <div className="space-y-1">
+                            <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px]">
+                              {log.event_type}
+                            </span>
+                            <span className="text-slate-300">
+                              {parsedDetails.message || parsedDetails.reason || JSON.stringify(parsedDetails)}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-slate-500 text-[10px] shrink-0 md:ml-4">
+                          {new Date(log.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })
+              ));
+            })()
           )}
         </div>
       </div>

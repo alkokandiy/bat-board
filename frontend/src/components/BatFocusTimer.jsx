@@ -205,6 +205,36 @@ export default function BatFocusTimer({
     return () => document.removeEventListener('fullscreenchange', handler);
   }, [onFocusModeChange]);
 
+  // Wake Lock: prevent screen sleep during focus mode
+  const wakeLockRef = useRef(null);
+  useEffect(() => {
+    if (focusActive && running) {
+      let cancelled = false;
+      const requestWakeLock = async () => {
+        try {
+          if ('wakeLock' in navigator) {
+            wakeLockRef.current = await navigator.wakeLock.request('screen');
+            wakeLockRef.current?.addEventListener('release', () => {
+              wakeLockRef.current = null;
+            });
+          }
+        } catch {
+          // Wake Lock not supported or denied — silent fail
+        }
+      };
+      requestWakeLock();
+      return () => {
+        if (!cancelled) {
+          wakeLockRef.current?.release();
+          wakeLockRef.current = null;
+        }
+      };
+    } else {
+      wakeLockRef.current?.release();
+      wakeLockRef.current = null;
+    }
+  }, [focusActive, running]);
+
   const enterFocus = () => {
     document.documentElement.requestFullscreen?.().catch(() => {});
     if (!running) {
@@ -216,11 +246,11 @@ export default function BatFocusTimer({
   };
 
   const exitFocus = () => {
+    setFocusActive(false);
+    onFocusModeChange?.(false);
     if (document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => {});
     }
-    setFocusActive(false);
-    onFocusModeChange?.(false);
     // Does NOT stop timer!
   };
 
@@ -453,17 +483,29 @@ export default function BatFocusTimer({
 
             {/* Progress Text below Logo */}
             <div className="text-center mt-[24px]">
-              <span
-                style={{
-                  fontFamily: "'Share Tech Mono', monospace",
-                  fontSize: '48px',
-                  color: 'var(--yellow-core)',
-                  lineHeight: 1,
-                  display: 'block',
-                }}
-              >
-                {progress}%
-              </span>
+              <div className="flex items-center justify-center gap-4">
+                <span
+                  style={{
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: '48px',
+                    color: 'var(--yellow-core)',
+                    lineHeight: 1,
+                    display: 'block',
+                  }}
+                >
+                  {formattedTime}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: '24px',
+                    color: 'rgba(255,215,0,0.5)',
+                    lineHeight: 1,
+                  }}
+                >
+                  {progress}%
+                </span>
+              </div>
               <span
                 style={{
                   fontSize: '11px',
@@ -475,7 +517,7 @@ export default function BatFocusTimer({
                   display: 'block',
                 }}
               >
-                % MISSION ELAPSED
+                TIME REMAINING · {progress}% ELAPSED
               </span>
             </div>
           </div>
@@ -686,9 +728,16 @@ export default function BatFocusTimer({
                   marginTop: '12px',
                   fontFamily: "'Inter', sans-serif",
                   textTransform: 'uppercase',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '12px',
                 }}
               >
-                {progress}% · GOTHAM TO WAYNE MANOR
+                <span style={{ fontFamily: "'Share Tech Mono', monospace", fontSize: '14px', color: 'var(--yellow-core)' }}>
+                  {formattedTime}
+                </span>
+                <span>{progress}% · GOTHAM TO WAYNE MANOR</span>
               </div>
             </div>
           </div>
@@ -797,42 +846,65 @@ export default function BatFocusTimer({
           {/* Center: Mode selector buttons [N] [F] [B] [M] */}
           <div>{renderModeButtons('small')}</div>
 
-          {/* Right side: Soundtrack indicators */}
-          <div className="flex items-center gap-4 select-none mr-24">
-            <div className="flex items-center gap-2">
-              <span
-                style={{
-                  fontSize: '9px',
-                  color: '#475569',
-                  letterSpacing: '2px',
-                  fontFamily: "'Share Tech Mono', monospace",
-                  textTransform: 'uppercase',
-                }}
-              >
-                SOUNDTRACK
-              </span>
-              <div className="flex items-center gap-1.5">
-                {trackPresets.map((track) => {
-                  const isActiveTrack = activeTrack?.id === track.id && isPlaying;
-                  return (
-                    <button
-                      key={track.id}
-                      title={track.title}
-                      onClick={() => onTrackChange(track)}
-                      style={{
-                        width: '6px',
-                        height: '6px',
-                        borderRadius: '50%',
-                        cursor: 'pointer',
-                        background: isActiveTrack ? '#FFD700' : '#1e293b',
-                        border: isActiveTrack ? 'none' : '1px solid #334155',
-                        boxShadow: isActiveTrack ? '0 0 6px rgba(255,215,0,0.6)' : 'none',
-                        transition: 'all 0.2s ease',
-                      }}
-                    />
-                  );
-                })}
-              </div>
+          {/* Right side: Soundtrack controls */}
+          <div className="flex items-center gap-3 select-none mr-24">
+            <button
+              onClick={() => onTrackChange(activeTrack)}
+              title={activeTrack && isPlaying ? 'Pause music' : 'Play music'}
+              style={{
+                width: '28px',
+                height: '28px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                background: activeTrack && isPlaying ? '#FFD700' : 'transparent',
+                color: activeTrack && isPlaying ? '#050810' : '#94a3b8',
+                border: activeTrack && isPlaying ? 'none' : '1px solid rgba(255,215,0,0.12)',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {activeTrack && isPlaying ? '❚❚' : '▶'}
+            </button>
+            <div className="flex items-center gap-1.5">
+              {trackPresets.map((track) => {
+                const isActiveTrack = activeTrack?.id === track.id;
+                return (
+                  <button
+                    key={track.id}
+                    title={track.title}
+                    onClick={() => {
+                      if (isActiveTrack) {
+                        onTrackChange(track);
+                      } else {
+                        onTrackChange(track);
+                      }
+                    }}
+                    style={{
+                      height: '24px',
+                      padding: '0 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      background: isActiveTrack ? 'rgba(255,215,0,0.12)' : 'transparent',
+                      color: isActiveTrack ? '#FFD700' : '#64748b',
+                      border: isActiveTrack ? '1px solid rgba(255,215,0,0.3)' : '1px solid transparent',
+                      fontSize: '9px',
+                      fontFamily: "'Share Tech Mono', monospace",
+                      letterSpacing: '1px',
+                      textTransform: 'uppercase',
+                      transition: 'all 0.15s ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {track.title}
+                    {isActiveTrack && isPlaying && (
+                      <span style={{ marginLeft: '4px', fontSize: '8px' }}>▶</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
