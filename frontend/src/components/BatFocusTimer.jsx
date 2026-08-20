@@ -9,24 +9,48 @@ function FlipDigit({ digit }) {
   const [prevDigit, setPrevDigit] = useState(digit);
   const [phase, setPhase] = useState('idle');
   const animatingRef = useRef(false);
+  const pendingRef = useRef(null);
+  const timeoutsRef = useRef([]);
 
-  useEffect(() => {
-    if (digit === currentDigit || animatingRef.current) return;
+  const currentDigitRef = useRef(currentDigit);
+  currentDigitRef.current = currentDigit;
+
+  const scheduleFlip = (target) => {
     animatingRef.current = true;
-    setPrevDigit(currentDigit);
+    pendingRef.current = null;
+    setPrevDigit(currentDigitRef.current);
     setPhase('flipping');
 
     const t1 = setTimeout(() => {
-      setCurrentDigit(digit);
+      setCurrentDigit(target);
       const t2 = setTimeout(() => {
         setPhase('idle');
         animatingRef.current = false;
+        const pending = pendingRef.current;
+        if (pending != null && pending !== target) {
+          scheduleFlip(pending);
+        }
       }, 260);
-      return () => clearTimeout(t2);
+      timeoutsRef.current.push(t2);
     }, 180);
+    timeoutsRef.current.push(t1);
+  };
 
-    return () => clearTimeout(t1);
+  useEffect(() => {
+    if (digit === currentDigit) return;
+    if (animatingRef.current) {
+      pendingRef.current = digit;
+      return;
+    }
+    scheduleFlip(digit);
   }, [digit, currentDigit]);
+
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current = [];
+    };
+  }, []);
 
   return (
     <div
@@ -193,50 +217,28 @@ export default function BatFocusTimer({
     return () => ro.disconnect();
   }, [mode, focusActive]);
 
-  // Sync state if user exits native fullscreen or presses Escape
+  // Track whether we're in real browser fullscreen vs the software overlay only
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false);
+
+  // Keep focusActive synced when native fullscreen is entered/exited (Esc, F11).
+  // Exiting native fullscreen must NOT exit focus mode — the overlay is a
+  // software overlay that stays up until the explicit EXIT FOCUS button.
   useEffect(() => {
     const handler = () => {
-      if (!document.fullscreenElement) {
-        setFocusActive(false);
-        onFocusModeChange?.(false);
-      }
+      setIsNativeFullscreen(!!document.fullscreenElement);
     };
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
-  }, [onFocusModeChange]);
+  }, []);
 
-  // Wake Lock: prevent screen sleep during focus mode
-  const wakeLockRef = useRef(null);
-  useEffect(() => {
-    if (focusActive && running) {
-      let cancelled = false;
-      const requestWakeLock = async () => {
-        try {
-          if ('wakeLock' in navigator) {
-            wakeLockRef.current = await navigator.wakeLock.request('screen');
-            wakeLockRef.current?.addEventListener('release', () => {
-              wakeLockRef.current = null;
-            });
-          }
-        } catch {
-          // Wake Lock not supported or denied — silent fail
-        }
-      };
-      requestWakeLock();
-      return () => {
-        if (!cancelled) {
-          wakeLockRef.current?.release();
-          wakeLockRef.current = null;
-        }
-      };
-    } else {
-      wakeLockRef.current?.release();
-      wakeLockRef.current = null;
+  const enterFocus = async () => {
+    try {
+      await document.documentElement.requestFullscreen?.();
+    } catch {
+      // Fullscreen unavailable/blocked (e.g. iOS Safari) — proceed with the
+      // software overlay only. It's a valid degraded mode; we just don't
+      // pretend native fullscreen succeeded.
     }
-  }, [focusActive, running]);
-
-  const enterFocus = () => {
-    document.documentElement.requestFullscreen?.().catch(() => {});
     if (!running) {
       if (onToggleRunning) onToggleRunning();
       else setInternalRunning(true);
@@ -248,6 +250,8 @@ export default function BatFocusTimer({
   const exitFocus = () => {
     setFocusActive(false);
     onFocusModeChange?.(false);
+    // Live check guards the race where fullscreenchange hasn't fired yet
+    // (isNativeFullscreen state may still be stale right after entering).
     if (document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => {});
     }
@@ -258,6 +262,37 @@ export default function BatFocusTimer({
   const timeLeft = isControlled ? propTimeLeft : internalTimeLeft;
   const totalTime = isControlled ? (propTotalTime || 25 * 60) : internalTotalTime;
   const running = isControlled ? propRunning : internalRunning;
+
+  // Wake Lock: prevent screen sleep during focus mode.
+  // Declared after `running` — the dep array must not reference a TDZ binding.
+  const wakeLockRef = useRef(null);
+  useEffect(() => {
+    if (focusActive && running) {
+      let cancelled = false;
+      let lock = null;
+      (async () => {
+        try {
+          lock = await navigator.wakeLock.request('screen');
+          if (cancelled) {
+            lock.release();
+            lock = null;
+          } else {
+            wakeLockRef.current = lock;
+          }
+        } catch {
+          // Wake Lock not supported or denied — silent fail
+        }
+      })();
+      return () => {
+        cancelled = true;
+        if (lock) lock.release();
+        wakeLockRef.current = null;
+      };
+    } else {
+      wakeLockRef.current?.release();
+      wakeLockRef.current = null;
+    }
+  }, [focusActive, running]);
 
   // Internal countdown timer if uncontrolled
   useEffect(() => {
@@ -279,9 +314,11 @@ export default function BatFocusTimer({
   const fmt = (s) => [Math.floor(s / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':');
   const formattedTime = fmt(timeLeft);
 
-  // Digits for Flip Clock
-  const minTens = String(Math.floor(timeLeft / 600));
-  const minUnits = String(Math.floor((timeLeft / 60) % 10));
+  // Digits for Flip Clock (displayed minutes capped at 99 so each digit card
+  // always holds a single character; the countdown itself continues past that)
+  const minutesShown = Math.min(99, Math.floor(timeLeft / 60));
+  const minTens = String(Math.floor(minutesShown / 10));
+  const minUnits = String(minutesShown % 10);
   const secTens = String(Math.floor((timeLeft % 60) / 10));
   const secUnits = String(timeLeft % 10);
 
@@ -911,6 +948,7 @@ export default function BatFocusTimer({
           {/* Corner EXIT FOCUS Button */}
           <button
             onClick={exitFocus}
+            title={isNativeFullscreen ? 'Exit fullscreen focus' : 'Exit focus mode'}
             style={{
               position: 'absolute',
               top: '14px',

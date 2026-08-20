@@ -115,6 +115,7 @@ export default function App() {
   const [focusSelectedHabitId, setFocusSelectedHabitId] = useState('');
   const focusSessionIdRef = useRef(null);
   const focusStartTimeRef = useRef(null);
+  const focusSessionStartRef = useRef(null);
   const focusTimerRef = useRef(null);
 
   const fetchAllData = useCallback(async () => {
@@ -230,12 +231,7 @@ export default function App() {
         focusStartTimeRef.current += ticks * expectedInterval;
         setFocusTimeLeft((prev) => {
           const next = prev - ticks;
-          if (next <= 0) {
-            clearInterval(focusTimerRef.current);
-            setFocusRunning(false);
-            return 0;
-          }
-          return next;
+          return next > 0 ? next : 0;
         });
       }
     }, 200);
@@ -249,14 +245,33 @@ export default function App() {
     const sid = focusSessionIdRef.current;
     if (!sid) return;
     focusSessionIdRef.current = null;
+    const startedAt = focusSessionStartRef.current;
+    focusSessionStartRef.current = null;
+    // Actual elapsed wall-clock time, accurate even when the tab is
+    // backgrounded/throttled. Falls back to the configured length only if no
+    // start timestamp was recorded (legacy path).
+    const durationMin = startedAt
+      ? Math.max(0, Math.round((Date.now() - startedAt) / 60000))
+      : focusSessionLengthRef.current;
     try {
-      await api.endFocusSession(sid, { duration_minutes: focusSessionLengthRef.current });
+      await api.endFocusSession(sid, { duration_minutes: durationMin });
       handleRefreshMissions();
       handleRefreshAccount();
     } catch (err) {
       console.error(err);
     }
   }, [handleRefreshMissions, handleRefreshAccount]);
+
+  // Natural completion: persist the session exactly once when timeLeft hits 0.
+  // Declared after endFocusSession (its dep array must not reference a TDZ
+  // binding). endFocusSession() nulls focusSessionIdRef first, so it can never
+  // double-fire.
+  useEffect(() => {
+    if (focusRunning && focusTimeLeft === 0) {
+      setFocusRunning(false);
+      endFocusSession();
+    }
+  }, [focusRunning, focusTimeLeft, endFocusSession]);
 
   const startFocusSession = useCallback(async (missionId, habitId) => {
     try {
@@ -265,23 +280,27 @@ export default function App() {
       if (habitId) data.habit_id = parseInt(habitId);
       const session = await api.startFocusSession(data);
       focusSessionIdRef.current = session.id;
+      focusSessionStartRef.current = Date.now();
     } catch (err) {
       console.error(err);
     }
   }, []);
 
   const handleFocusToggle = useCallback(() => {
-    setFocusRunning((prev) => {
-      if (!prev) {
-        // Starting timer
-        if (focusTimeLeft === 0) {
-          setFocusTimeLeft(focusSessionLength * 60);
-        }
-        startFocusSession(focusSelectedMissionId, focusSelectedHabitId);
-      }
-      return !prev;
-    });
-  }, [focusTimeLeft, focusSessionLength, focusSelectedMissionId, focusSelectedHabitId, startFocusSession]);
+    if (focusRunning) {
+      setFocusRunning(false);
+      return;
+    }
+    // Starting or resuming. Only create a backend session on the FIRST start;
+    // pausing is a frontend-only state, so resume must not open a new row.
+    if (focusTimeLeft === 0) {
+      setFocusTimeLeft(focusSessionLength * 60);
+    }
+    if (!focusSessionIdRef.current) {
+      startFocusSession(focusSelectedMissionId, focusSelectedHabitId);
+    }
+    setFocusRunning(true);
+  }, [focusRunning, focusTimeLeft, focusSessionLength, focusSelectedMissionId, focusSelectedHabitId, startFocusSession]);
 
   const handleFocusAdjustTime = useCallback((delta) => {
     setFocusTimeLeft((prev) => {

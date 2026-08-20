@@ -1,8 +1,11 @@
+import structlog
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import StaticPool
 
 from config import get_settings
+
+logger = structlog.get_logger()
 
 settings = get_settings()
 
@@ -107,17 +110,24 @@ def create_db_tables():
     inspector = inspect(engine)
     has_version_table = inspector.has_table("alembic_version")
 
-    if not has_version_table:
-        try:
-            command.upgrade(alembic_cfg, "head")
-        except Exception:
-            Base.metadata.create_all(bind=engine)
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except Exception as exc:
+        # Surface migration failures loudly instead of aborting startup with a
+        # generic error. create_all + _ensure_columns() below keep the runtime
+        # schema usable, and the error stays visible so the migration itself
+        # gets fixed instead of silently corrupting deploys.
+        logger.error(
+            "alembic_upgrade_failed",
+            error_type=type(exc).__name__,
+            error=str(exc),
+            hint="Alembic migration failed; falling back to create_all + column ensure. Fix the migration.",
+        )
+        Base.metadata.create_all(bind=engine)
+        if not has_version_table:
             try:
                 command.stamp(alembic_cfg, "head")
-            except Exception:
-                pass
-    else:
-        command.upgrade(alembic_cfg, "head")
-        Base.metadata.create_all(bind=engine)
+            except Exception as exc2:
+                logger.warning("alembic_stamp_failed", error=str(exc2))
 
     _ensure_columns()
