@@ -9,6 +9,7 @@ import CalendarPanel from './components/CalendarPanel';
 import NotesPanel from './components/NotesPanel';
 import ProfileSettings from './components/ProfileSettings';
 import LogsPanel from './components/LogsPanel';
+import StatsPanel from './components/StatsPanel';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
@@ -464,6 +465,8 @@ export default function App() {
             onRefreshLogs={handleRefreshLogs}
           />
         );
+      case 'stats':
+        return <StatsPanel />;
       default:
         return (
           <div className="space-y-6">

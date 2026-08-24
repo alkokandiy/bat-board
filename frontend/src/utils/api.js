@@ -165,6 +165,14 @@ export const api = {
   endFocusSession: (id, data) => request(`/focus/sessions/${id}`, { method: 'PUT', body: data }),
   getFocusSessions: (limit = 20) => request(`/focus/sessions?limit=${limit}`),
 
+  // Focus Stats
+  getFocusStats: (period = 'week') => request(`/stats/focus?period=${encodeURIComponent(period)}`),
+  getFocusTrend: (granularity = 'day') =>
+    request(`/stats/focus/trend?granularity=${encodeURIComponent(granularity)}`),
+  getDayStats: (day) => request(`/stats/day?day=${encodeURIComponent(day)}`),
+  getFocusSessionLog: (limit = 20, offset = 0) =>
+    request(`/stats/focus/sessions?limit=${limit}&offset=${offset}`),
+
   // Account
   changePassword: (current_password, new_password) =>
     request('/account/password', { method: 'PUT', body: { current_password, new_password } }),
