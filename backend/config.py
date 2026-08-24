@@ -3,10 +3,12 @@ import logging as stdlib_logging
 from functools import lru_cache
 from typing import List
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, ConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore")
+
     app_name: str = "Bat-Board API"
     app_version: str = "1.0.0"
     debug: bool = False
@@ -39,12 +41,6 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     log_format: str = "console"
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"
 
     @field_validator("secret_key", mode="before")
     @classmethod

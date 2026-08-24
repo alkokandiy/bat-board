@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from database import Base
 
 
@@ -13,8 +13,8 @@ class BatAccount(Base):
     points = Column(Integer, default=0, nullable=False)
     bat_level = Column(String, default="The Orphan", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     missions = relationship("BatMission", back_populates="owner", cascade="all, delete-orphan")
     habits = relationship("BatHabit", back_populates="owner", cascade="all, delete-orphan")
@@ -40,7 +40,7 @@ class BatMission(Base):
     subtasks = Column(String, nullable=True)
     focus_minutes = Column(Integer, default=0, nullable=False)
     completed_focus_sessions = Column(Integer, default=0, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     completed_at = Column(DateTime, nullable=True)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
@@ -59,7 +59,7 @@ class BatHabit(Base):
     last_completed = Column(DateTime, nullable=True)
     focus_minutes = Column(Integer, default=0, nullable=False)
     target_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="habits")
@@ -70,7 +70,7 @@ class HabitCompletionLog(Base):
     __tablename__ = "habit_completion_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    completed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="CASCADE"), nullable=False)
     habit = relationship("BatHabit", back_populates="completion_logs")
 
@@ -79,7 +79,7 @@ class BatLog(Base):
     __tablename__ = "bat_log"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     event_type = Column(String, nullable=False)
     details = Column(String, nullable=False)
 
@@ -91,7 +91,7 @@ class BatFocus(Base):
     __tablename__ = "bat_focus"
 
     id = Column(Integer, primary_key=True, index=True)
-    start_time = Column(DateTime, default=datetime.utcnow, nullable=False)
+    start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     end_time = Column(DateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
     soundtrack_metadata = Column(String, nullable=True)
@@ -115,8 +115,8 @@ class CalendarEvent(Base):
     end_time = Column(DateTime, nullable=True)
     color = Column(String, nullable=True)
     mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="calendar_events")

@@ -1,8 +1,9 @@
 import json
 import os
 import time
-from datetime import datetime, timezone
-from typing import List, Optional
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone, date
+from typing import List, Optional, Literal
 
 import structlog
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Body, Query
@@ -16,7 +17,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 import models
 from database import engine, get_db, create_db_tables
@@ -145,14 +146,13 @@ def auto_log_event(db: Session, owner_id: int, event_type: str, details_dict: di
 
 # --- Pydantic Schemas ---
 class BatAccountSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     points: int
     bat_level: str
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class BatAccountUpdate(BaseModel):
     username: Optional[str] = None
@@ -162,8 +162,8 @@ class BatMissionBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     due_date: Optional[datetime] = None
-    priority: str = "medium"
-    status: str = "pending"
+    priority: Literal["low", "medium", "high", "critical"] = "medium"
+    status: Literal["pending", "completed", "dismissed"] = "pending"
     tags: Optional[str] = None
     is_pinned: bool = False
     is_dismissed: bool = False
@@ -178,8 +178,8 @@ class BatMissionUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     due_date: Optional[datetime] = None
-    priority: Optional[str] = None
-    status: Optional[str] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
+    status: Optional[Literal["pending", "completed", "dismissed"]] = None
     tags: Optional[str] = None
     is_pinned: Optional[bool] = None
     is_dismissed: Optional[bool] = None
@@ -188,15 +188,14 @@ class BatMissionUpdate(BaseModel):
     subtasks: Optional[str] = None
 
 class BatMissionSchema(BatMissionBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
     completed_at: Optional[datetime] = None
     owner_id: int
     focus_minutes: int = 0
     completed_focus_sessions: int = 0
-
-    class Config:
-        from_attributes = True
 
 class CalendarEventCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -215,6 +214,8 @@ class CalendarEventUpdate(BaseModel):
     mission_id: Optional[int] = None
 
 class CalendarEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     description: Optional[str] = None
@@ -225,13 +226,10 @@ class CalendarEventSchema(BaseModel):
     created_at: datetime
     owner_id: int
 
-    class Config:
-        from_attributes = True
-
 class BatHabitBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
-    frequency: str = "daily"
+    frequency: Literal["daily", "weekly", "monthly"] = "daily"
 
 class BatHabitCreate(BatHabitBase):
     pass
@@ -239,11 +237,13 @@ class BatHabitCreate(BatHabitBase):
 class BatHabitUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
-    frequency: Optional[str] = None
+    frequency: Optional[Literal["daily", "weekly", "monthly"]] = None
     streak: Optional[int] = None
     target_date: Optional[datetime] = None
 
 class BatHabitSchema(BatHabitBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     streak: int
     last_completed: Optional[datetime] = None
@@ -251,9 +251,6 @@ class BatHabitSchema(BatHabitBase):
     target_date: Optional[datetime] = None
     created_at: datetime
     owner_id: int
-
-    class Config:
-        from_attributes = True
 
 class BatLogBase(BaseModel):
     event_type: str
@@ -263,12 +260,11 @@ class BatLogCreate(BatLogBase):
     pass
 
 class BatLogSchema(BatLogBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     timestamp: datetime
     owner_id: int
-
-    class Config:
-        from_attributes = True
 
 class BatFocusCreate(BaseModel):
     end_time: Optional[datetime] = None
@@ -278,6 +274,8 @@ class BatFocusCreate(BaseModel):
     habit_id: Optional[int] = None
 
 class BatFocusSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     start_time: datetime
     end_time: Optional[datetime] = None
@@ -287,8 +285,76 @@ class BatFocusSchema(BaseModel):
     habit_id: Optional[int] = None
     owner_id: int
 
-    class Config:
-        from_attributes = True
+class StatsBreakdownItem(BaseModel):
+    type: str
+    id: Optional[int] = None
+    name: str
+    minutes: int
+    sessions: int
+    percent: float
+
+class StatsHeatmapCell(BaseModel):
+    date: str
+    minutes: int
+
+class FocusStatsResponse(BaseModel):
+    period: str
+    range_start: Optional[str] = None
+    range_end: Optional[str] = None
+    total_minutes: int
+    total_sessions: int
+    current_streak_days: int
+    breakdown: List[StatsBreakdownItem]
+    daily_heatmap: List[StatsHeatmapCell]
+
+class FocusSessionLogItem(BaseModel):
+    id: int
+    start_time: datetime
+    end_time: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    mission_id: Optional[int] = None
+    mission_name: Optional[str] = None
+    habit_id: Optional[int] = None
+    habit_name: Optional[str] = None
+
+class FocusSessionLogResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: List[FocusSessionLogItem]
+
+class FocusTrendPoint(BaseModel):
+    label: str
+    date: str
+    minutes: int
+    sessions: int
+
+class FocusTrendResponse(BaseModel):
+    granularity: str
+    points: List[FocusTrendPoint]
+
+class DayStatusDistribution(BaseModel):
+    on_time: int
+    overdue: int
+    uncompleted: int
+
+class DayTypeDistributionItem(BaseModel):
+    type: str
+    count: int
+
+class DayTagDistributionItem(BaseModel):
+    tag: str
+    count: int
+
+class DayStatsResponse(BaseModel):
+    date: str
+    completed_count: int
+    total_count: int
+    completion_rate: float
+    completed_not_due_today: int = 0
+    status_distribution: DayStatusDistribution
+    type_distribution: List[DayTypeDistributionItem]
+    tag_distribution: List[DayTagDistributionItem]
 
 # --- Health Check ---
 @app.get("/api/health")
@@ -442,12 +508,13 @@ def reset_points(
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
     old_points = current_user.points
+    old_level = current_user.bat_level
     current_user.points = 0
     current_user.bat_level = calculate_bat_level(0)
     auto_log_event(db, current_user.id, "points_reset", {
         "old_points": old_points,
         "new_points": 0,
-        "old_level": current_user.bat_level,
+        "old_level": old_level,
         "new_level": current_user.bat_level
     })
     db.commit()
@@ -512,6 +579,7 @@ def update_mission(
 
     old_status = mission.status
     old_points = current_user.points
+    old_level = current_user.bat_level
 
     for field in payload.model_fields_set:
         if field == 'status':
@@ -521,7 +589,7 @@ def update_mission(
     if 'status' in payload.model_fields_set:
         mission.status = payload.status
         if payload.status == "completed" and old_status != "completed":
-            mission.completed_at = datetime.utcnow()
+            mission.completed_at = datetime.now(timezone.utc)
             reward = 10
             if mission.priority == "high":
                 reward = 20
@@ -538,7 +606,7 @@ def update_mission(
                 "points_delta": reward,
                 "old_points": old_points,
                 "new_points": current_user.points,
-                "old_level": current_user.bat_level,
+                "old_level": old_level,
                 "new_level": current_user.bat_level
             })
         elif payload.status != "completed" and old_status == "completed":
@@ -770,7 +838,7 @@ def check_in_habit(
     if not habit:
         raise HTTPException(status_code=404, detail="Habit not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     is_new_completion = True
     if habit.last_completed:
@@ -882,7 +950,7 @@ def start_focus_session(
                 raise HTTPException(status_code=404, detail="Habit not found")
 
     session = models.BatFocus(
-        start_time=datetime.utcnow(),
+        start_time=datetime.now(timezone.utc),
         owner_id=current_user.id,
         mission_id=payload.mission_id if payload else None,
         habit_id=payload.habit_id if payload else None,
@@ -919,7 +987,7 @@ def end_focus_session(
     if 'end_time' in payload.model_fields_set:
         session.end_time = payload.end_time.replace(tzinfo=None) if payload.end_time else None
     elif not session.end_time:
-        session.end_time = datetime.utcnow()
+        session.end_time = datetime.now(timezone.utc)
     for field in payload.model_fields_set:
         if field == 'end_time':
             continue
@@ -977,6 +1045,384 @@ def list_focus_sessions(
     return db.query(models.BatFocus).filter(
         models.BatFocus.owner_id == current_user.id
     ).order_by(models.BatFocus.start_time.desc()).limit(limit).all()
+
+
+# --- Focus Stats Endpoints ---
+def _completed_sessions_query(db: Session, current_user: models.BatAccount):
+    return db.query(models.BatFocus).filter(
+        models.BatFocus.owner_id == current_user.id,
+        models.BatFocus.end_time.isnot(None),
+        models.BatFocus.duration_minutes > 0,
+    )
+
+def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: str) -> dict:
+    today = datetime.now(timezone.utc).date()
+
+    if period == "day":
+        range_start = today
+        range_end = today
+    elif period == "week":
+        range_start = today - timedelta(days=today.weekday())
+        range_end = range_start + timedelta(days=6)
+    elif period == "month":
+        range_start = today.replace(day=1)
+        range_end = (range_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    elif period == "year":
+        range_start = today.replace(month=1, day=1)
+        range_end = today.replace(month=12, day=31)
+    else:  # all
+        range_start = None
+        range_end = None
+
+    q = _completed_sessions_query(db, current_user)
+    if range_start:
+        q = q.filter(models.BatFocus.end_time >= datetime(range_start.year, range_start.month, range_start.day))
+    if range_end:
+        q = q.filter(
+            models.BatFocus.end_time
+            < datetime(range_end.year, range_end.month, range_end.day) + timedelta(days=1)
+        )
+    sessions = q.all()
+
+    total_minutes = 0
+    total_sessions = len(sessions)
+    mission_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
+    habit_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
+    unassigned = {"minutes": 0, "sessions": 0}
+    heatmap = defaultdict(int)
+    days_with_sessions = set()
+
+    for s in sessions:
+        total_minutes += s.duration_minutes
+        d = s.end_time.date()
+        heatmap[d] += s.duration_minutes
+        days_with_sessions.add(d)
+        if s.mission_id is not None:
+            mission_agg[s.mission_id]["minutes"] += s.duration_minutes
+            mission_agg[s.mission_id]["sessions"] += 1
+        elif s.habit_id is not None:
+            habit_agg[s.habit_id]["minutes"] += s.duration_minutes
+            habit_agg[s.habit_id]["sessions"] += 1
+        else:
+            unassigned["minutes"] += s.duration_minutes
+            unassigned["sessions"] += 1
+
+    breakdown = []
+    if mission_agg:
+        mission_rows = db.query(models.BatMission).filter(
+            models.BatMission.id.in_(list(mission_agg.keys())),
+            models.BatMission.owner_id == current_user.id,
+        ).all()
+        mission_names = {m.id: m.title for m in mission_rows}
+        for mid, agg in mission_agg.items():
+            breakdown.append({
+                "type": "mission",
+                "id": mid,
+                "name": mission_names.get(mid, f"Mission #{mid}"),
+                "minutes": agg["minutes"],
+                "sessions": agg["sessions"],
+                "percent": round(agg["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
+            })
+    if habit_agg:
+        habit_rows = db.query(models.BatHabit).filter(
+            models.BatHabit.id.in_(list(habit_agg.keys())),
+            models.BatHabit.owner_id == current_user.id,
+        ).all()
+        habit_names = {h.id: h.name for h in habit_rows}
+        for hid, agg in habit_agg.items():
+            breakdown.append({
+                "type": "habit",
+                "id": hid,
+                "name": habit_names.get(hid, f"Habit #{hid}"),
+                "minutes": agg["minutes"],
+                "sessions": agg["sessions"],
+                "percent": round(agg["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
+            })
+    if unassigned["sessions"] > 0:
+        breakdown.append({
+            "type": "none",
+            "id": None,
+            "name": "Unassigned",
+            "minutes": unassigned["minutes"],
+            "sessions": unassigned["sessions"],
+            "percent": round(unassigned["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
+        })
+    breakdown.sort(key=lambda b: b["minutes"], reverse=True)
+
+    streak = 0
+    d = today
+    while d in days_with_sessions:
+        streak += 1
+        d -= timedelta(days=1)
+
+    daily_heatmap = [
+        {"date": (today - timedelta(days=i)).isoformat(), "minutes": heatmap.get(today - timedelta(days=i), 0)}
+        for i in range(34, -1, -1)
+    ]
+
+    return {
+        "period": period,
+        "range_start": range_start.isoformat() if range_start else None,
+        "range_end": range_end.isoformat() if range_end else None,
+        "total_minutes": total_minutes,
+        "total_sessions": total_sessions,
+        "current_streak_days": streak,
+        "breakdown": breakdown,
+        "daily_heatmap": daily_heatmap,
+    }
+
+@app.get("/api/stats/focus", response_model=FocusStatsResponse)
+def focus_stats(
+    period: str = Query("week", pattern="^(day|week|month|year|all)$"),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    return _compute_focus_stats(db, current_user, period)
+
+@app.get("/api/stats/focus/sessions", response_model=FocusSessionLogResponse)
+def focus_session_log(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    base = _completed_sessions_query(db, current_user)
+    total = base.count()
+    sessions = (
+        base.order_by(models.BatFocus.start_time.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    mission_ids = {s.mission_id for s in sessions if s.mission_id}
+    habit_ids = {s.habit_id for s in sessions if s.habit_id}
+    mission_names = {}
+    if mission_ids:
+        mission_names = {
+            m.id: m.title
+            for m in db.query(models.BatMission).filter(
+                models.BatMission.id.in_(mission_ids),
+                models.BatMission.owner_id == current_user.id,
+            ).all()
+        }
+    habit_names = {}
+    if habit_ids:
+        habit_names = {
+            h.id: h.name
+            for h in db.query(models.BatHabit).filter(
+                models.BatHabit.id.in_(habit_ids),
+                models.BatHabit.owner_id == current_user.id,
+            ).all()
+        }
+
+    items = []
+    for s in sessions:
+        items.append({
+            "id": s.id,
+            "start_time": s.start_time,
+            "end_time": s.end_time,
+            "duration_minutes": s.duration_minutes,
+            "mission_id": s.mission_id,
+            "mission_name": mission_names.get(s.mission_id) if s.mission_id else None,
+            "habit_id": s.habit_id,
+            "habit_name": habit_names.get(s.habit_id) if s.habit_id else None,
+        })
+
+    return {"total": total, "limit": limit, "offset": offset, "items": items}
+
+
+def _trend_buckets(granularity: str) -> list:
+    """Return oldest→newest buckets as {date, label, start, end}."""
+    today = datetime.now(timezone.utc).date()
+    buckets = []
+
+    if granularity == "day":
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            buckets.append({
+                "date": d.isoformat(),
+                "label": d.strftime("%a"),
+                "start": d,
+                "end": d + timedelta(days=1),
+            })
+    elif granularity == "week":
+        monday = today - timedelta(days=today.weekday())
+        for i in range(7, -1, -1):
+            ws = monday - timedelta(weeks=i)
+            buckets.append({
+                "date": ws.isoformat(),
+                "label": f"{ws.month}/{ws.day}",
+                "start": ws,
+                "end": ws + timedelta(days=7),
+            })
+    else:  # month
+        for i in range(5, -1, -1):
+            total = today.year * 12 + (today.month - 1) - i
+            yy, mm = divmod(total, 12)
+            ms = date(yy, mm + 1, 1)
+            ntotal = yy * 12 + mm + 1
+            ny, nm = divmod(ntotal, 12)
+            me = date(ny, nm + 1, 1)
+            buckets.append({
+                "date": ms.isoformat(),
+                "label": ms.strftime("%b"),
+                "start": ms,
+                "end": me,
+            })
+
+    return buckets
+
+
+@app.get("/api/stats/focus/trend", response_model=FocusTrendResponse)
+def focus_trend(
+    granularity: str = Query("day", pattern="^(day|week|month)$"),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    buckets = _trend_buckets(granularity)
+    points = [
+        {"label": b["label"], "date": b["date"], "minutes": 0, "sessions": 0}
+        for b in buckets
+    ]
+
+    sessions = _completed_sessions_query(db, current_user).all()
+    for s in sessions:
+        d = s.end_time.date()
+        for i, b in enumerate(buckets):
+            if b["start"] <= d < b["end"]:
+                points[i]["minutes"] += s.duration_minutes
+                points[i]["sessions"] += 1
+                break
+
+    return {"granularity": granularity, "points": points}
+
+
+def _habit_scheduled_day(habit: models.BatHabit, day: date) -> bool:
+    """Decide whether a habit is 'due' on a given day, from its frequency field."""
+    if habit.created_at.date() > day:
+        return False
+    anchor = habit.last_completed or habit.created_at
+    anchor_date = anchor.date()
+    if habit.frequency == "daily":
+        return True
+    if habit.frequency == "weekly":
+        return anchor_date.weekday() == day.weekday()
+    if habit.frequency == "monthly":
+        return anchor_date.day == day.day
+    return True
+
+
+@app.get("/api/stats/day", response_model=DayStatsResponse)
+def day_stats(
+    day: Optional[date] = Query(None, description="YYYY-MM-DD; defaults to today"),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    selected = day or datetime.now(timezone.utc).date()
+    day_start = datetime(selected.year, selected.month, selected.day)
+    day_end = day_start + timedelta(days=1)
+    today = datetime.now(timezone.utc).date()
+
+    due_missions = db.query(models.BatMission).filter(
+        models.BatMission.owner_id == current_user.id,
+        models.BatMission.due_date >= day_start,
+        models.BatMission.due_date < day_end,
+    ).all()
+
+    completed_missions = db.query(models.BatMission).filter(
+        models.BatMission.owner_id == current_user.id,
+        models.BatMission.status == "completed",
+        models.BatMission.completed_at >= day_start,
+        models.BatMission.completed_at < day_end,
+    ).all()
+
+    on_time = 0
+    overdue = 0
+    uncompleted = 0
+    for m in due_missions:
+        due = m.due_date.date()
+        completed = m.status == "completed" and m.completed_at is not None
+        completed_on_time = completed and m.completed_at.date() <= due
+        if completed_on_time:
+            on_time += 1
+        elif completed:
+            # Completed but after its due date — not on time.
+            if due < today:
+                overdue += 1
+            else:
+                uncompleted += 1
+        elif due < today:
+            overdue += 1
+        else:
+            uncompleted += 1
+
+    user_habit_ids = {
+        h.id for h in db.query(models.BatHabit.id).filter(
+            models.BatHabit.owner_id == current_user.id
+        ).all()
+    }
+
+    completed_habit_ids = set()
+    if user_habit_ids:
+        logs = db.query(models.HabitCompletionLog.habit_id).filter(
+            models.HabitCompletionLog.habit_id.in_(user_habit_ids),
+            models.HabitCompletionLog.completed_at >= day_start,
+            models.HabitCompletionLog.completed_at < day_end,
+        ).all()
+        completed_habit_ids = {lid for (lid,) in logs}
+
+    scheduled_habit_ids = set()
+    if user_habit_ids:
+        habits = db.query(models.BatHabit).filter(
+            models.BatHabit.id.in_(user_habit_ids)
+        ).all()
+        scheduled_habit_ids = {h.id for h in habits if _habit_scheduled_day(h, selected)}
+    total_count = len(due_missions) + len(scheduled_habit_ids)
+
+    # completed_count is a strict subset of total_count: only items that are
+    # BOTH due that day AND completed that day. Missions completed on a day
+    # they weren't due on are surfaced separately and never inflate the rate.
+    due_ids = {m.id for m in due_missions}
+    completed_due_missions = [m for m in completed_missions if m.id in due_ids]
+    completed_due_habits = len(completed_habit_ids & scheduled_habit_ids)
+
+    completed_count = len(completed_due_missions) + completed_due_habits
+    completed_not_due_today = (
+        len(completed_missions) - len(completed_due_missions)
+    ) + (len(completed_habit_ids) - completed_due_habits)
+    completion_rate = round(completed_count / total_count * 100, 2) if total_count else 0.0
+
+    type_distribution = []
+    if completed_due_missions:
+        type_distribution.append({"type": "mission", "count": len(completed_due_missions)})
+    if completed_due_habits:
+        type_distribution.append({"type": "habit", "count": completed_due_habits})
+
+    tag_counts = defaultdict(int)
+    for m in completed_due_missions:
+        tags = [t.strip() for t in (m.tags or "").split(",") if t.strip()]
+        if tags:
+            for t in tags:
+                tag_counts[t] += 1
+        else:
+            tag_counts["untagged"] += 1
+    tag_distribution = [{"tag": t, "count": c} for t, c in tag_counts.items()]
+    tag_distribution.sort(key=lambda item: (-item["count"], item["tag"] == "untagged"))
+    if tag_distribution and tag_distribution[-1]["tag"] == "untagged":
+        untagged = tag_distribution.pop(-1)
+        tag_distribution.append(untagged)
+
+    return {
+        "date": selected.isoformat(),
+        "completed_count": completed_count,
+        "total_count": total_count,
+        "completion_rate": completion_rate,
+        "completed_not_due_today": completed_not_due_today,
+        "status_distribution": {"on_time": on_time, "overdue": overdue, "uncompleted": uncompleted},
+        "type_distribution": type_distribution,
+        "tag_distribution": tag_distribution,
+    }
 
 
 # --- Static Files (SPA) ---
