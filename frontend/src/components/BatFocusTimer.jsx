@@ -173,9 +173,40 @@ function ColonSeparator({ running }) {
 }
 
 // ==========================================
-// BATMAN LOGO PATH CONSTANT FOR MODE [B]
+// BATMAN LOGO — PROGRAMMATIC PATH (MODE B)
+// Built from mirrored right-half anchor points
+// to guarantee perfect left/right symmetry.
+// Reference: Batman Begins / Dark Knight batarang
+// — flat, wide, geometric, sharp points.
 // ==========================================
-const BAT_PATH = `M 200,95 C 193,95 185,98 182,103 L 168,98 L 155,88 L 148,95 C 140,92 128,88 118,90 L 108,86 L 100,90 C 90,88 80,92 72,100 C 68,108 70,118 76,122 C 68,126 60,134 58,142 C 60,152 70,158 80,156 C 76,162 74,170 78,176 C 84,182 94,180 100,174 C 106,180 110,188 116,192 C 122,198 130,200 138,198 C 142,204 144,212 148,216 C 152,222 158,224 164,222 L 170,228 L 176,234 L 182,238 L 188,242 L 194,244 L 200,245 L 206,244 L 212,242 L 218,238 L 224,234 L 230,228 L 236,222 C 242,224 248,222 252,216 C 256,212 258,204 262,198 C 270,200 278,198 284,192 C 290,188 294,180 300,174 C 306,180 316,182 322,176 C 326,170 324,162 320,156 C 330,158 340,152 342,142 C 340,134 332,126 324,122 C 330,118 332,108 328,100 C 320,92 310,88 300,90 L 292,86 L 282,90 C 272,88 260,92 252,95 L 244,88 L 234,98 L 218,103 C 215,98 207,95 200,95 Z`;
+const BAT_RIGHT_HALF = [
+  { x: 0,   y: 20  },   // center notch valley (between the two ears)
+  { x: 18,  y: 8   },   // right ear inner peak
+  { x: 30,  y: 22  },   // dip after right ear (ear base)
+  { x: 55,  y: 15  },   // shoulder — where wing begins sweeping out
+  { x: 110, y: 30  },   // wing top edge, sweeping outward
+  { x: 175, y: 55  },   // wing top edge continuing to tip approach
+  { x: 220, y: 68  },   // just before wingtip, slight upturn starts
+  { x: 240, y: 62  },   // wingtip — the sharp point (upturned slightly)
+  { x: 210, y: 85  },   // wing underside, curving back in from tip
+  { x: 140, y: 95  },   // wing underside continuing inward
+  { x: 60,  y: 100 },   // wing underside approaching body
+  { x: 20,  y: 130 },   // body side, narrowing toward tail
+  { x: 0,   y: 145 },   // tail tip (center bottom point)
+];
+
+function buildBatPath(pts) {
+  const left = pts.slice().reverse().map(p => ({ x: -p.x, y: p.y }));
+  const full = [...pts, ...left];
+  let d = `M ${full[0].x},${full[0].y} `;
+  for (let i = 1; i < full.length; i++) {
+    d += `L ${full[i].x},${full[i].y} `;
+  }
+  d += 'Z';
+  return d;
+}
+
+const BAT_PATH_SKELETON = buildBatPath(BAT_RIGHT_HALF);
 
 // ==========================================
 // MAIN BAT FOCUS TIMER COMPONENT
@@ -471,8 +502,8 @@ export default function BatFocusTimer({
             />
 
             {/* Spotlight Beam & Logo SVG Stack */}
-            <div className="relative w-[400px] h-[320px] flex items-center justify-center">
-              <svg viewBox="0 0 400 320" className="w-full h-full overflow-visible">
+            <div className="relative w-[400px] h-[260px] flex items-center justify-center">
+              <svg viewBox="-264 -10 528 170" className="w-full h-full overflow-visible">
                 <defs>
                   {/* Spotlight Beam Gradient */}
                   <radialGradient id="spotlightBeamGrad" cx="50%" cy="100%" r="90%">
@@ -484,41 +515,64 @@ export default function BatFocusTimer({
                     <feGaussianBlur stdDeviation="8" />
                   </filter>
 
+                  {/* Glow filter — only applied to the fill layer */}
+                  <filter id="batGlow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="6" result="blur" />
+                    <feMerge>
+                      <feMergeNode in="blur" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+
+                  {/* Fill gradient — rises bottom-to-top with progress */}
+                  <linearGradient id="batFillGrad" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stopColor="#FFD700" />
+                    <stop offset={`${Math.min(100, progress)}%`} stopColor="#FFD700" />
+                    <stop offset={`${Math.min(100, progress + 0.1)}%`} stopColor="transparent" />
+                    <stop offset="100%" stopColor="transparent" />
+                  </linearGradient>
+
                   {/* Reveal Clip Path based on progress */}
                   <clipPath id="revealClip">
                     <rect
-                      x="60"
-                      y={320 - (progress / 100) * 320}
-                      width="280"
-                      height="320"
+                      x="-264"
+                      y={155 - (progress / 100) * 165}
+                      width="528"
+                      height="165"
                     />
                   </clipPath>
                 </defs>
 
                 {/* Spotlight Beam Cone */}
                 <path
-                  d="M 200,310 L 60,20 L 340,20 Z"
+                  d="M 0,155 L -140,-10 L 140,-10 Z"
                   fill="url(#spotlightBeamGrad)"
                   filter="url(#beamBlur)"
                   style={{ opacity: 0.3 + (progress / 100) * 0.7, transition: 'opacity 0.5s ease' }}
                 />
 
-                {/* LAYER 1: Unlit Logo Base */}
-                <g opacity="0.6">
-                  <ellipse cx="200" cy="160" rx="140" ry="95" fill="#1a2235" />
-                  <path d={BAT_PATH} fill="#050810" />
-                </g>
+                {/* LAYER 1: Permanent outline — always visible, crisp, no blur */}
+                <path
+                  d={BAT_PATH_SKELETON}
+                  fill="none"
+                  stroke="#334155"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
 
-                {/* LAYER 2: Lit Logo Revealed with Clip */}
-                <g clipPath="url(#revealClip)" filter="drop-shadow(0 0 20px rgba(255,215,0,0.5))">
-                  <ellipse cx="200" cy="160" rx="140" ry="95" fill="#FFD700" />
-                  <path d={BAT_PATH} fill="#050810" />
+                {/* LAYER 2: Fill revealed by progress — glow applies here only */}
+                <g clipPath="url(#revealClip)" filter="url(#batGlow)">
+                  <path
+                    d={BAT_PATH_SKELETON}
+                    fill="url(#batFillGrad)"
+                    stroke="none"
+                  />
                 </g>
               </svg>
             </div>
 
             {/* Progress Text below Logo */}
-            <div className="text-center mt-[24px]">
+            <div className="text-center mt-[16px]">
               <div className="flex items-center justify-center gap-4">
                 <span
                   style={{
