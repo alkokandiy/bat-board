@@ -24,7 +24,6 @@ export default function FocusPanel({
   onFocusToggle,
   onFocusAdjustTime,
   onFocusSessionChange,
-  onFocusReset,
   onFocusExit,
 }) {
   const selectedMission = missions.find(m => String(m.id) === focusSelectedMissionId);
@@ -38,7 +37,6 @@ export default function FocusPanel({
         running={focusRunning}
         onToggleRunning={onFocusToggle}
         onAdjustTime={onFocusAdjustTime}
-        onClose={onFocusExit}
         missionName={missionName}
         activeTrack={activeTrack}
         isPlaying={isPlaying}

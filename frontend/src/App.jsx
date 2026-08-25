@@ -317,12 +317,12 @@ export default function App() {
 
   const handleFocusReset = useCallback(async () => {
     clearInterval(focusTimerRef.current);
-    if (focusRunning) {
+    if (focusSessionIdRef.current) {
       await endFocusSession();
     }
     setFocusRunning(false);
     setFocusTimeLeft(focusSessionLength * 60);
-  }, [focusRunning, focusSessionLength, endFocusSession]);
+  }, [focusSessionLength, endFocusSession]);
 
   const handleFocusExit = useCallback(async () => {
     await handleFocusReset();

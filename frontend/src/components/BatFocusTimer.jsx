@@ -186,7 +186,6 @@ export default function BatFocusTimer({
   running: propRunning,
   onToggleRunning,
   onAdjustTime,
-  onClose,
   missionName = '',
   activeTrack,
   isPlaying,
@@ -913,8 +912,8 @@ export default function BatFocusTimer({
                     key={track.id}
                     title={track.title}
                     onClick={() => {
-                      if (isActiveTrack) {
-                        onTrackChange(track);
+                      if (isActiveTrack && isPlaying) {
+                        onTrackChange(null);
                       } else {
                         onTrackChange(track);
                       }
