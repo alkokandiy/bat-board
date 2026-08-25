@@ -27,7 +27,7 @@ describe('BatFocusTimer', () => {
     expect(screen.getByText('MISSION TIME REMAINING')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('Bat-Signal'));
-    expect(document.querySelector('radialGradient[id="spotlightBeamGrad"]')).not.toBeNull();
+    expect(document.querySelector('linearGradient[id="battFillGradient"]')).not.toBeNull();
 
     fireEvent.click(screen.getByTitle('Batmobile'));
     expect(document.querySelector('div[style*="height: 110px"]')).not.toBeNull();

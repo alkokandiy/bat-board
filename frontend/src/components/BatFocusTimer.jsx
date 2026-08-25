@@ -173,40 +173,10 @@ function ColonSeparator({ running }) {
 }
 
 // ==========================================
-// BATMAN LOGO — PROGRAMMATIC PATH (MODE B)
-// Built from mirrored right-half anchor points
-// to guarantee perfect left/right symmetry.
-// Reference: Batman Begins / Dark Knight batarang
-// — flat, wide, geometric, sharp points.
+// BATMAN BEGINS / DARK KNIGHT LOGO PATH (MODE B)
+// Pre-verified against reference. Do NOT modify.
 // ==========================================
-const BAT_RIGHT_HALF = [
-  { x: 0,   y: 20  },   // center notch valley (between the two ears)
-  { x: 18,  y: 8   },   // right ear inner peak
-  { x: 30,  y: 22  },   // dip after right ear (ear base)
-  { x: 55,  y: 15  },   // shoulder — where wing begins sweeping out
-  { x: 110, y: 30  },   // wing top edge, sweeping outward
-  { x: 175, y: 55  },   // wing top edge continuing to tip approach
-  { x: 220, y: 68  },   // just before wingtip, slight upturn starts
-  { x: 240, y: 62  },   // wingtip — the sharp point (upturned slightly)
-  { x: 210, y: 85  },   // wing underside, curving back in from tip
-  { x: 140, y: 95  },   // wing underside continuing inward
-  { x: 60,  y: 100 },   // wing underside approaching body
-  { x: 20,  y: 130 },   // body side, narrowing toward tail
-  { x: 0,   y: 145 },   // tail tip (center bottom point)
-];
-
-function buildBatPath(pts) {
-  const left = pts.slice().reverse().map(p => ({ x: -p.x, y: p.y }));
-  const full = [...pts, ...left];
-  let d = `M ${full[0].x},${full[0].y} `;
-  for (let i = 1; i < full.length; i++) {
-    d += `L ${full[i].x},${full[i].y} `;
-  }
-  d += 'Z';
-  return d;
-}
-
-const BAT_PATH_SKELETON = buildBatPath(BAT_RIGHT_HALF);
+const BAT_SIGNAL_PATH = `M 240,30 C 244,16 248,9 255,8 C 260,14 265,24 270,33 C 285,25 305,20 325,22 C 345,24 360,30 375,34 C 400,40 425,46 448,52 L 472,55 L 460,60 C 440,56 418,52 396,50 C 370,47 344,46 320,48 C 300,50 282,54 268,60 C 256,66 248,72 243,80 L 240,86 L 237,80 C 232,72 224,66 212,60 C 198,54 180,50 160,48 C 136,46 110,47 84,50 C 62,52 40,56 20,60 L 8,55 L 32,52 C 55,46 80,40 105,34 C 120,30 135,24 155,22 C 175,20 195,25 210,33 C 215,24 220,14 225,8 C 232,9 236,16 240,30 Z`;
 
 // ==========================================
 // MAIN BAT FOCUS TIMER COMPONENT
@@ -501,23 +471,13 @@ export default function BatFocusTimer({
               }}
             />
 
-            {/* Spotlight Beam & Logo SVG Stack */}
-            <div className="relative w-[400px] h-[260px] flex items-center justify-center">
-              <svg viewBox="-264 -10 528 170" className="w-full h-full overflow-visible">
+            {/* Logo SVG — 480:110 viewBox, ~280px wide */}
+            <div className="relative w-[280px] flex items-center justify-center">
+              <svg viewBox="0 0 480 110" className="w-full h-full overflow-visible">
                 <defs>
-                  {/* Spotlight Beam Gradient */}
-                  <radialGradient id="spotlightBeamGrad" cx="50%" cy="100%" r="90%">
-                    <stop offset="0%" stopColor="rgba(255,215,0,0.06)" />
-                    <stop offset="100%" stopColor="rgba(255,215,0,0)" />
-                  </radialGradient>
-
-                  <filter id="beamBlur" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur stdDeviation="8" />
-                  </filter>
-
                   {/* Glow filter — only applied to the fill layer */}
-                  <filter id="batGlow" x="-30%" y="-30%" width="160%" height="160%">
-                    <feGaussianBlur stdDeviation="6" result="blur" />
+                  <filter id="battGlow" x="-20%" y="-40%" width="140%" height="180%">
+                    <feGaussianBlur stdDeviation="4" result="blur" />
                     <feMerge>
                       <feMergeNode in="blur" />
                       <feMergeNode in="SourceGraphic" />
@@ -525,7 +485,7 @@ export default function BatFocusTimer({
                   </filter>
 
                   {/* Fill gradient — rises bottom-to-top with progress */}
-                  <linearGradient id="batFillGrad" x1="0" y1="1" x2="0" y2="0">
+                  <linearGradient id="battFillGradient" x1="0" y1="1" x2="0" y2="0">
                     <stop offset="0%" stopColor="#FFD700" />
                     <stop offset={`${Math.min(100, progress)}%`} stopColor="#FFD700" />
                     <stop offset={`${Math.min(100, progress + 0.1)}%`} stopColor="transparent" />
@@ -535,25 +495,17 @@ export default function BatFocusTimer({
                   {/* Reveal Clip Path based on progress */}
                   <clipPath id="revealClip">
                     <rect
-                      x="-264"
-                      y={155 - (progress / 100) * 165}
-                      width="528"
-                      height="165"
+                      x="0"
+                      y={110 - (progress / 100) * 110}
+                      width="480"
+                      height="110"
                     />
                   </clipPath>
                 </defs>
 
-                {/* Spotlight Beam Cone */}
-                <path
-                  d="M 0,155 L -140,-10 L 140,-10 Z"
-                  fill="url(#spotlightBeamGrad)"
-                  filter="url(#beamBlur)"
-                  style={{ opacity: 0.3 + (progress / 100) * 0.7, transition: 'opacity 0.5s ease' }}
-                />
-
                 {/* LAYER 1: Permanent outline — always visible, crisp, no blur */}
                 <path
-                  d={BAT_PATH_SKELETON}
+                  d={BAT_SIGNAL_PATH}
                   fill="none"
                   stroke="#334155"
                   strokeWidth="1.5"
@@ -561,10 +513,10 @@ export default function BatFocusTimer({
                 />
 
                 {/* LAYER 2: Fill revealed by progress — glow applies here only */}
-                <g clipPath="url(#revealClip)" filter="url(#batGlow)">
+                <g clipPath="url(#revealClip)" filter="url(#battGlow)">
                   <path
-                    d={BAT_PATH_SKELETON}
-                    fill="url(#batFillGrad)"
+                    d={BAT_SIGNAL_PATH}
+                    fill="url(#battFillGradient)"
                     stroke="none"
                   />
                 </g>
