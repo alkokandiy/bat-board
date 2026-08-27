@@ -1,28 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   LayoutDashboard,
-  Target,
+  ListChecks,
   Flame,
-  Focus,
-  Crosshair,
+  Timer,
+  Skull,
   Hourglass,
-  Calendar,
+  CalendarDays,
   NotebookText,
   ScrollText,
   BarChart3,
   CircleUserRound,
   ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 
 const ICON_MAP = {
   dashboard: LayoutDashboard,
-  missions: Target,
+  missions: ListChecks,
   habits: Flame,
-  focus: Focus,
-  johnwick: Crosshair,
+  focus: Timer,
+  johnwick: Skull,
   countdown: Hourglass,
-  calendar: Calendar,
+  calendar: CalendarDays,
   notes: NotebookText,
   logs: ScrollText,
   stats: BarChart3,
@@ -44,7 +43,6 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   const [indicatorStyle, setIndicatorStyle] = useState({ top: 0, height: 0 });
 
   const navRefs = useRef({});
-  const indicatorRef = useRef(null);
   const glowTimeoutRef = useRef(null);
 
   const navItems = [
@@ -70,8 +68,6 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   }, []);
 
   const updateIndicator = useCallback(() => {
-    const activeIdx = navItems.findIndex((item) => item.id === currentView);
-    if (activeIdx === -1) return;
     const el = navRefs.current[currentView];
     if (!el) return;
     setIndicatorStyle({ top: el.offsetTop, height: el.offsetHeight });
@@ -132,150 +128,148 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
       <div className="flex flex-1 overflow-hidden">
         {!focusMode && (
           <aside
-            className="border-r border-dark-slate bg-matte-obsidian flex flex-col justify-between py-6 shrink-0 hidden md:flex relative overflow-hidden"
+            className="border-r border-dark-slate bg-matte-obsidian flex flex-col shrink-0 hidden md:flex relative overflow-hidden"
             style={{
               width: isCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
               transition: 'width 260ms cubic-bezier(0.4, 0, 0.2, 1)',
             }}
           >
-            <div className="flex flex-col flex-1">
-              <div
-                className="flex items-center px-4 mb-6"
+            {/* Toggle row — fully inside sidebar, no clipping */}
+            <div
+              className="flex items-center shrink-0"
+              style={{
+                height: 40,
+                width: '100%',
+                justifyContent: isCollapsed ? 'center' : 'flex-end',
+                paddingRight: isCollapsed ? 0 : 16,
+              }}
+            >
+              <button
+                onClick={toggleSidebar}
+                className="flex items-center justify-center rounded-full bg-dark-slate hover:border-electric-bat-yellow transition-colors duration-150"
                 style={{
-                  justifyContent: isCollapsed ? 'center' : 'flex-start',
-                  paddingLeft: isCollapsed ? 0 : undefined,
+                  width: 26,
+                  height: 26,
+                  border: '1px solid #334155',
                 }}
+                title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
-                {isCollapsed ? (
-                  <div className="w-9 h-9 rounded bg-dark-slate border border-slate-700 flex items-center justify-center">
-                    <span className="text-electric-bat-yellow text-sm font-bold">🦇</span>
-                  </div>
-                ) : (
-                  <>
-                    <span className="text-electric-bat-yellow text-lg font-bold tracking-widest mr-2">BAT-BOARD</span>
-                    <span className="text-[10px] bg-dark-slate text-slate-400 px-2 py-0.5 rounded font-mono tracking-wider border border-slate-800">
-                      ONLINE
-                    </span>
-                  </>
-                )}
-              </div>
-
-              <nav className="space-y-1.5 px-4 flex-1 relative">
-                {!isCollapsed && (
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-3 mb-3">
-                    Operations Center
-                  </p>
-                )}
-
-                <div className="relative">
-                  <div
-                    ref={indicatorRef}
-                    className="absolute left-0 w-[3px] bg-electric-bat-yellow rounded-full"
-                    style={{
-                      top: indicatorStyle.top,
-                      height: indicatorStyle.height,
-                      transform: `translateY(0)`,
-                      boxShadow: '0 0 8px rgba(255,215,0,0.4)',
-                      transition: 'top 220ms cubic-bezier(0.4, 0, 0.2, 1), height 220ms cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                  />
-
-                  {navItems.map((item) => {
-                    const isActive = currentView === item.id;
-                    const Icon = ICON_MAP[item.id];
-                    const isHovered = hoveredItem === item.id;
-                    const isPressed = pressedItem === item.id;
-                    const isGlowing = glowingItem === item.id && isActive;
-
-                    return (
-                      <div key={item.id} className="relative" style={{ marginBottom: '2px' }}>
-                        <button
-                          ref={(el) => { navRefs.current[item.id] = el; }}
-                          onClick={() => handleViewChange(item.id)}
-                          onMouseEnter={() => setHoveredItem(item.id)}
-                          onMouseLeave={() => { setHoveredItem(null); setPressedItem(null); }}
-                          onMouseDown={() => setPressedItem(item.id)}
-                          onMouseUp={() => setPressedItem(null)}
-                          className={`w-full flex items-center rounded-md text-sm font-medium transition-all duration-150 ${
-                            isCollapsed ? 'justify-center px-0 py-3' : 'space-x-3 px-4 py-3'
-                          } ${
-                            isActive
-                              ? 'text-electric-bat-yellow'
-                              : 'text-slate-400'
-                          }`}
-                          style={{
-                            backgroundColor: isActive
-                              ? 'rgba(44,44,44,0.6)'
-                              : isHovered
-                                ? 'rgba(44,44,44,0.5)'
-                                : 'transparent',
-                            transform: isPressed
-                              ? 'scale(0.97)'
-                              : isHovered
-                                ? 'translateX(2px)'
-                                : 'translateX(0)',
-                            transition: 'background-color 150ms ease, transform 100ms ease',
-                            paddingLeft: isCollapsed ? 0 : undefined,
-                          }}
-                        >
-                          <div
-                            className={`flex items-center justify-center ${isCollapsed ? '' : 'w-5 h-5 border border-current rounded'}`}
-                            style={{
-                              color: isActive ? '#FFD700' : isHovered ? '#e2e8f0' : '#94a3b8',
-                              boxShadow: isGlowing ? '0 0 12px rgba(255,215,0,0.5)' : 'none',
-                              transition: 'color 150ms ease, box-shadow 400ms ease',
-                            }}
-                          >
-                            <Icon size={18} strokeWidth={1.5} />
-                          </div>
-                          {!isCollapsed && (
-                            <span
-                              className="tracking-wide"
-                              style={{
-                                whiteSpace: 'nowrap',
-                                overflow: 'hidden',
-                                opacity: 1,
-                                transform: 'translateX(0)',
-                                transition: 'opacity 200ms ease, transform 200ms ease',
-                              }}
-                            >
-                              {item.label}
-                            </span>
-                          )}
-                        </button>
-
-                        {isCollapsed && isHovered && (
-                          <div
-                            className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-matte-obsidian border border-slate-700 text-xs text-slate-200 px-2.5 py-1.5 rounded z-50 pointer-events-none"
-                            style={{ whiteSpace: 'nowrap' }}
-                          >
-                            {item.label}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                <div
+                  style={{
+                    transform: isCollapsed ? 'rotate(0deg)' : 'rotate(180deg)',
+                    transition: 'transform 200ms ease, color 150ms ease',
+                    color: '#94a3b8',
+                    display: 'flex',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = '#FFD700'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = '#94a3b8'; }}
+                >
+                  <ChevronLeft size={18} />
                 </div>
-              </nav>
+              </button>
             </div>
 
+            <nav className="space-y-1.5 px-4 flex-1 relative">
+              {!isCollapsed && (
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-3 mb-3">
+                  Operations Center
+                </p>
+              )}
+
+              <div className="relative">
+                <div
+                  className="absolute left-0 w-[3px] bg-electric-bat-yellow rounded-full"
+                  style={{
+                    top: indicatorStyle.top,
+                    height: indicatorStyle.height,
+                    boxShadow: '0 0 8px rgba(255,215,0,0.4)',
+                    transition: 'top 220ms cubic-bezier(0.4, 0, 0.2, 1), height 220ms cubic-bezier(0.4, 0, 0.2, 1)',
+                  }}
+                />
+
+                {navItems.map((item) => {
+                  const isActive = currentView === item.id;
+                  const Icon = ICON_MAP[item.id];
+                  const isHovered = hoveredItem === item.id;
+                  const isPressed = pressedItem === item.id;
+                  const isGlowing = glowingItem === item.id && isActive;
+
+                  return (
+                    <div key={item.id} className="relative" style={{ marginBottom: 2 }}>
+                      <button
+                        ref={(el) => { navRefs.current[item.id] = el; }}
+                        onClick={() => handleViewChange(item.id)}
+                        onMouseEnter={() => setHoveredItem(item.id)}
+                        onMouseLeave={() => { setHoveredItem(null); setPressedItem(null); }}
+                        onMouseDown={() => setPressedItem(item.id)}
+                        onMouseUp={() => setPressedItem(null)}
+                        className={`w-full flex items-center rounded-md text-sm font-medium transition-all duration-150 ${
+                          isCollapsed ? 'justify-center px-0 py-3' : 'px-4 py-3'
+                        } ${
+                          isActive ? 'text-electric-bat-yellow' : 'text-slate-400'
+                        }`}
+                        style={{
+                          gap: isCollapsed ? 0 : 12,
+                          backgroundColor: isActive
+                            ? 'rgba(44,44,44,0.6)'
+                            : isHovered
+                              ? 'rgba(44,44,44,0.5)'
+                              : 'transparent',
+                          transform: isPressed
+                            ? 'scale(0.97)'
+                            : isHovered
+                              ? 'translateX(2px)'
+                              : 'translateX(0)',
+                          transition: 'background-color 150ms ease, transform 100ms ease',
+                        }}
+                      >
+                        <div
+                          className="flex items-center justify-center rounded-lg shrink-0"
+                          style={{
+                            width: 32,
+                            height: 32,
+                            border: `1px solid ${isActive ? '#FFD700' : '#475569'}`,
+                            color: isActive ? '#FFD700' : isHovered ? '#e2e8f0' : '#94a3b8',
+                            boxShadow: isGlowing ? '0 0 12px rgba(255,215,0,0.5)' : 'none',
+                            transition: 'color 150ms ease, border-color 150ms ease, box-shadow 400ms ease',
+                          }}
+                        >
+                          <Icon size={18} />
+                        </div>
+                        {!isCollapsed && (
+                          <span
+                            className="tracking-wide"
+                            style={{
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {item.label}
+                          </span>
+                        )}
+                      </button>
+
+                      {isCollapsed && isHovered && (
+                        <div
+                          className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-matte-obsidian border border-slate-700 text-xs text-slate-200 px-2.5 py-1.5 rounded z-50 pointer-events-none"
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          {item.label}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </nav>
+
             {!isCollapsed && (
-              <div className="px-6 text-center mt-4">
+              <div className="px-6 text-center mt-4 shrink-0">
                 <div className="text-[10px] font-mono text-slate-600">
                   BUILD v1.0.0 // ENCRYPTED
                 </div>
               </div>
             )}
-
-            <button
-              onClick={toggleSidebar}
-              className="absolute -right-[14px] top-6 w-[28px] h-[28px] rounded-full bg-dark-slate border border-slate-700 flex items-center justify-center hover:border-electric-bat-yellow transition-colors duration-200 z-20"
-              title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              <div style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(180deg)', transition: 'transform 200ms ease' }}>
-                <ChevronLeft size={14} strokeWidth={2} />
-              </div>
-            </button>
           </aside>
         )}
 
