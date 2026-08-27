@@ -46,8 +46,9 @@ class Settings(BaseSettings):
     @classmethod
     def validate_secret_key(cls, v: str) -> str:
         if v == "change-me-to-a-secure-random-string-in-production" or len(v) < 16:
-            stdlib_logging.warning(
-                "SECRET_KEY is weak or default. Set a strong, unique SECRET_KEY in production."
+            raise RuntimeError(
+                "SECRET_KEY must be set to a strong random value in production. "
+                "Refusing to start with a missing or default key."
             )
         return v
 
