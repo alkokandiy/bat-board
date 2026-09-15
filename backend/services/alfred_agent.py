@@ -260,7 +260,8 @@ async def _tool_loop(db: Session, user: models.BatAccount, messages: List[dict])
             except (ValueError, RuntimeError) as exc:
                 result = {"error": str(exc)}
             messages.append({"role": "assistant", "content": None, "tool_calls": [
-                {"name": call.name, "arguments": call.arguments or {}}]})
+                {"name": call.name, "arguments": call.arguments or {},
+                 "thought_signature": call.thought_signature}]})
             messages.append({"role": "tool", "name": call.name, "result": result})
             executions += 1
 

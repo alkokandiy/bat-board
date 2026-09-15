@@ -28,6 +28,10 @@ from config import get_settings
 class ToolCall:
     name: str
     arguments: Dict[str, Any] = field(default_factory=dict)
+    # Opaque bytes from the model (Gemini "thought signature"). MUST be
+    # replayed verbatim when this call is echoed back in later turns —
+    # the API 400s without it. Never shown to users, never logged.
+    thought_signature: Optional[bytes] = None
 
 
 @dataclass
@@ -89,13 +93,20 @@ async def _generate_gemini(api_key: str, model: str, messages: List[dict], tools
     )
 
     text_parts = []
+    tool_calls = []
+    # Iterate parts directly (not response.function_calls): the parsed helper
+    # drops per-part fields, and we need each call's thought_signature to
+    # replay it verbatim in later turns.
     for part in (response.parts or []):
         if part.text:
             text_parts.append(part.text)
-    tool_calls = [
-        ToolCall(name=fc.name, arguments=dict(fc.args or {}))
-        for fc in (response.function_calls or [])
-    ]
+        if part.function_call is not None:
+            fc = part.function_call
+            tool_calls.append(ToolCall(
+                name=fc.name,
+                arguments=dict(fc.args or {}),
+                thought_signature=part.thought_signature,
+            ))
     text = "\n".join(text_parts).strip() or None
     return LLMResponse(text=text, tool_calls=tool_calls)
 
@@ -122,8 +133,15 @@ def _to_gemini_content(msg: dict):
         if msg.get("content"):
             parts.append(types.Part.from_text(text=msg["content"]))
         for tc in msg["tool_calls"]:
+            # from_function_call() can't carry a thought_signature, so build
+            # the Part directly — replaying it verbatim is API-mandated.
             parts.append(
-                types.Part.from_function_call(name=tc["name"], args=tc.get("arguments", {}))
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name=tc["name"], args=tc.get("arguments", {})
+                    ),
+                    thought_signature=tc.get("thought_signature"),
+                )
             )
         return [types.Content(role="model", parts=parts)]
     gemini_role = "model" if role == "assistant" else "user"
