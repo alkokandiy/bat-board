@@ -3,7 +3,7 @@ import { api } from '../utils/api.js';
 
 export default function AlfredChatPanel() {
   const [messages, setMessages] = useState([
-    { role: 'alfred', text: 'Good evening. Alfred at your service — ask about your missions, habits, notes, or tell me to log something.' },
+    { role: 'alfred', text: 'Good evening, Master Al-Kokandiy. The books are open — ask after your missions, habits, or notes, or tell me what to log.' },
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);

@@ -128,12 +128,15 @@ READ_TOOLS = [
 ]
 
 WRITE_TOOLS = [
-    {"name": "create_mission", "description": "Create a new mission.",
+    {"name": "create_mission", "description": "Create a new mission. Ask first for priority and due date when missing; other fields optional.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "description": {"type": "string"},
          "due_date": {"type": "string", "description": "ISO datetime."},
          "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
          "tags": {"type": "string", "description": "Comma-separated tags."},
+         "location": {"type": "string"}, "notes": {"type": "string", "description": "Mission intel."},
+         "subtasks": {"type": "string", "description": "JSON array of {title, done}."},
+         "is_pinned": {"type": "boolean"},
      }, "required": ["title"]}},
     {"name": "complete_mission", "description": "Mark a mission completed (awards points).",
      "parameters": {"type": "object", "properties": {
@@ -148,19 +151,22 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "habit_id": {"type": "integer"},
      }, "required": ["habit_id"]}},
-    {"name": "create_event", "description": "Create a calendar event.",
+    {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "start_time": {"type": "string", "description": "ISO datetime."},
          "description": {"type": "string"}, "end_time": {"type": "string", "description": "ISO datetime."},
+         "color": {"type": "string"}, "mission_id": {"type": "integer", "description": "Link to a mission."},
      }, "required": ["title", "start_time"]}},
     {"name": "create_note", "description": "Create a note.",
      "parameters": {"type": "object", "properties": {
-         "title": {"type": "string"}, "body": {"type": "string"}, "category": {"type": "string"},
+         "title": {"type": "string"}, "body": {"type": "string"},
+         "category": {"type": "string"}, "tags": {"type": "string", "description": "Comma-separated."},
      }, "required": ["title"]}},
     {"name": "update_note", "description": "Partially update a note.",
      "parameters": {"type": "object", "properties": {
          "note_id": {"type": "integer"}, "title": {"type": "string"},
          "body": {"type": "string"}, "category": {"type": "string"},
+         "tags": {"type": "string", "description": "Comma-separated."},
          "is_pinned": {"type": "boolean"},
      }, "required": ["note_id"]}},
     {"name": "toggle_pin", "description": "Toggle a note's pinned state.",
@@ -171,9 +177,9 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime."},
      }, "required": ["title", "target_date"]}},
-    {"name": "start_focus_session", "description": "Record a focus session start (database record only).",
+    {"name": "start_focus_session", "description": "Record a focus session start (database record only). Optionally link a mission or habit.",
      "parameters": {"type": "object", "properties": {
-         "mission_id": {"type": "integer"},
+         "mission_id": {"type": "integer"}, "habit_id": {"type": "integer"},
      }}},
     {"name": "end_focus_session", "description": "End a focus session; duration from wall clock.",
      "parameters": {"type": "object", "properties": {
@@ -252,7 +258,10 @@ def execute_tool(
         m = mission_service.create_mission(
             db, current_user, title=args["title"], description=args.get("description"),
             due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None,
-            priority=args.get("priority") or "medium", tags=args.get("tags"))
+            priority=args.get("priority") or "medium", tags=args.get("tags"),
+            location=args.get("location"), notes=args.get("notes"),
+            subtasks=args.get("subtasks"),
+            is_pinned=bool(args.get("is_pinned")) if args.get("is_pinned") is not None else False)
         return {"mission": _mission_dict(m)}
     if name == "complete_mission":
         m = mission_service.complete_mission(db, current_user, int(args["mission_id"]))
@@ -270,24 +279,28 @@ def execute_tool(
             return {"error": "Habit not found"}
         return {"habit": _habit_dict(h)}
     if name == "create_event":
+        mission_id = args.get("mission_id")
         e = calendar_service.create_event(
             db, current_user, title=args["title"],
             start_time=_parse_dt(args["start_time"], "start_time"),
             description=args.get("description"),
-            end_time=_parse_dt(args.get("end_time"), "end_time") if args.get("end_time") else None)
+            end_time=_parse_dt(args.get("end_time"), "end_time") if args.get("end_time") else None,
+            color=args.get("color"),
+            mission_id=int(mission_id) if mission_id is not None else None)
         if e is None:
             return {"error": "Event not created"}
         return {"event": _event_dict(e)}
     if name == "create_note":
         n = notes_service.create_note(
             db, current_user, title=args.get("title") or "",
-            body=args.get("body"), category=args.get("category"))
+            body=args.get("body"), category=args.get("category"),
+            tags=args.get("tags"))
         return {"note": _note_dict(n)}
     if name == "update_note":
         n = notes_service.update_note(
             db, current_user, int(args["note_id"]), title=args.get("title"),
             body=args.get("body"), category=args.get("category"),
-            is_pinned=args.get("is_pinned"))
+            tags=args.get("tags"), is_pinned=args.get("is_pinned"))
         if n is None:
             return {"error": "Note not found"}
         return {"note": _note_dict(n)}
@@ -305,7 +318,8 @@ def execute_tool(
         try:
             s = focus_service.start_focus_session(
                 db, current_user,
-                mission_id=int(args["mission_id"]) if args.get("mission_id") else None)
+                mission_id=int(args["mission_id"]) if args.get("mission_id") else None,
+                habit_id=int(args["habit_id"]) if args.get("habit_id") else None)
         except ValueError as exc:
             return {"error": str(exc)}
         result = _session_dict(s)
