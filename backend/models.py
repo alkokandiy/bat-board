@@ -25,6 +25,9 @@ class BatAccount(Base):
     countdowns = relationship("BatCountdown", back_populates="owner", cascade="all, delete-orphan")
     personal_access_tokens = relationship("BatPersonalAccessToken", back_populates="owner", cascade="all, delete-orphan")
     telegram_link_codes = relationship("BatTelegramLinkCode", back_populates="owner", cascade="all, delete-orphan")
+    alfred_messages = relationship("BatAlfredMessage", back_populates="owner", cascade="all, delete-orphan")
+    pending_alfred_actions = relationship("BatPendingAlfredAction", back_populates="owner", cascade="all, delete-orphan")
+    alfred_usage = relationship("BatAlfredUsage", back_populates="owner", cascade="all, delete-orphan")
 
 
 class BatMission(Base):
@@ -191,3 +194,59 @@ class BatTelegramLinkCode(Base):
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
     owner = relationship("BatAccount", back_populates="telegram_link_codes")
+
+
+class BatAlfredMessage(Base):
+    """Conversation memory: only human-readable turns are stored, never
+    intermediate tool-call/tool-result exchanges."""
+
+    __tablename__ = "bat_alfred_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    role = Column(String, nullable=False)  # "user" | "assistant"
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="alfred_messages")
+
+
+class BatPendingAlfredAction(Base):
+    """Deterministic confirmation gate for destructive actions.
+    One pending action per user max (owner_id unique)."""
+
+    __tablename__ = "bat_pending_alfred_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action_type = Column(String, nullable=False)
+    action_args = Column(String, nullable=False)  # JSON-encoded dict
+    confirmation_message = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    owner = relationship("BatAccount", back_populates="pending_alfred_actions")
+
+
+class BatTelegramSeenUpdate(Base):
+    """Dedupe for Telegram deliveries: update_id primary key, so the
+    DB-level unique constraint (not app logic) makes this race-safe
+    across gunicorn workers."""
+
+    __tablename__ = "bat_telegram_seen_updates"
+
+    update_id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class BatAlfredUsage(Base):
+    """Per-user daily message counter (quota guard)."""
+
+    __tablename__ = "bat_alfred_usage"
+
+    id = Column(Integer, primary_key=True, index=True)
+    day = Column(String, nullable=False)  # YYYY-MM-DD (UTC)
+    count = Column(Integer, default=0, nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="alfred_usage")

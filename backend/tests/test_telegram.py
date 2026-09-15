@@ -9,9 +9,12 @@ from services import telegram_service
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret-12345"}
 
+_next_update_id = [1000]
+
 
 def _update(chat_id="tg-1", text="hello"):
-    return {"update_id": 1, "message": {"message_id": 1, "chat": {"id": chat_id}, "text": text}}
+    _next_update_id[0] += 1
+    return {"update_id": _next_update_id[0], "message": {"message_id": 1, "chat": {"id": chat_id}, "text": text}}
 
 
 def _expire_code(code):
@@ -166,7 +169,8 @@ def test_placeholder_reply_for_linked_user(client, auth_headers, monkeypatch):
     bot_token, chat_id, text = sent[0]
     assert bot_token == "test-bot-token"
     assert chat_id == "chat-p"
-    assert "isn't wired up yet" in text
+    # No GEMINI_API_KEY in tests → fail-closed reply, no crash.
+    assert "isn't configured yet" in text
 
 
 def test_unlink_revokes_and_unlinks(client, auth_headers, monkeypatch):

@@ -1,26 +1,30 @@
-"""Telegram linking endpoints + inbound webhook. Thin handlers only.
+"""Telegram linking endpoints + inbound webhook.
 
-The webhook proves the auth chain (Telegram → secret validation → chat_id
-→ user resolution → reply) with a static placeholder. No LLM in this pass.
+Fast path (request scope): secret validation → update_id dedupe → schedule
+background processing → HTTP 200. All user resolution, LLM calls, and
+replies happen in the background task with its own DB session, so Telegram
+never waits on (or retries) slow model calls.
 """
 
 import re
 import secrets as secrets_lib
 
 import structlog
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
 from config import get_settings
+from database import SessionLocal
 from dependencies import (
     get_current_active_user,
     get_db,
     get_user_by_telegram_chat_id,
     limiter,
 )
-from services import telegram_service
+from services import alfred_agent, telegram_service
 
 logger = structlog.get_logger()
 
@@ -28,10 +32,6 @@ router = APIRouter(tags=["telegram"])
 
 LINK_CODE_RE = re.compile(r"^\d{6}$")
 
-PLACEHOLDER_REPLY = (
-    "Alfred received your message. "
-    "The response engine isn't wired up yet — coming in the next update."
-)
 UNLINKED_REPLY = (
     "This Telegram account isn't linked to a bat-board account yet. "
     "Go to Profile → Link Telegram in the app to get a code."
@@ -69,7 +69,16 @@ def unlink_telegram(
 
 @router.post("/api/telegram/webhook")
 @limiter.limit("20/minute")
-async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
+async def telegram_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    return await handle_telegram_webhook(request, background_tasks, db)
+
+
+async def handle_telegram_webhook(request: Request, background_tasks, db: Session):
+    """Undecorated core so tests can call it directly with a stub task queue."""
     settings = get_settings()
 
     # FIRST: secret validation. No body parsing, no DB, no payload logging
@@ -77,43 +86,81 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     expected = settings.telegram_webhook_secret
     provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if not expected or not provided or not secrets_lib.compare_digest(provided, expected):
-        return _forbidden()
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "Forbidden"})
 
     try:
         payload = await request.json()
     except Exception:
         return {"ok": True}
 
-    message = payload.get("message") or {}
-    chat = message.get("chat") or {}
-    chat_id = chat.get("id")
-    text = (message.get("text") or "").strip()
-    if chat_id is None:
-        return {"ok": True}
-    chat_id = str(chat_id)
+    update_id = payload.get("update_id")
+    if update_id is not None and not _claim_update(db, update_id):
+        return {"ok": True}  # duplicate delivery — no-op
 
-    if LINK_CODE_RE.match(text):
-        user = telegram_service.exchange_link_code(db, text, chat_id)
-        if user is not None:
-            logger.info("telegram_linked", username=user.username)
-            _reply(settings, chat_id, LINK_SUCCESS_REPLY)
-        else:
-            _reply(settings, chat_id, UNLINKED_REPLY)
-        return {"ok": True}
-
-    user = get_user_by_telegram_chat_id(chat_id, db)
-    if user is None:
-        _reply(settings, chat_id, UNLINKED_REPLY)
-    else:
-        _reply(settings, chat_id, PLACEHOLDER_REPLY)
+    background_tasks.add_task(process_telegram_update, payload)
     return {"ok": True}
 
 
-def _forbidden() -> JSONResponse:
-    return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "Forbidden"})
+def _claim_update(db: Session, update_id: int) -> bool:
+    """DB-level dedupe (unique PK, race-safe across workers). False = seen."""
+    try:
+        db.add(models.BatTelegramSeenUpdate(update_id=int(update_id)))
+        db.commit()
+        return True
+    except IntegrityError:
+        db.rollback()
+        return False
+    except Exception:
+        db.rollback()
+        return True  # never block delivery on bookkeeping failure
 
 
-def _reply(settings, chat_id: str, text: str) -> None:
+async def process_telegram_update(payload: dict) -> None:
+    """Background processing: linking exchange or Alfred turn, then reply."""
+    db = SessionLocal()
+    try:
+        message = payload.get("message") or {}
+        chat = message.get("chat") or {}
+        chat_id = chat.get("id")
+        text = (message.get("text") or "").strip()
+        if chat_id is None:
+            return
+        chat_id = str(chat_id)
+
+        if LINK_CODE_RE.match(text):
+            user = telegram_service.exchange_link_code(db, text, chat_id)
+            if user is not None:
+                logger.info("telegram_linked", username=user.username)
+                _reply(chat_id, LINK_SUCCESS_REPLY)
+            else:
+                _reply(chat_id, UNLINKED_REPLY)
+            return
+
+        try:
+            user = get_user_by_telegram_chat_id(chat_id, db)
+        except Exception as exc:
+            logger.error("telegram_user_lookup_failed", error=str(exc))
+            user = None
+        if user is None:
+            _reply(chat_id, UNLINKED_REPLY)
+            return
+
+        reply = await alfred_agent.run_turn(db, user, text)
+        _reply(chat_id, reply)
+    except Exception as exc:
+        logger.error("telegram_process_failed", error_type=type(exc).__name__, error=str(exc))
+        try:
+            chat = (payload.get("message") or {}).get("chat") or {}
+            if chat.get("id") is not None:
+                _reply(str(chat.get("id")), alfred_agent.SNAG_REPLY)
+        except Exception:
+            pass
+    finally:
+        db.close()
+
+
+def _reply(chat_id: str, text: str) -> None:
+    settings = get_settings()
     if not settings.telegram_bot_token:
         logger.error("telegram_not_configured", hint="Set TELEGRAM_BOT_TOKEN in Railway.")
         return

@@ -64,3 +64,22 @@ def auth_headers():
         return {"Authorization": f"Bearer {token}"}
 
     return _headers
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """Fresh slowapi budget per test.
+
+    Webhook/notes/countdown tests share one TestClient IP, so without this
+    the per-minute limits leak across tests. Rate-limit tests still pass:
+    they burn 35 requests inside a single test.
+    """
+    from dependencies import limiter
+
+    storage = getattr(limiter, "_storage", None)
+    if storage is not None and hasattr(storage, "reset"):
+        try:
+            storage.reset()
+        except Exception:
+            pass
+    yield

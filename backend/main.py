@@ -33,6 +33,7 @@ from routers.notes import router as notes_router
 from routers.telegram import router as telegram_router
 from services import (
     calendar_service,
+    focus_service,
     habit_service,
     logs_service,
     mission_service,
@@ -815,41 +816,15 @@ def start_focus_session(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    if payload:
-        if payload.mission_id:
-            mission = db.query(models.BatMission).filter(
-                models.BatMission.id == payload.mission_id,
-                models.BatMission.owner_id == current_user.id
-            ).first()
-            if not mission:
-                raise HTTPException(status_code=404, detail="Mission not found")
-        if payload.habit_id:
-            habit = db.query(models.BatHabit).filter(
-                models.BatHabit.id == payload.habit_id,
-                models.BatHabit.owner_id == current_user.id
-            ).first()
-            if not habit:
-                raise HTTPException(status_code=404, detail="Habit not found")
-
-    session = models.BatFocus(
-        start_time=datetime.now(timezone.utc),
-        owner_id=current_user.id,
-        mission_id=payload.mission_id if payload else None,
-        habit_id=payload.habit_id if payload else None,
-    )
-    db.add(session)
-    db.flush()
-    db.refresh(session)
-
-    auto_log_event(db, current_user.id, "focus_session_started", {
-        "session_id": session.id,
-        "start_time": session.start_time.isoformat(),
-        "mission_id": session.mission_id,
-        "habit_id": session.habit_id,
-    })
-    db.commit()
-
-    return session
+    try:
+        return focus_service.start_focus_session(
+            db,
+            current_user,
+            mission_id=payload.mission_id if payload else None,
+            habit_id=payload.habit_id if payload else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 @app.put("/api/focus/sessions/{session_id}", response_model=BatFocusSchema)
 def end_focus_session(
@@ -858,64 +833,14 @@ def end_focus_session(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    session = db.query(models.BatFocus).filter(
-        models.BatFocus.id == session_id,
-        models.BatFocus.owner_id == current_user.id
-    ).first()
-
-    if not session:
+    session = focus_service.end_focus_session(
+        db,
+        current_user,
+        session_id,
+        **{field: getattr(payload, field) for field in payload.model_fields_set},
+    )
+    if session is None:
         raise HTTPException(status_code=404, detail="Focus session not found")
-
-    if 'end_time' in payload.model_fields_set:
-        session.end_time = payload.end_time.replace(tzinfo=None) if payload.end_time else None
-    elif not session.end_time:
-        session.end_time = datetime.now(timezone.utc)
-    for field in payload.model_fields_set:
-        if field == 'end_time':
-            continue
-        setattr(session, field, getattr(payload, field))
-
-    if session.duration_minutes is None and session.end_time:
-        delta = session.end_time - session.start_time
-        session.duration_minutes = int(delta.total_seconds() / 60)
-
-    if session.duration_minutes:
-        if session.mission_id:
-            mission = db.query(models.BatMission).filter(
-                models.BatMission.id == session.mission_id,
-                models.BatMission.owner_id == current_user.id
-            ).first()
-            if mission:
-                mission.focus_minutes = (mission.focus_minutes or 0) + session.duration_minutes
-                mission.completed_focus_sessions = (mission.completed_focus_sessions or 0) + 1
-        if session.habit_id:
-            habit = db.query(models.BatHabit).filter(
-                models.BatHabit.id == session.habit_id,
-                models.BatHabit.owner_id == current_user.id
-            ).first()
-            if habit:
-                habit.focus_minutes = (habit.focus_minutes or 0) + session.duration_minutes
-
-    reward = session.duration_minutes if session.duration_minutes else 0
-    current_user.points += reward
-    old_level = current_user.bat_level
-    current_user.bat_level = calculate_bat_level(current_user.points)
-
-    db.flush()
-    db.refresh(session)
-    db.refresh(current_user)
-
-    auto_log_event(db, current_user.id, "focus_session_ended", {
-        "session_id": session.id,
-        "duration_minutes": session.duration_minutes,
-        "mission_id": session.mission_id,
-        "habit_id": session.habit_id,
-        "points_awarded": reward,
-        "old_level": old_level,
-        "new_level": current_user.bat_level
-    })
-    db.commit()
-
     return session
 
 @app.get("/api/focus/sessions", response_model=List[BatFocusSchema])
