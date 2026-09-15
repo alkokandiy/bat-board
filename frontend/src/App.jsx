@@ -3,14 +3,12 @@ import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
 import FocusPanel from './components/FocusPanel';
-import JohnWickPanel from './components/JohnWickPanel';
-import CountdownPanel from './components/CountdownPanel';
+import CountdownSection from './components/CountdownSection';
 import CalendarPanel from './components/CalendarPanel';
 import NotesPanel from './components/NotesPanel';
 import ProfileSettings from './components/ProfileSettings';
-import LogsPanel from './components/LogsPanel';
 import StatsPanel from './components/StatsPanel';
-import AlfredChatPanel from './components/AlfredChatPanel';
+import AlfredWidget from './components/AlfredWidget';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
@@ -102,7 +100,6 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [missions, setMissions] = useState([]);
   const [habits, setHabits] = useState([]);
-  const [logs, setLogs] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTrack, setActiveTrack] = useState(null);
@@ -124,16 +121,14 @@ export default function App() {
     try {
       setLoading(true);
       setError(null);
-      const [acc, miss, habs, lg] = await Promise.all([
+      const [acc, miss, habs] = await Promise.all([
         api.getAccount(),
         api.getMissions(),
         api.getHabits(),
-        api.getLogs(30),
       ]);
       setAccount(acc);
       setMissions(miss);
       setHabits(habs);
-      setLogs(lg);
       setIsAuthenticated(true);
     } catch (err) {
       if (err.message.includes('Session expired')) {
@@ -161,7 +156,6 @@ export default function App() {
       setAccount(null);
       setMissions([]);
       setHabits([]);
-      setLogs([]);
     };
     window.addEventListener('auth:logout', handleLogout);
 
@@ -188,7 +182,6 @@ export default function App() {
   const handleRefreshAccount = async () => {
     try {
       setAccount(await api.getAccount());
-      setLogs(await api.getLogs(30));
     } catch (err) {
       console.error(err);
     }
@@ -205,14 +198,6 @@ export default function App() {
   const handleRefreshHabits = async () => {
     try {
       setHabits(await api.getHabits());
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleRefreshLogs = async () => {
-    try {
-      setLogs(await api.getLogs(30));
     } catch (err) {
       console.error(err);
     }
@@ -413,63 +398,41 @@ export default function App() {
         );
       case 'focus':
         return (
-          <FocusPanel
-            activeTrack={activeTrack}
-            isPlaying={isPlaying}
-            onTrackChange={handleTrackChange}
-            missions={missions}
-            habits={habits}
-            onRefreshMissions={handleRefreshMissions}
-            onRefreshHabits={handleRefreshHabits}
-            onRefreshAccount={handleRefreshAccount}
-            onFocusModeChange={setFocusMode}
-            focusMode={focusMode}
-            focusTimeLeft={focusTimeLeft}
-            focusTotalTime={focusSessionLength * 60}
-            focusRunning={focusRunning}
-            focusSessionLength={focusSessionLength}
-            focusSelectedMissionId={focusSelectedMissionId}
-            focusSelectedHabitId={focusSelectedHabitId}
-            onFocusMissionChange={setFocusSelectedMissionId}
-            onFocusHabitChange={setFocusSelectedHabitId}
-            onFocusToggle={handleFocusToggle}
-            onFocusAdjustTime={handleFocusAdjustTime}
-            onFocusSessionChange={handleFocusSessionChange}
-            onFocusReset={handleFocusReset}
-            onFocusExit={handleFocusExit}
-          />
+          <div className="space-y-6">
+            <FocusPanel
+              activeTrack={activeTrack}
+              isPlaying={isPlaying}
+              onTrackChange={handleTrackChange}
+              missions={missions}
+              habits={habits}
+              onRefreshMissions={handleRefreshMissions}
+              onRefreshHabits={handleRefreshHabits}
+              onRefreshAccount={handleRefreshAccount}
+              onFocusModeChange={setFocusMode}
+              focusMode={focusMode}
+              focusTimeLeft={focusTimeLeft}
+              focusTotalTime={focusSessionLength * 60}
+              focusRunning={focusRunning}
+              focusSessionLength={focusSessionLength}
+              focusSelectedMissionId={focusSelectedMissionId}
+              focusSelectedHabitId={focusSelectedHabitId}
+              onFocusMissionChange={setFocusSelectedMissionId}
+              onFocusHabitChange={setFocusSelectedHabitId}
+              onFocusToggle={handleFocusToggle}
+              onFocusAdjustTime={handleFocusAdjustTime}
+              onFocusSessionChange={handleFocusSessionChange}
+              onFocusReset={handleFocusReset}
+              onFocusExit={handleFocusExit}
+            />
+            <StatsPanel />
+          </div>
         );
-      case 'johnwick':
-        return (
-          <JohnWickPanel
-            activeTrack={activeTrack}
-            isPlaying={isPlaying}
-            onTrackChange={handleTrackChange}
-            missions={missions}
-            onRefreshMissions={handleRefreshMissions}
-            onRefreshAccount={handleRefreshAccount}
-            onFocusModeChange={setFocusMode}
-          />
-        );
-      case 'countdown':
-        return <CountdownPanel />;
       case 'calendar':
         return <CalendarPanel />;
       case 'notes':
         return <NotesPanel />;
       case 'profile':
         return <ProfileSettings account={account} onRefreshAccount={handleRefreshAccount} />;
-      case 'logs':
-        return (
-          <LogsPanel
-            initialLogs={logs}
-            onRefreshLogs={handleRefreshLogs}
-          />
-        );
-      case 'stats':
-        return <StatsPanel />;
-      case 'alfred':
-        return <AlfredChatPanel />;
       default:
         return (
           <div className="space-y-6">
@@ -478,7 +441,10 @@ export default function App() {
               <p className="text-xs text-slate-400">Tactical overview of ongoing Gotham defense protocols.</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36">
+              <button
+                onClick={() => setCurrentView('missions')}
+                className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
+              >
                 <div>
                   <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Active Missions</span>
                   <div className="text-3xl font-bold mt-2 text-slate-100">
@@ -486,8 +452,11 @@ export default function App() {
                   </div>
                 </div>
                 <div className="text-xs text-slate-500">Missions queued for tactical execution.</div>
-              </div>
-              <div className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36">
+              </button>
+              <button
+                onClick={() => setCurrentView('habits')}
+                className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
+              >
                 <div>
                   <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Habit Streaks</span>
                   <div className="text-3xl font-bold mt-2 text-electric-bat-yellow">
@@ -495,8 +464,11 @@ export default function App() {
                   </div>
                 </div>
                 <div className="text-xs text-slate-500">Highest ritual continuity metric.</div>
-              </div>
-              <div className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36">
+              </button>
+              <button
+                onClick={() => setCurrentView('focus')}
+                className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
+              >
                 <div>
                   <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Current Bat Level</span>
                   <div className="text-lg font-bold mt-2 text-electric-bat-yellow font-mono truncate">
@@ -504,8 +476,9 @@ export default function App() {
                   </div>
                 </div>
                 <div className="text-xs text-slate-500">Level upgrade triggers automatically at points tier.</div>
-              </div>
+              </button>
             </div>
+            <CountdownSection />
             <div className="bg-dark-slate rounded border border-slate-800 p-6">
               <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 mb-4 border-b border-slate-800 pb-2">
                 Operational Status
@@ -540,6 +513,7 @@ export default function App() {
         onTrackChange={handleTrackChange}
         hideUI={focusMode}
       />
+      {!focusMode && <AlfredWidget />}
     </DashboardLayout>
   );
 }

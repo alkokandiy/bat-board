@@ -26,6 +26,9 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   const [tgExpiresAt, setTgExpiresAt] = useState(null);
   const [tgSecondsLeft, setTgSecondsLeft] = useState(0);
   const [tgBusy, setTgBusy] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
+  const [ledger, setLedger] = useState([]);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -118,6 +121,23 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   };
 
   const fmtExpiry = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+  const toggleLogs = async () => {
+    if (showLogs) {
+      setShowLogs(false);
+      return;
+    }
+    setShowLogs(true);
+    if (ledger.length > 0) return;
+    setLedgerLoading(true);
+    try {
+      setLedger(await api.getLogs(100));
+    } catch {
+      // keep empty rather than crashing
+    } finally {
+      setLedgerLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -279,6 +299,49 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
                 >
                   {tgBusy ? 'GENERATING...' : 'GENERATE LINK CODE'}
                 </button>
+              </div>
+            )}
+          </div>
+          {/* Ledger Log */}
+          <div className="bg-dark-slate rounded border border-slate-800 p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+              Ledger Log
+            </h2>
+            <p className="text-xs text-slate-400 mb-4">
+              Immutable history of account modifications, completions, and point awards.
+            </p>
+            <button
+              onClick={toggleLogs}
+              className="px-5 py-2 bg-matte-obsidian border border-slate-800 text-slate-300 font-bold rounded text-xs font-mono tracking-widest hover:border-electric-bat-yellow/50 transition"
+            >
+              {showLogs ? 'HIDE LEDGER' : 'VIEW LEDGER'}
+            </button>
+            {showLogs && (
+              <div className="mt-4 max-h-80 overflow-y-auto divide-y divide-slate-800 font-mono text-xs border border-slate-800 rounded">
+                {ledgerLoading ? (
+                  <div className="p-4 text-center text-slate-500">Loading ledger...</div>
+                ) : ledger.length === 0 ? (
+                  <div className="p-4 text-center text-slate-500">No ledger entries yet.</div>
+                ) : ledger.map((log) => {
+                  let summary = log.details;
+                  try {
+                    const d = JSON.parse(log.details);
+                    summary = d.message || d.reason || log.details;
+                  } catch {}
+                  return (
+                    <div key={log.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] shrink-0">
+                          {log.event_type}
+                        </span>
+                        <span className="text-slate-400 truncate">{summary}</span>
+                      </div>
+                      <span className="text-slate-600 text-[10px] shrink-0">
+                        {new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

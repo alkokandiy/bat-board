@@ -1,6 +1,85 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { trackPresets } from './AudioPlayer';
-import { api } from '../utils/api';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>John Wick — Focus Contract (standalone)</title>
+<!--
+  STANDALONE SEED for the John Wick focus timer, extracted verbatim from
+  bat-board's JohnWickPanel.jsx. No build step: open this file in a browser
+  (internet needed once for the React/Babel CDNs below).
+
+  Point API_BASE at your bat-board backend (CORS must allow this origin
+  or file:// — easiest is to serve this file from the same host, or add
+  the origin to the backend's CORS_ORIGINS).
+-->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #030304; }
+  #root { min-height: 100vh; }
+  .jw-login { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #030304; color: #c8bfa8; font-family: monospace; }
+  .jw-login form { display: flex; flex-direction: column; gap: 12px; width: 280px; }
+  .jw-login input { background: #111115; border: 1px solid rgba(212,160,23,0.3); color: #ede8de; padding: 10px 14px; font-size: 14px; outline: none; }
+  .jw-login button { background: #d4a017; color: #060608; border: none; padding: 12px; font-weight: bold; letter-spacing: 3px; cursor: pointer; }
+  .jw-login .err { color: #c0112b; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ---------------------------------------------------------------- API ---
+// Point this at the bat-board backend for mission list + session logging.
+// Everything else (phases, timer, visuals) runs fully offline in-page.
+const API_BASE = 'http://localhost:8000/api';
+
+function authHeaders() {
+  const t = localStorage.getItem('jw_token');
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+
+async function req(path, opts = {}) {
+  const res = await fetch(API_BASE + path, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(opts.headers || {}) },
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401) { localStorage.removeItem('jw_token'); throw new Error('Session expired — log in again.'); }
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.detail || ('Request failed (' + res.status + ')'));
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+const api = {
+  login: async (username, password) => {
+    const res = await fetch(API_BASE + '/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username, password }),
+    });
+    if (!res.ok) throw new Error('Login failed — check credentials.');
+    const data = await res.json();
+    localStorage.setItem('jw_token', data.access_token);
+    return data;
+  },
+  getMissions: () => req('/missions'),
+  startFocusSession: (d) => req('/focus/sessions', { method: 'POST', body: d || {} }),
+  endFocusSession: (id, d) => req('/focus/sessions/' + id, { method: 'PUT', body: d }),
+};
+
+// ------------------------------------------------------- track presets ---
+const trackPresets = [
+  { id: 1, title: "Batmusic #1", src: "/tracks/track1.m4a" },
+  { id: 2, title: "Batmusic #2", src: "/tracks/track2.m4a" },
+  { id: 3, title: "Batmusic #3", src: "/tracks/track3.m4a" },
+];
+
 
 const PHASES = [
   { id: 0, label: 'PREP', name: 'PREPARATION', dur: 10 * 60, type: 'prep', isBomb: false },
@@ -41,7 +120,7 @@ const VIDEOS = [
   { src: '', label: 'EXFILTRATING' },
 ];
 
-export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
+function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, missions, onRefreshMissions, onRefreshAccount, onFocusModeChange }) {
   const [page, setPage] = useState('landing');
   const [mission, setMission] = useState('');
   const [missionInput, setMissionInput] = useState('');
@@ -755,3 +834,61 @@ export default function JohnWickPanel({ activeTrack, isPlaying, onTrackChange, m
     </div>
   );
 }
+
+// ------------------------------------------------------- standalone App ---
+function JohnWickStandalone() {
+  const [token, setToken] = useState(() => localStorage.getItem('jw_token'));
+  const [missions, setMissions] = useState([]);
+  const [activeTrack, setActiveTrack] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [loginError, setLoginError] = useState(null);
+  const [creds, setCreds] = useState({ username: '', password: '' });
+
+  const refreshMissions = useCallback(async () => {
+    try { setMissions(await api.getMissions()); } catch (e) { console.error(e); }
+  }, []);
+
+  useEffect(() => { if (token) refreshMissions(); }, [token, refreshMissions]);
+
+  const doLogin = async (e) => {
+    e.preventDefault();
+    setLoginError(null);
+    try {
+      await api.login(creds.username, creds.password);
+      setToken(localStorage.getItem('jw_token'));
+    } catch (err) { setLoginError(err.message); }
+  };
+
+  if (!token) {
+    return (
+      <div className="jw-login">
+        <form onSubmit={doLogin}>
+          <div style={{ letterSpacing: '6px', color: '#d4a017' }}>JOHN WICK</div>
+          <input type="text" placeholder="Username" value={creds.username}
+            onChange={e => setCreds({ ...creds, username: e.target.value })} />
+          <input type="password" placeholder="Password" value={creds.password}
+            onChange={e => setCreds({ ...creds, password: e.target.value })} />
+          {loginError && <div className="err">{loginError}</div>}
+          <button type="submit">ENTER THE CONTINENTAL</button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <JohnWickPanel
+      activeTrack={activeTrack}
+      isPlaying={isPlaying}
+      onTrackChange={(t) => { setActiveTrack(t); setIsPlaying(false); }}
+      missions={missions}
+      onRefreshMissions={refreshMissions}
+      onRefreshAccount={() => {}}
+      onFocusModeChange={() => {}}
+    />
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<JohnWickStandalone />);
+</script>
+</body>
+</html>

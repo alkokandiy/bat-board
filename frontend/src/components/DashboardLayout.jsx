@@ -1,33 +1,21 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  LayoutDashboard,
   ListChecks,
   Flame,
   Timer,
-  Skull,
-  Hourglass,
   CalendarDays,
   NotebookText,
-  ScrollText,
-  BarChart3,
   CircleUserRound,
   ChevronLeft,
-  Bot,
 } from 'lucide-react';
 
 const ICON_MAP = {
-  dashboard: LayoutDashboard,
   missions: ListChecks,
   habits: Flame,
   focus: Timer,
-  johnwick: Skull,
-  countdown: Hourglass,
   calendar: CalendarDays,
   notes: NotebookText,
-  logs: ScrollText,
-  stats: BarChart3,
   profile: CircleUserRound,
-  alfred: Bot,
 };
 
 const SIDEBAR_WIDTH = 256;
@@ -48,17 +36,11 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   const glowTimeoutRef = useRef(null);
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard' },
     { id: 'missions', label: 'Missions' },
     { id: 'habits', label: 'Habits' },
     { id: 'focus', label: 'Focus' },
-    { id: 'johnwick', label: 'John Wick' },
-    { id: 'countdown', label: 'Countdown' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'notes', label: 'Notes' },
-    { id: 'logs', label: 'Logs' },
-    { id: 'stats', label: 'Stats' },
-    { id: 'alfred', label: 'Alfred' },
     { id: 'profile', label: 'Profile' },
   ];
 
@@ -100,7 +82,13 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
       {!focusMode && (
         <header className="h-16 border-b border-dark-slate flex items-center justify-between px-6 bg-matte-obsidian z-10">
           <div className="flex items-center space-x-3">
-            <span className="text-electric-bat-yellow text-2xl font-bold tracking-widest">BAT-BOARD</span>
+            <button
+              onClick={() => onViewChange('dashboard')}
+              className="text-electric-bat-yellow text-2xl font-bold tracking-widest hover:brightness-110 transition"
+              title="Back to Command Center"
+            >
+              BAT-BOARD
+            </button>
             <span className="text-xs bg-dark-slate text-slate-400 px-2.5 py-1 rounded font-mono tracking-wider border border-slate-800">
               SYSTEM ONLINE
             </span>

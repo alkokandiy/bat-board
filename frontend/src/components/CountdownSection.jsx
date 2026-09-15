@@ -19,7 +19,7 @@ function calcDiff(target) {
   };
 }
 
-function CountdownTile({ label, target, color = 'electric-bat-yellow', onDelete }) {
+function CountdownTile({ label, target, color = 'electric-bat-yellow', onDelete, onDismiss }) {
   const [diff, setDiff] = useState(() => calcDiff(new Date(target)));
 
   useEffect(() => {
@@ -29,12 +29,22 @@ function CountdownTile({ label, target, color = 'electric-bat-yellow', onDelete 
 
   return (
     <div className={`bg-dark-slate p-4 rounded border border-slate-800 relative`}>
-      {onDelete && (
+      {onDelete && !diff.expired && (
         <button onClick={onDelete} className="absolute top-2 right-2 text-slate-600 hover:text-red-500 text-[10px]">✕</button>
       )}
       <div className={`text-[10px] font-mono uppercase tracking-widest text-${color} mb-2 truncate pr-4`}>{label}</div>
       {diff.expired ? (
-        <div className="text-green-400 text-sm font-bold">COMPLETE ✓</div>
+        <div className="space-y-2">
+          <div className="text-green-400 text-sm font-bold">COMPLETE ✓</div>
+          {onDismiss && (
+            <button
+              onClick={onDismiss}
+              className="text-[10px] font-mono tracking-widest text-slate-500 hover:text-electric-bat-yellow border border-slate-800 hover:border-electric-bat-yellow/50 rounded px-2 py-1 transition"
+            >
+              VERIFIED — DISMISS
+            </button>
+          )}
+        </div>
       ) : (
         <div className="flex items-center gap-3 font-mono">
           {diff.days > 0 && <div><span className="text-2xl font-bold text-slate-100">{diff.days}</span><span className="text-[9px] text-slate-500 ml-1">d</span></div>}
@@ -51,7 +61,7 @@ function fromServer(c) {
   return { id: c.id, label: c.title, target: c.target_date };
 }
 
-export default function CountdownPanel() {
+export default function CountdownSection() {
   const [goals, setGoals] = useState([]);
   const [newLabel, setNewLabel] = useState('');
   const [newTarget, setNewTarget] = useState('');
@@ -151,7 +161,7 @@ export default function CountdownPanel() {
       {goals.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {goals.map(g => (
-            <CountdownTile key={g.id} label={g.label} target={g.target} onDelete={() => deleteGoal(g.id)} />
+            <CountdownTile key={g.id} label={g.label} target={g.target} onDelete={() => deleteGoal(g.id)} onDismiss={() => deleteGoal(g.id)} />
           ))}
         </div>
       )}
