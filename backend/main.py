@@ -31,6 +31,7 @@ from dependencies import limiter
 from routers.countdown import router as countdown_router
 from routers.notes import router as notes_router
 from routers.telegram import router as telegram_router
+from routers.alfred import router as alfred_router
 from services import (
     calendar_service,
     focus_service,
@@ -131,6 +132,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(notes_router)
 app.include_router(countdown_router)
 app.include_router(telegram_router)
+app.include_router(alfred_router)
 
 # NOTE: calculate_bat_level / auto_log_event now live in services/common.py
 # (imported above) so services can use them without a circular import.
@@ -443,7 +445,9 @@ def get_account(
     return profile_service.get_profile(db, current_user)
 
 @app.put("/api/account", response_model=BatAccountSchema)
+@limiter.limit("30/minute")
 def update_account(
+    request: Request,
     payload: BatAccountUpdate,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -485,7 +489,9 @@ class ChangePassword(BaseModel):
     new_password: str
 
 @app.put("/api/account/password", response_model=dict)
+@limiter.limit("30/minute")
 def change_password(
+    request: Request,
     payload: ChangePassword,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -499,7 +505,9 @@ def change_password(
     return {"detail": "Password updated successfully"}
 
 @app.post("/api/account/reset-points", response_model=BatAccountSchema)
+@limiter.limit("30/minute")
 def reset_points(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
@@ -526,7 +534,9 @@ def list_missions(
     return mission_service.list_missions(db, current_user)
 
 @app.post("/api/missions", response_model=BatMissionSchema, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def create_mission(
+    request: Request,
     mission_data: BatMissionCreate,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -548,7 +558,9 @@ def create_mission(
     )
 
 @app.put("/api/missions/{mission_id}", response_model=BatMissionSchema)
+@limiter.limit("30/minute")
 def update_mission(
+    request: Request,
     mission_id: int,
     payload: BatMissionUpdate,
     db: Session = Depends(get_db),
@@ -596,7 +608,9 @@ def update_mission(
     return mission
 
 @app.delete("/api/missions/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 def delete_mission(
+    request: Request,
     mission_id: int,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -627,7 +641,9 @@ def list_calendar_events(
     return calendar_service.list_upcoming_events(db, current_user)
 
 @app.post("/api/calendar/events", response_model=CalendarEventSchema, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def create_calendar_event(
+    request: Request,
     event_data: CalendarEventCreate,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -647,7 +663,9 @@ def create_calendar_event(
     return event
 
 @app.put("/api/calendar/events/{event_id}", response_model=CalendarEventSchema)
+@limiter.limit("30/minute")
 def update_calendar_event(
+    request: Request,
     event_id: int,
     event_data: CalendarEventUpdate,
     db: Session = Depends(get_db),
@@ -678,7 +696,9 @@ def update_calendar_event(
     return event
 
 @app.delete("/api/calendar/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 def delete_calendar_event(
+    request: Request,
     event_id: int,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -703,7 +723,9 @@ def list_habits(
     return habit_service.list_habits(db, current_user)
 
 @app.post("/api/habits", response_model=BatHabitSchema, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def create_habit(
+    request: Request,
     habit_data: BatHabitCreate,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -717,7 +739,9 @@ def create_habit(
     )
 
 @app.put("/api/habits/{habit_id}", response_model=BatHabitSchema)
+@limiter.limit("30/minute")
 def update_habit(
+    request: Request,
     habit_id: int,
     payload: BatHabitUpdate,
     db: Session = Depends(get_db),
@@ -746,7 +770,9 @@ def update_habit(
     return habit
 
 @app.delete("/api/habits/{habit_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 def delete_habit(
+    request: Request,
     habit_id: int,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -770,7 +796,9 @@ def delete_habit(
 
 # --- Habit Check-In ---
 @app.post("/api/habits/{habit_id}/check-in", response_model=BatHabitSchema)
+@limiter.limit("30/minute")
 def check_in_habit(
+    request: Request,
     habit_id: int,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -794,7 +822,9 @@ def list_logs(
     )
 
 @app.post("/api/logs", response_model=BatLogSchema, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def create_log(
+    request: Request,
     log_data: BatLogCreate,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -811,7 +841,9 @@ def create_log(
 
 # --- Focus Endpoints ---
 @app.post("/api/focus/sessions", response_model=BatFocusSchema, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
 def start_focus_session(
+    request: Request,
     payload: Optional[BatFocusCreate] = Body(None),
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
@@ -827,7 +859,9 @@ def start_focus_session(
         raise HTTPException(status_code=404, detail=str(exc))
 
 @app.put("/api/focus/sessions/{session_id}", response_model=BatFocusSchema)
+@limiter.limit("30/minute")
 def end_focus_session(
+    request: Request,
     session_id: int,
     payload: BatFocusCreate,
     db: Session = Depends(get_db),

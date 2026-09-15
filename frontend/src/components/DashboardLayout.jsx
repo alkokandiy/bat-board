@@ -12,6 +12,7 @@ import {
   BarChart3,
   CircleUserRound,
   ChevronLeft,
+  Bot,
 } from 'lucide-react';
 
 const ICON_MAP = {
@@ -26,6 +27,7 @@ const ICON_MAP = {
   logs: ScrollText,
   stats: BarChart3,
   profile: CircleUserRound,
+  alfred: Bot,
 };
 
 const SIDEBAR_WIDTH = 256;
@@ -56,6 +58,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
     { id: 'notes', label: 'Notes' },
     { id: 'logs', label: 'Logs' },
     { id: 'stats', label: 'Stats' },
+    { id: 'alfred', label: 'Alfred' },
     { id: 'profile', label: 'Profile' },
   ];
 

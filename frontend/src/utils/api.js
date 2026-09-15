@@ -206,4 +206,7 @@ export const api = {
   generateTelegramCode: () => request('/account/telegram-link/generate-code', { method: 'POST' }),
   getTelegramLinkStatus: () => request('/account/telegram-link/status'),
   unlinkTelegram: () => request('/account/telegram-link', { method: 'DELETE' }),
+
+  // Alfred in-app chat (same brain as the Telegram bot, JWT user)
+  sendAlfredMessage: (message) => request('/alfred/chat', { method: 'POST', body: { message } }),
 };

@@ -10,6 +10,7 @@ import NotesPanel from './components/NotesPanel';
 import ProfileSettings from './components/ProfileSettings';
 import LogsPanel from './components/LogsPanel';
 import StatsPanel from './components/StatsPanel';
+import AlfredChatPanel from './components/AlfredChatPanel';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
 
@@ -467,6 +468,8 @@ export default function App() {
         );
       case 'stats':
         return <StatsPanel />;
+      case 'alfred':
+        return <AlfredChatPanel />;
       default:
         return (
           <div className="space-y-6">
