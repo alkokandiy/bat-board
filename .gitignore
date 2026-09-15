@@ -50,3 +50,5 @@ backend/alembic/__pycache__/
 # Vite
 frontend/public/tracks/*.mp3
 !frontend/public/tracks/.gitkeep
+# Local-only training material (never commit: third-party verbatim text)
+AlfredWords.txt
