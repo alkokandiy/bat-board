@@ -183,4 +183,27 @@ export const api = {
   createCalendarEvent: (data) => request('/calendar/events', { method: 'POST', body: data }),
   updateCalendarEvent: (id, data) => request(`/calendar/events/${id}`, { method: 'PUT', body: data }),
   deleteCalendarEvent: (id) => request(`/calendar/events/${id}`, { method: 'DELETE' }),
+
+  // Notes
+  getNotes: (search = '', sort = '') => {
+    let url = '/notes';
+    const params = [];
+    if (search) params.push(`search=${encodeURIComponent(search)}`);
+    if (sort) params.push(`sort=${encodeURIComponent(sort)}`);
+    if (params.length) url += `?${params.join('&')}`;
+    return request(url);
+  },
+  createNote: (data) => request('/notes', { method: 'POST', body: data }),
+  updateNote: (id, data) => request(`/notes/${id}`, { method: 'PUT', body: data }),
+  deleteNote: (id) => request(`/notes/${id}`, { method: 'DELETE' }),
+
+  // Countdowns
+  getCountdowns: () => request('/countdowns'),
+  createCountdown: (data) => request('/countdowns', { method: 'POST', body: data }),
+  deleteCountdown: (id) => request(`/countdowns/${id}`, { method: 'DELETE' }),
+
+  // Telegram linking
+  generateTelegramCode: () => request('/account/telegram-link/generate-code', { method: 'POST' }),
+  getTelegramLinkStatus: () => request('/account/telegram-link/status'),
+  unlinkTelegram: () => request('/account/telegram-link', { method: 'DELETE' }),
 };

@@ -27,6 +27,20 @@ from auth import (
     create_refresh_token, decode_refresh_token, get_password_hash,
     UserCreate, UserResponse, Token,
 )
+from dependencies import limiter
+from routers.countdown import router as countdown_router
+from routers.notes import router as notes_router
+from routers.telegram import router as telegram_router
+from services import (
+    calendar_service,
+    habit_service,
+    logs_service,
+    mission_service,
+    profile_service,
+    stats_service,
+)
+from services.common import auto_log_event, calculate_bat_level
+from services.stats_service import _completed_sessions_query, _compute_focus_stats
 
 settings = get_settings()
 
@@ -50,7 +64,8 @@ structlog.configure(
 logger = structlog.get_logger()
 
 # --- Rate Limiting ---
-limiter = Limiter(key_func=get_remote_address)
+# Shared instance from dependencies.py — routers use this same object so
+# slowapi enforcement via app.state.limiter actually applies to them.
 
 # --- Database Initialization ---
 try:
@@ -111,38 +126,14 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "An unexpected error occurred."},
     )
 
-# --- Tier Calculation Helper ---
-def calculate_bat_level(points: int) -> str:
-    if points < 2000:
-        return "The Orphan"
-    elif points < 5000:
-        return "The Vigilante"
-    elif points < 10000:
-        return "The Detective"
-    elif points < 20000:
-        return "Son of Gotham"
-    elif points < 35000:
-        return "The Caped Crusader"
-    elif points < 55000:
-        return "Heir of the Demon"
-    elif points < 80000:
-        return "The Dark Knight"
-    elif points < 120000:
-        return "Faris al-Khorasan"
-    elif points < 180000:
-        return "Sword of the Ummah"
-    else:
-        return "Dark Knight of Khorasan"
+# --- Layered routers (new structure; existing inline routes below stay as-is) ---
+app.include_router(notes_router)
+app.include_router(countdown_router)
+app.include_router(telegram_router)
 
-# --- Auto Log Helper ---
-def auto_log_event(db: Session, owner_id: int, event_type: str, details_dict: dict):
-    log_entry = models.BatLog(
-        owner_id=owner_id,
-        event_type=event_type,
-        details=json.dumps(details_dict)
-    )
-    db.add(log_entry)
-    db.flush()
+# NOTE: calculate_bat_level / auto_log_event now live in services/common.py
+# (imported above) so services can use them without a circular import.
+# All existing call sites in this file keep working unchanged.
 
 # --- Pydantic Schemas ---
 class BatAccountSchema(BaseModel):
@@ -436,15 +427,19 @@ def refresh_token(request: Request, refresh_token: str = Body(...), db: Session 
     return Token(access_token=access_token, refresh_token=new_refresh_token)
 
 @app.get("/api/auth/me", response_model=UserResponse)
-def get_me(current_user: models.BatAccount = Depends(get_current_active_user)):
-    current_user.bat_level = calculate_bat_level(current_user.points)
-    return current_user
+def get_me(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    return profile_service.get_profile(db, current_user)
 
 # --- Account Endpoints ---
 @app.get("/api/account", response_model=BatAccountSchema)
-def get_account(current_user: models.BatAccount = Depends(get_current_active_user)):
-    current_user.bat_level = calculate_bat_level(current_user.points)
-    return current_user
+def get_account(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    return profile_service.get_profile(db, current_user)
 
 @app.put("/api/account", response_model=BatAccountSchema)
 def update_account(
@@ -527,7 +522,7 @@ def list_missions(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return db.query(models.BatMission).filter(models.BatMission.owner_id == current_user.id).all()
+    return mission_service.list_missions(db, current_user)
 
 @app.post("/api/missions", response_model=BatMissionSchema, status_code=status.HTTP_201_CREATED)
 def create_mission(
@@ -535,7 +530,9 @@ def create_mission(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    mission = models.BatMission(
+    return mission_service.create_mission(
+        db,
+        current_user,
         title=mission_data.title,
         description=mission_data.description,
         due_date=mission_data.due_date,
@@ -547,20 +544,7 @@ def create_mission(
         location=mission_data.location,
         notes=mission_data.notes,
         subtasks=mission_data.subtasks,
-        owner_id=current_user.id
     )
-    db.add(mission)
-    db.flush()
-    db.refresh(mission)
-
-    auto_log_event(db, current_user.id, "mission_created", {
-        "mission_id": mission.id,
-        "title": mission.title,
-        "priority": mission.priority
-    })
-    db.commit()
-
-    return mission
 
 @app.put("/api/missions/{mission_id}", response_model=BatMissionSchema)
 def update_mission(
@@ -587,32 +571,14 @@ def update_mission(
         setattr(mission, field, getattr(payload, field))
 
     if 'status' in payload.model_fields_set:
-        mission.status = payload.status
         if payload.status == "completed" and old_status != "completed":
-            mission.completed_at = datetime.now(timezone.utc)
-            reward = 10
-            if mission.priority == "high":
-                reward = 20
-            elif mission.priority == "critical":
-                reward = 50
-            elif mission.priority == "low":
-                reward = 5
-
-            current_user.points += reward
-            current_user.bat_level = calculate_bat_level(current_user.points)
-
-            auto_log_event(db, current_user.id, "points_modified", {
-                "reason": f"Completed mission '{mission.title}'",
-                "points_delta": reward,
-                "old_points": old_points,
-                "new_points": current_user.points,
-                "old_level": old_level,
-                "new_level": current_user.bat_level
-            })
-        elif payload.status != "completed" and old_status == "completed":
-            mission.completed_at = None
-            current_user.points = old_points
-            current_user.bat_level = calculate_bat_level(current_user.points)
+            mission = mission_service.complete_mission(db, current_user, mission_id)
+        else:
+            mission.status = payload.status
+            if payload.status != "completed" and old_status == "completed":
+                mission.completed_at = None
+                current_user.points = old_points
+                current_user.bat_level = calculate_bat_level(current_user.points)
 
     db.flush()
     db.refresh(mission)
@@ -657,9 +623,7 @@ def list_calendar_events(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return db.query(models.CalendarEvent).filter(
-        models.CalendarEvent.owner_id == current_user.id
-    ).order_by(models.CalendarEvent.start_time).all()
+    return calendar_service.list_upcoming_events(db, current_user)
 
 @app.post("/api/calendar/events", response_model=CalendarEventSchema, status_code=status.HTTP_201_CREATED)
 def create_calendar_event(
@@ -667,26 +631,18 @@ def create_calendar_event(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    if event_data.mission_id:
-        mission = db.query(models.BatMission).filter(
-            models.BatMission.id == event_data.mission_id,
-            models.BatMission.owner_id == current_user.id
-        ).first()
-        if not mission:
-            raise HTTPException(status_code=404, detail="Mission not found")
-
-    event = models.CalendarEvent(
+    event = calendar_service.create_event(
+        db,
+        current_user,
         title=event_data.title,
-        description=event_data.description,
         start_time=event_data.start_time,
+        description=event_data.description,
         end_time=event_data.end_time,
         color=event_data.color,
         mission_id=event_data.mission_id,
-        owner_id=current_user.id
     )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Mission not found")
     return event
 
 @app.put("/api/calendar/events/{event_id}", response_model=CalendarEventSchema)
@@ -743,7 +699,7 @@ def list_habits(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return db.query(models.BatHabit).filter(models.BatHabit.owner_id == current_user.id).all()
+    return habit_service.list_habits(db, current_user)
 
 @app.post("/api/habits", response_model=BatHabitSchema, status_code=status.HTTP_201_CREATED)
 def create_habit(
@@ -751,25 +707,13 @@ def create_habit(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    habit = models.BatHabit(
+    return habit_service.create_habit(
+        db,
+        current_user,
         name=habit_data.name,
         description=habit_data.description,
         frequency=habit_data.frequency,
-        streak=0,
-        owner_id=current_user.id
     )
-    db.add(habit)
-    db.flush()
-    db.refresh(habit)
-
-    auto_log_event(db, current_user.id, "habit_created", {
-        "habit_id": habit.id,
-        "name": habit.name,
-        "frequency": habit.frequency
-    })
-    db.commit()
-
-    return habit
 
 @app.put("/api/habits/{habit_id}", response_model=BatHabitSchema)
 def update_habit(
@@ -830,68 +774,9 @@ def check_in_habit(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    habit = db.query(models.BatHabit).filter(
-        models.BatHabit.id == habit_id,
-        models.BatHabit.owner_id == current_user.id
-    ).first()
-
-    if not habit:
+    habit = habit_service.check_in_habit(db, current_user, habit_id)
+    if habit is None:
         raise HTTPException(status_code=404, detail="Habit not found")
-
-    now = datetime.now(timezone.utc)
-
-    is_new_completion = True
-    if habit.last_completed:
-        if habit.last_completed.date() == now.date():
-            is_new_completion = False
-
-    completion = models.HabitCompletionLog(habit_id=habit.id, completed_at=now)
-    db.add(completion)
-
-    if is_new_completion:
-        if habit.last_completed:
-            delta = now.date() - habit.last_completed.date()
-            if delta.days <= 1:
-                habit.streak += 1
-            else:
-                habit.streak = 1
-        else:
-            habit.streak = 1
-
-        habit.last_completed = now
-
-        streak_bonus = min(habit.streak, 10)
-        reward = 5 + streak_bonus
-
-        current_user.points += reward
-        old_level = current_user.bat_level
-        current_user.bat_level = calculate_bat_level(current_user.points)
-
-        auto_log_event(db, current_user.id, "points_modified", {
-            "reason": f"Completed habit '{habit.name}' (Streak: {habit.streak})",
-            "points_delta": reward,
-            "old_points": current_user.points - reward,
-            "new_points": current_user.points,
-            "old_level": old_level,
-            "new_level": current_user.bat_level
-        })
-
-        auto_log_event(db, current_user.id, "habit_checkin", {
-            "habit_id": habit.id,
-            "name": habit.name,
-            "streak": habit.streak,
-            "points_awarded": reward
-        })
-    else:
-        auto_log_event(db, current_user.id, "habit_completion_history_logged", {
-            "habit_id": habit.id,
-            "name": habit.name,
-            "note": "Logged completion but streak/reward not re-applied for today"
-        })
-
-    db.commit()
-    db.refresh(habit)
-    db.refresh(current_user)
     return habit
 
 # --- Logs Endpoints ---
@@ -903,12 +788,9 @@ def list_logs(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    q = db.query(models.BatLog).filter(models.BatLog.owner_id == current_user.id)
-    if start_date:
-        q = q.filter(models.BatLog.timestamp >= start_date)
-    if end_date:
-        q = q.filter(models.BatLog.timestamp <= end_date)
-    return q.order_by(models.BatLog.timestamp.desc()).limit(limit).all()
+    return logs_service.list_recent_logs(
+        db, current_user, limit=limit, start_date=start_date, end_date=end_date
+    )
 
 @app.post("/api/logs", response_model=BatLogSchema, status_code=status.HTTP_201_CREATED)
 def create_log(
@@ -1048,128 +930,9 @@ def list_focus_sessions(
 
 
 # --- Focus Stats Endpoints ---
-def _completed_sessions_query(db: Session, current_user: models.BatAccount):
-    return db.query(models.BatFocus).filter(
-        models.BatFocus.owner_id == current_user.id,
-        models.BatFocus.end_time.isnot(None),
-        models.BatFocus.duration_minutes > 0,
-    )
-
-def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: str) -> dict:
-    today = datetime.now(timezone.utc).date()
-
-    if period == "day":
-        range_start = today
-        range_end = today
-    elif period == "week":
-        range_start = today - timedelta(days=today.weekday())
-        range_end = range_start + timedelta(days=6)
-    elif period == "month":
-        range_start = today.replace(day=1)
-        range_end = (range_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    elif period == "year":
-        range_start = today.replace(month=1, day=1)
-        range_end = today.replace(month=12, day=31)
-    else:  # all
-        range_start = None
-        range_end = None
-
-    q = _completed_sessions_query(db, current_user)
-    if range_start:
-        q = q.filter(models.BatFocus.end_time >= datetime(range_start.year, range_start.month, range_start.day))
-    if range_end:
-        q = q.filter(
-            models.BatFocus.end_time
-            < datetime(range_end.year, range_end.month, range_end.day) + timedelta(days=1)
-        )
-    sessions = q.all()
-
-    total_minutes = 0
-    total_sessions = len(sessions)
-    mission_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
-    habit_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
-    unassigned = {"minutes": 0, "sessions": 0}
-    heatmap = defaultdict(int)
-    days_with_sessions = set()
-
-    for s in sessions:
-        total_minutes += s.duration_minutes
-        d = s.end_time.date()
-        heatmap[d] += s.duration_minutes
-        days_with_sessions.add(d)
-        if s.mission_id is not None:
-            mission_agg[s.mission_id]["minutes"] += s.duration_minutes
-            mission_agg[s.mission_id]["sessions"] += 1
-        elif s.habit_id is not None:
-            habit_agg[s.habit_id]["minutes"] += s.duration_minutes
-            habit_agg[s.habit_id]["sessions"] += 1
-        else:
-            unassigned["minutes"] += s.duration_minutes
-            unassigned["sessions"] += 1
-
-    breakdown = []
-    if mission_agg:
-        mission_rows = db.query(models.BatMission).filter(
-            models.BatMission.id.in_(list(mission_agg.keys())),
-            models.BatMission.owner_id == current_user.id,
-        ).all()
-        mission_names = {m.id: m.title for m in mission_rows}
-        for mid, agg in mission_agg.items():
-            breakdown.append({
-                "type": "mission",
-                "id": mid,
-                "name": mission_names.get(mid, f"Mission #{mid}"),
-                "minutes": agg["minutes"],
-                "sessions": agg["sessions"],
-                "percent": round(agg["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
-            })
-    if habit_agg:
-        habit_rows = db.query(models.BatHabit).filter(
-            models.BatHabit.id.in_(list(habit_agg.keys())),
-            models.BatHabit.owner_id == current_user.id,
-        ).all()
-        habit_names = {h.id: h.name for h in habit_rows}
-        for hid, agg in habit_agg.items():
-            breakdown.append({
-                "type": "habit",
-                "id": hid,
-                "name": habit_names.get(hid, f"Habit #{hid}"),
-                "minutes": agg["minutes"],
-                "sessions": agg["sessions"],
-                "percent": round(agg["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
-            })
-    if unassigned["sessions"] > 0:
-        breakdown.append({
-            "type": "none",
-            "id": None,
-            "name": "Unassigned",
-            "minutes": unassigned["minutes"],
-            "sessions": unassigned["sessions"],
-            "percent": round(unassigned["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
-        })
-    breakdown.sort(key=lambda b: b["minutes"], reverse=True)
-
-    streak = 0
-    d = today
-    while d in days_with_sessions:
-        streak += 1
-        d -= timedelta(days=1)
-
-    daily_heatmap = [
-        {"date": (today - timedelta(days=i)).isoformat(), "minutes": heatmap.get(today - timedelta(days=i), 0)}
-        for i in range(34, -1, -1)
-    ]
-
-    return {
-        "period": period,
-        "range_start": range_start.isoformat() if range_start else None,
-        "range_end": range_end.isoformat() if range_end else None,
-        "total_minutes": total_minutes,
-        "total_sessions": total_sessions,
-        "current_streak_days": streak,
-        "breakdown": breakdown,
-        "daily_heatmap": daily_heatmap,
-    }
+# _completed_sessions_query / _compute_focus_stats now live in
+# services/stats_service.py (imported above); focus_session_log and
+# focus_trend below keep working unchanged via those imports.
 
 @app.get("/api/stats/focus", response_model=FocusStatsResponse)
 def focus_stats(
@@ -1177,7 +940,7 @@ def focus_stats(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return _compute_focus_stats(db, current_user, period)
+    return stats_service.get_focus_stats(db, current_user, period)
 
 @app.get("/api/stats/focus/sessions", response_model=FocusSessionLogResponse)
 def focus_session_log(

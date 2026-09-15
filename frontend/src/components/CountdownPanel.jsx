@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { api } from '../utils/api.js';
+import { migrateOnce } from '../utils/migrateLocalStorage.js';
+
+const LEGACY_KEY = 'bat_countdown_goals';
+const MIGRATED_FLAG = 'bat_countdown_migrated';
 
 function calcDiff(target) {
   const now = new Date();
@@ -42,27 +47,62 @@ function CountdownTile({ label, target, color = 'electric-bat-yellow', onDelete 
   );
 }
 
+function fromServer(c) {
+  return { id: c.id, label: c.title, target: c.target_date };
+}
+
 export default function CountdownPanel() {
-  const [goals, setGoals] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('bat_countdown_goals') || '[]'); } catch { return []; }
-  });
+  const [goals, setGoals] = useState([]);
   const [newLabel, setNewLabel] = useState('');
   const [newTarget, setNewTarget] = useState('');
 
-  const saveGoals = (g) => {
-    setGoals(g);
-    try { localStorage.setItem('bat_countdown_goals', JSON.stringify(g)); } catch {}
-  };
+  // One-time legacy migration, then load from the API.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await migrateOnce({
+          legacyKey: LEGACY_KEY,
+          flagKey: MIGRATED_FLAG,
+          toPayload: (g) => ({ title: g.label, target_date: g.target }),
+          upload: (payload) => api.createCountdown(payload),
+        });
+      } catch {
+        // Migration failed partway: flag not set, retries next load.
+      }
+      try {
+        const data = await api.getCountdowns();
+        if (!cancelled) setGoals((data || []).map(fromServer));
+      } catch {
+        // Offline/backend down: keep empty list rather than crashing.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
-  const addGoal = () => {
+  const addGoal = async () => {
     if (!newLabel.trim() || !newTarget) return;
-    saveGoals([...goals, { id: Date.now(), label: newLabel.trim(), target: newTarget }]);
-    setNewLabel('');
-    setNewTarget('');
+    try {
+      const created = await api.createCountdown({
+        title: newLabel.trim(),
+        // datetime-local has no timezone; interpret as local time.
+        target_date: new Date(newTarget).toISOString(),
+      });
+      setGoals(prev => [...prev, fromServer(created)]);
+      setNewLabel('');
+      setNewTarget('');
+    } catch {
+      // Backend unreachable: don't pretend it was saved.
+    }
   };
 
-  const deleteGoal = (id) => {
-    saveGoals(goals.filter(g => g.id !== id));
+  const deleteGoal = async (id) => {
+    setGoals(prev => prev.filter(g => g.id !== id));
+    try {
+      await api.deleteCountdown(id);
+    } catch {
+      // Optimistic removal stands; next load re-syncs from the server.
+    }
   };
 
   const now = new Date();

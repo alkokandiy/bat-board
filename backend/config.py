@@ -1,7 +1,7 @@
 import json
 import logging as stdlib_logging
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator, ConfigDict
 
@@ -38,6 +38,14 @@ class Settings(BaseSettings):
 
     rate_limit_requests: int = 100
     rate_limit_window_seconds: int = 60
+
+    # Telegram bot (Phase 2A). Optional until Telegram features are active;
+    # the webhook route fails closed with 503 when these are unset.
+    telegram_bot_token: Optional[str] = None
+    telegram_webhook_secret: Optional[str] = None
+
+    # LLM key for Alfred Phase 2B. Unused for now.
+    gemini_api_key: Optional[str] = None
 
     log_level: str = "INFO"
     log_format: str = "console"

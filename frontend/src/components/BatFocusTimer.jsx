@@ -472,7 +472,7 @@ export default function BatFocusTimer({
             />
 
             {/* Logo SVG — 480:110 viewBox, ~280px wide */}
-            <div className="relative w-[280px] flex items-center justify-center">
+            <div className="relative w-[560px] flex items-center justify-center">
               <svg viewBox="0 0 480 110" className="w-full h-full overflow-visible">
                 <defs>
                   {/* Glow filter — only applied to the fill layer */}

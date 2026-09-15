@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { api } from '../utils/api';
 
 const LEVELS = [
@@ -21,6 +21,11 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   const [pwMsg, setPwMsg] = useState(null);
   const [pwError, setPwError] = useState(null);
   const [resetting, setResetting] = useState(false);
+  const [tgLinked, setTgLinked] = useState(null);
+  const [tgCode, setTgCode] = useState(null);
+  const [tgExpiresAt, setTgExpiresAt] = useState(null);
+  const [tgSecondsLeft, setTgSecondsLeft] = useState(0);
+  const [tgBusy, setTgBusy] = useState(false);
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -60,6 +65,59 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
 
   const currentPoints = account?.points ?? 0;
   const currentLevel = account?.bat_level ?? 'The Orphan';
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getTelegramLinkStatus()
+      .then(s => { if (!cancelled) setTgLinked(!!s.linked); })
+      .catch(() => { if (!cancelled) setTgLinked(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!tgExpiresAt) return;
+    const tick = () => {
+      const left = Math.max(0, Math.round((new Date(tgExpiresAt).getTime() - Date.now()) / 1000));
+      setTgSecondsLeft(left);
+      if (left <= 0) {
+        setTgCode(null);
+        setTgExpiresAt(null);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [tgExpiresAt]);
+
+  const handleGenerateCode = async () => {
+    setTgBusy(true);
+    try {
+      const res = await api.generateTelegramCode();
+      setTgCode(res.code);
+      setTgExpiresAt(res.expires_at);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setTgBusy(false);
+    }
+  };
+
+  const handleUnlink = async () => {
+    if (!window.confirm('Unlink Telegram from your bat-board account? Alfred will stop responding here.')) return;
+    setTgBusy(true);
+    try {
+      await api.unlinkTelegram();
+      setTgLinked(false);
+      setTgCode(null);
+      setTgExpiresAt(null);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setTgBusy(false);
+    }
+  };
+
+  const fmtExpiry = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   return (
     <div className="space-y-6">
@@ -172,6 +230,57 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
             >
               {resetting ? 'RESETTING...' : 'RESET BAT POINTS'}
             </button>
+          </div>
+
+          {/* Link Telegram */}
+          <div className="bg-dark-slate rounded border border-slate-800 p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+              Link Telegram
+            </h2>
+            {tgLinked === null ? (
+              <p className="text-xs text-slate-500 font-mono">Checking link status...</p>
+            ) : tgLinked ? (
+              <div className="space-y-3">
+                <p className="text-xs text-green-400 font-mono">Linked ✓ — Alfred will respond to this Telegram account.</p>
+                <button
+                  onClick={handleUnlink}
+                  disabled={tgBusy}
+                  className="px-5 py-2 bg-matte-obsidian border border-slate-800 text-slate-300 font-bold rounded text-xs font-mono tracking-widest hover:border-red-900/50 hover:text-red-400 transition disabled:opacity-50"
+                >
+                  UNLINK
+                </button>
+              </div>
+            ) : tgCode ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400">
+                  Open Telegram, message the bot, and send this code. Expires in{' '}
+                  <span className="text-electric-bat-yellow font-mono font-bold">{fmtExpiry(tgSecondsLeft)}</span>.
+                </p>
+                <div className="text-3xl font-mono font-bold tracking-[0.3em] text-electric-bat-yellow text-center py-2 bg-matte-obsidian rounded border border-slate-800">
+                  {tgCode}
+                </div>
+                <button
+                  onClick={handleGenerateCode}
+                  disabled={tgBusy}
+                  className="px-5 py-2 bg-matte-obsidian border border-slate-800 text-slate-300 font-bold rounded text-xs font-mono tracking-widest hover:border-electric-bat-yellow/50 transition disabled:opacity-50"
+                >
+                  REGENERATE CODE
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-400">
+                  Connect your Telegram account to chat with Alfred. Generate a code, then send it to the bot.
+                </p>
+                <button
+                  onClick={handleGenerateCode}
+                  disabled={tgBusy}
+                  className="px-5 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded text-xs font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+                >
+                  {tgBusy ? 'GENERATING...' : 'GENERATE LINK CODE'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

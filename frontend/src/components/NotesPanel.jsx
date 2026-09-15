@@ -1,37 +1,86 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { api } from '../utils/api.js';
+import { migrateOnce } from '../utils/migrateLocalStorage.js';
 
-const STORAGE_KEY = 'bat_notes';
+const LEGACY_KEY = 'bat_notes';
+const MIGRATED_FLAG = 'bat_notes_migrated';
 
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+function fromServer(n) {
+  return {
+    id: n.id,
+    title: n.title || '',
+    body: n.body || '',
+    category: n.category || '',
+    pinned: !!n.is_pinned,
+    createdAt: n.created_at,
+    updatedAt: n.updated_at,
+  };
 }
 
-function freshNote() {
-  const now = new Date().toISOString();
-  return { id: uid(), title: '', body: '', category: '', pinned: false, createdAt: now, updatedAt: now };
-}
-
-function load(key) {
-  try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
-}
-
-function save(key, data) {
-  localStorage.setItem(key, JSON.stringify(data));
+function toPayload(note) {
+  return {
+    title: note.title || '',
+    body: note.body || null,
+    category: note.category || null,
+    is_pinned: !!note.pinned,
+  };
 }
 
 export default function NotesPanel() {
-  const [notes, setNotes] = useState(() => load(STORAGE_KEY));
+  const [notes, setNotes] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('edited');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const notesRef = useRef(notes);
   useEffect(() => { notesRef.current = notes; }, [notes]);
 
-  const dbRef = useRef(null);
+  const pendingRef = useRef({}); // noteId -> timeout id for debounced PUT
   const sfRef = useRef(null);
-  const titleRef = useRef(null);
+
+  // One-time legacy migration, then load from the API.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await migrateOnce({
+          legacyKey: LEGACY_KEY,
+          flagKey: MIGRATED_FLAG,
+          toPayload: (n) => ({
+            title: n.title || '',
+            body: n.body || null,
+            category: n.category || null,
+            is_pinned: !!n.pinned,
+          }),
+          upload: (payload) => api.createNote(payload),
+        });
+      } catch {
+        // Migration failed partway: flag not set, retries next load.
+        // Fall through to loading whatever the server already has.
+      }
+      try {
+        const data = await api.getNotes();
+        if (!cancelled) setNotes((data || []).map(fromServer));
+      } catch {
+        // Offline/backend down: keep empty list rather than crashing.
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const flushPending = useCallback((id) => {
+    const timers = pendingRef.current;
+    if (id && timers[id]) {
+      clearTimeout(timers[id]);
+      delete timers[id];
+      const note = notesRef.current.find(n => n.id === id);
+      if (note) api.updateNote(id, toPayload(note)).catch(() => {});
+    }
+  }, []);
 
   const selectedNote = useMemo(() => notes.find(n => n.id === selectedId) || null, [notes, selectedId]);
 
@@ -44,10 +93,10 @@ export default function NotesPanel() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     let res = notes;
-    if (q) res = res.filter(n => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q));
+    if (q) res = res.filter(n => (n.title || '').toLowerCase().includes(q) || (n.body || '').toLowerCase().includes(q));
     return [...res].sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      if (sortBy === 'title') return a.title.localeCompare(b.title);
+      if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
       if (sortBy === 'created') return new Date(b.createdAt) - new Date(a.createdAt);
       return new Date(b.updatedAt) - new Date(a.updatedAt);
     });
@@ -61,13 +110,21 @@ export default function NotesPanel() {
     return { chars, words };
   }, [selectedNote]);
 
-  const scheduleSave = useCallback((updated) => {
-    if (dbRef.current) clearTimeout(dbRef.current);
-    dbRef.current = setTimeout(() => {
-      save(STORAGE_KEY, updated);
+  const scheduleSave = useCallback((id, updated) => {
+    const timers = pendingRef.current;
+    if (timers[id]) clearTimeout(timers[id]);
+    timers[id] = setTimeout(async () => {
+      delete pendingRef.current[id];
       setSaving(true);
-      if (sfRef.current) clearTimeout(sfRef.current);
-      sfRef.current = setTimeout(() => setSaving(false), 1500);
+      try {
+        const saved = await api.updateNote(id, toPayload(updated));
+        setNotes(prev => prev.map(n => (n.id === id ? fromServer(saved) : n)));
+      } catch {
+        // Keep optimistic local state on failure; next edit retries.
+      } finally {
+        if (sfRef.current) clearTimeout(sfRef.current);
+        sfRef.current = setTimeout(() => setSaving(false), 1500);
+      }
     }, 800);
   }, []);
 
@@ -76,34 +133,49 @@ export default function NotesPanel() {
       const next = prev.map(n =>
         n.id === selectedId ? { ...n, [field]: value, updatedAt: new Date().toISOString() } : n
       );
-      scheduleSave(next);
+      const updated = next.find(n => n.id === selectedId);
+      if (updated) scheduleSave(selectedId, updated);
       return next;
     });
   }, [selectedId, scheduleSave]);
 
-  const handleNew = useCallback(() => {
-    const note = freshNote();
-    setNotes(prev => { const next = [note, ...prev]; save(STORAGE_KEY, next); return next; });
-    setSelectedId(note.id);
-    setSearch('');
-    requestAnimationFrame(() => titleRef.current?.focus());
+  const handleNew = useCallback(async () => {
+    try {
+      const created = await api.createNote({ title: '', body: null, category: null, is_pinned: false });
+      const note = fromServer(created);
+      setNotes(prev => [note, ...prev]);
+      setSelectedId(note.id);
+      setSearch('');
+      requestAnimationFrame(() => document.querySelector('input[placeholder="Note title..."]')?.focus());
+    } catch {
+      // Backend unreachable: no silent local-only note.
+    }
   }, []);
 
   const handleDelete = useCallback((id) => {
     if (!confirm('Delete this note?')) return;
-    setNotes(prev => { const next = prev.filter(n => n.id !== id); save(STORAGE_KEY, next); return next; });
+    if (pendingRef.current[id]) { clearTimeout(pendingRef.current[id]); delete pendingRef.current[id]; }
+    setNotes(prev => prev.filter(n => n.id !== id));
     if (selectedId === id) setSelectedId(null);
+    api.deleteNote(id).catch(() => {});
   }, [selectedId]);
 
   const handleSelect = useCallback((id) => {
-    if (dbRef.current) { clearTimeout(dbRef.current); dbRef.current = null; save(STORAGE_KEY, notesRef.current); }
+    flushPending(selectedId);
     setSelectedId(id);
-  }, []);
+  }, [flushPending, selectedId]);
 
-  const togglePin = useCallback(() => {
-    if (!selectedId) return;
-    updateField('pinned', !selectedNote?.pinned);
-  }, [selectedId, selectedNote, updateField]);
+  const togglePin = useCallback(async () => {
+    if (!selectedId || !selectedNote) return;
+    const next = !selectedNote.pinned;
+    setNotes(prev => prev.map(n => (n.id === selectedId ? { ...n, pinned: next } : n)));
+    try {
+      const saved = await api.updateNote(selectedId, { is_pinned: next });
+      setNotes(prev => prev.map(n => (n.id === selectedId ? fromServer(saved) : n)));
+    } catch {
+      setNotes(prev => prev.map(n => (n.id === selectedId ? { ...n, pinned: !next } : n)));
+    }
+  }, [selectedId, selectedNote]);
 
   const hasNotes = notes.length > 0;
   const hasResults = filtered.length > 0;
@@ -136,7 +208,9 @@ export default function NotesPanel() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {!hasNotes ? (
+            {loading ? (
+              <div className="p-6 text-center text-sm text-slate-500 font-body">Loading notes...</div>
+            ) : !hasNotes ? (
               <div className="p-6 text-center text-sm text-slate-500 italic font-body leading-relaxed">
                 &ldquo;The night is darkest just before the dawn.&rdquo;
               </div>
@@ -167,7 +241,7 @@ export default function NotesPanel() {
                         <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1e1e2e] text-slate-400 font-body">{note.category}</span>
                       )}
                       <span className="text-[9px] text-slate-600 font-body">
-                        {new Date(note.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        {note.updatedAt ? new Date(note.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
                       </span>
                     </div>
                   </div>
@@ -193,7 +267,7 @@ export default function NotesPanel() {
             <>
               <div className="shrink-0 p-5 pb-2">
                 <input
-                  ref={titleRef} type="text" placeholder="Note title..."
+                  type="text" placeholder="Note title..."
                   value={selectedNote.title}
                   onChange={e => updateField('title', e.target.value)}
                   className="w-full text-xl font-display text-slate-100 bg-transparent border-none outline-none placeholder-slate-600 tracking-wide"
@@ -237,7 +311,7 @@ export default function NotesPanel() {
                   <span>{counts.chars} chars</span>
                   <span className="text-slate-600">|</span>
                   <span className="text-[10px] text-slate-600">
-                    {new Date(selectedNote.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {selectedNote.updatedAt ? new Date(selectedNote.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                   </span>
                   {saving && (
                     <span className="text-[#f5c518] text-[10px] font-medium transition-opacity">Saved &#10003;</span>

@@ -21,6 +21,10 @@ class BatAccount(Base):
     logs = relationship("BatLog", back_populates="owner", cascade="all, delete-orphan")
     focus_sessions = relationship("BatFocus", back_populates="owner", cascade="all, delete-orphan")
     calendar_events = relationship("CalendarEvent", back_populates="owner", cascade="all, delete-orphan")
+    notes = relationship("BatNote", back_populates="owner", cascade="all, delete-orphan")
+    countdowns = relationship("BatCountdown", back_populates="owner", cascade="all, delete-orphan")
+    personal_access_tokens = relationship("BatPersonalAccessToken", back_populates="owner", cascade="all, delete-orphan")
+    telegram_link_codes = relationship("BatTelegramLinkCode", back_populates="owner", cascade="all, delete-orphan")
 
 
 class BatMission(Base):
@@ -121,3 +125,69 @@ class CalendarEvent(Base):
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="calendar_events")
     mission = relationship("BatMission", back_populates="calendar_events")
+
+
+class BatNote(Base):
+    __tablename__ = "bat_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, default="", nullable=False)
+    body = Column(String, nullable=True)
+    category = Column(String, nullable=True)
+    # Comma-separated string, matching BatMission.tags convention (see
+    # main.py which splits m.tags on ","). Single free-text `category`
+    # remains the primary grouping field from the original frontend.
+    tags = Column(String, nullable=True)
+    is_pinned = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="notes")
+
+
+class BatCountdown(Base):
+    __tablename__ = "bat_countdowns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    target_date = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="countdowns")
+
+
+class BatPersonalAccessToken(Base):
+    __tablename__ = "bat_pats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, default="Telegram — Alfred", nullable=False)
+    # SHA-256 hex of the raw token. The raw value is shown once at creation
+    # (or never, in the Telegram flow) and never stored in plaintext.
+    token_hash = Column(String, nullable=False)
+    telegram_chat_id = Column(String, unique=True, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked = Column(Boolean, default=False, nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="personal_access_tokens")
+
+
+class BatTelegramLinkCode(Base):
+    """Short-lived linking codes. Table-backed (not in-memory) so codes work
+    across gunicorn workers — the generate endpoint and the webhook may run
+    on different processes."""
+
+    __tablename__ = "bat_telegram_link_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # SHA-256 hex of the 6-digit code; the plain code is only ever returned
+    # once to the browser that requested it.
+    code_hash = Column(String, unique=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="telegram_link_codes")
