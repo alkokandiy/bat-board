@@ -1042,7 +1042,10 @@ def day_stats(
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
     selected = day or datetime.now(timezone.utc).date()
-    day_start = datetime(selected.year, selected.month, selected.day)
+    # Bounds are UTC-aware: all stored timestamps (completed_at, HabitCompletionLog)
+    # are written in UTC. A naive local-midnight bound would silently exclude
+    # same-day completions whenever local date != UTC date (any non-UTC TZ).
+    day_start = datetime(selected.year, selected.month, selected.day, tzinfo=timezone.utc)
     day_end = day_start + timedelta(days=1)
     today = datetime.now(timezone.utc).date()
 

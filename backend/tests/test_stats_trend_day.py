@@ -83,7 +83,9 @@ def test_day_empty_date(client, headers):
 
 
 def test_day_mixed_completed_overdue_uncompleted(client, headers):
-    today = datetime.date.today()
+    # UTC date: the API interprets ?day= bounds in UTC (the storage timezone),
+    # so the test must use the UTC date, not the server-local date.
+    today = datetime.datetime.now(timezone.utc).date()
     past = today - datetime.timedelta(days=10)
     future = today + datetime.timedelta(days=10)
 
@@ -144,7 +146,8 @@ def test_day_mixed_completed_overdue_uncompleted(client, headers):
 
 
 def test_day_untagged_bucket_last(client, headers):
-    today = datetime.date.today()
+    # Same UTC-date reasoning as above.
+    today = datetime.datetime.now(timezone.utc).date()
     m1 = client.post("/api/missions", headers=headers, json={
         "title": "Tagged", "due_date": today.isoformat(), "tags": "gotham",
     }).json()
