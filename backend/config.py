@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # LLM key for Alfred Phase 2B. Unused for now.
     gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-2.0-flash-lite"
+    gemini_model: str = "gemini-3.1-flash-lite"
 
     log_level: str = "INFO"
     log_format: str = "console"
