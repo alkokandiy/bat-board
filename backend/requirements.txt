@@ -31,7 +31,10 @@ email-validator==2.1.0.post1
 # Testing
 pytest==9.1.1
 pytest-cov==7.1.0
-httpx==0.27.0
+# >=0.28.1 required by google-genai (was 0.27.0 — broke the Railway build
+# with ResolutionImpossible). Our usage (client POST, TestClient) is
+# compatible with the 0.28 API.
+httpx==0.28.1
 
 # LLM (Alfred)
 google-genai==2.23.0
