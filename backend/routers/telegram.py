@@ -167,24 +167,32 @@ async def process_telegram_update(payload: dict) -> None:
 
             if text.startswith("/chats"):
                 query = text[len("/chats"):].strip()
-                if not query:
-                    _reply(chat_id, "Usage: /chats <search term>")
-                    return
-                sessions = (
-                    db.query(models.BatAlfredSession)
-                    .filter(
-                        models.BatAlfredSession.owner_id == user.id,
-                        models.BatAlfredSession.title.ilike(f"%{query}%"),
-                    )
-                    .order_by(models.BatAlfredSession.updated_at.desc())
-                    .limit(10)
-                    .all()
+                q = db.query(models.BatAlfredSession).filter(
+                    models.BatAlfredSession.owner_id == user.id,
                 )
+                if query:
+                    q = q.filter(models.BatAlfredSession.title.ilike(f"%{query}%"))
+                sessions = q.order_by(models.BatAlfredSession.updated_at.desc()).limit(10).all()
                 if not sessions:
-                    _reply(chat_id, "No matching conversations found.")
+                    _reply(chat_id, "No conversations found." if query else "No conversations yet.")
                     return
-                keyboard = [[{"text": s.title, "callback_data": f"switch:{s.id}"}] for s in sessions]
-                _reply_markup(chat_id, "Select a conversation:", {"inline_keyboard": keyboard})
+                label = f"Conversations matching '{query}':" if query else "Recent conversations:"
+                keyboard = [[{"text": s.title or "Untitled", "callback_data": f"switch:{s.id}"}] for s in sessions]
+                _reply_markup(chat_id, label, {"inline_keyboard": keyboard})
+                return
+
+            if text.startswith("/rename"):
+                new_title = text[len("/rename"):].strip()
+                if not new_title:
+                    _reply(chat_id, "Usage: /rename <new title>")
+                    return
+                active = alfred_agent.get_active_session(db, user)
+                if active is None:
+                    _reply(chat_id, "No active conversation to rename. Start one with /new.")
+                    return
+                active.title = new_title[:80]
+                db.commit()
+                _reply(chat_id, f"Conversation renamed to: {active.title}")
                 return
 
             # Unknown command — fall through to Alfred
