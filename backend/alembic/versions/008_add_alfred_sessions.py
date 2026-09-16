@@ -64,7 +64,7 @@ def upgrade() -> None:
         result = conn.execute(
             sa.text(
                 "INSERT INTO bat_alfred_sessions (title, created_at, updated_at, owner_id) "
-                "VALUES ('Earlier conversation', datetime('now'), datetime('now'), :owner_id) "
+                "VALUES ('Earlier conversation', NOW(), NOW(), :owner_id) "
                 "RETURNING id"
             ),
             {"owner_id": owner_id},

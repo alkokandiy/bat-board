@@ -110,24 +110,48 @@ def create_db_tables():
     inspector = inspect(engine)
     has_version_table = inspector.has_table("alembic_version")
 
-    try:
-        command.upgrade(alembic_cfg, "head")
-    except Exception as exc:
-        # Surface migration failures loudly instead of aborting startup with a
-        # generic error. create_all + _ensure_columns() below keep the runtime
-        # schema usable, and the error stays visible so the migration itself
-        # gets fixed instead of silently corrupting deploys.
-        logger.error(
-            "alembic_upgrade_failed",
-            error_type=type(exc).__name__,
-            error=str(exc),
-            hint="Alembic migration failed; falling back to create_all + column ensure. Fix the migration.",
-        )
-        Base.metadata.create_all(bind=engine)
-        if not has_version_table:
+    # Postgres advisory lock prevents multiple gunicorn workers from racing
+    # through migrations simultaneously. Only the lock-holder runs alembic
+    # upgrade; others skip it and fall back to create_all (safe to run
+    # concurrently). For SQLite (tests), skip the lock — single-threaded.
+    is_postgres = settings.database_url.startswith("postgresql")
+    lock_acquired = False
+    if is_postgres:
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(text("SELECT pg_try_advisory_lock(8529461)"))
+                lock_acquired = result.scalar()
+        except Exception:
+            pass  # If lock acquisition fails, proceed without it (best effort)
+
+    if lock_acquired:
+        # This worker holds the lock — run the migration, then release.
+        try:
+            command.upgrade(alembic_cfg, "head")
+        except Exception as exc:
+            logger.error(
+                "alembic_upgrade_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                hint="Alembic migration failed; falling back to create_all + column ensure. Fix the migration.",
+            )
+            Base.metadata.create_all(bind=engine)
+            if not has_version_table:
+                try:
+                    command.stamp(alembic_cfg, "head")
+                except Exception as exc2:
+                    logger.warning("alembic_stamp_failed", error=str(exc2))
+        finally:
             try:
-                command.stamp(alembic_cfg, "head")
-            except Exception as exc2:
-                logger.warning("alembic_stamp_failed", error=str(exc2))
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT pg_advisory_unlock(8529461)"))
+                    conn.commit()
+            except Exception:
+                pass
+    else:
+        # Another worker holds the lock and is running the migration.
+        # Skip alembic upgrade entirely — create_all is safe to run
+        # concurrently and keeps the runtime schema usable while we wait.
+        Base.metadata.create_all(bind=engine)
 
     _ensure_columns()
