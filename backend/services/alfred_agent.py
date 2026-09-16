@@ -131,6 +131,8 @@ DAILY_MESSAGE_CAP = 200
 
 NOT_CONFIGURED_REPLY = "Alfred isn't configured yet — the server is missing its model key."
 SNAG_REPLY = "Alfred hit a snag — try again in a moment."
+RATE_LIMIT_REPLY = "Alfred's thinking engine is rate-limited right now — give it a minute and try again."
+SERVICE_DOWN_REPLY = "Alfred's thinking engine is temporarily overloaded — try again in a moment."
 CAPPED_REPLY = "Alfred's had a lot to think about today — back tomorrow."
 
 
@@ -348,6 +350,10 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str, session
         final_text = await _tool_loop(db, user, messages)
     except llm_provider.LLMNotConfiguredError:
         final_text = NOT_CONFIGURED_REPLY
+    except llm_provider.LLMLimitError:
+        final_text = RATE_LIMIT_REPLY
+    except llm_provider.LLMServiceError:
+        final_text = SERVICE_DOWN_REPLY
     except Exception as exc:
         logger.error("alfred_turn_failed", error_type=type(exc).__name__, error=str(exc))
         final_text = SNAG_REPLY
