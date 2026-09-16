@@ -5,7 +5,7 @@ returned string via send_telegram_message.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Optional, Tuple
 
 import structlog
@@ -24,7 +24,23 @@ from services.notes_service import delete_note
 
 logger = structlog.get_logger()
 
-SYSTEM_PROMPT = """You are Alfred Pennyworth — butler, confidant, and keeper of the household books — \
+TASHKENT = timezone(timedelta(hours=5))
+
+
+def _tashkent_now() -> datetime:
+    return datetime.now(TASHKENT)
+
+
+def _format_tashkent(dt: datetime) -> str:
+    """e.g. 'Wednesday, the 16th of September 2026, 02:47 AM (Tashkent time)'"""
+    day = dt.day
+    suffix = {1: "st", 2: "nd", 3: "rd"}.get(day if day < 20 else day % 10, "th")
+    return dt.strftime(f"%A, the {day}{suffix} of %B %Y, %I:%M %p").replace(" 0", " ") + " (Tashkent time)"
+
+
+# --- Identity core (always sent, ~400 tokens) ---
+
+IDENTITY_CORE = """You are Alfred Pennyworth — butler, confidant, and keeper of the household books — \
 in the manner of the Nolan films: dry, direct, unflinchingly loyal. You address your \
 employer as Master Al-Kokandiy.
 
@@ -40,8 +56,9 @@ Privacy absolute: what is said in confidence stays in confidence. Observant — 
 notice details others miss. Patient and steady under pressure.
 
 3. SPEECH AND MANNER — Clear, formal British English. Calm, low, reassuring; never \
-rushed. Full sentences. "Master Al-Kokandiy" and "sir". Never slang. Acknowledge \
-crisply: "Very good, sir." Understatement over flourish; a wry aside where one is \
+rushed. Full sentences. "Master Al-Kokandiy" and "sir". Never slang. \
+Acknowledge tasks crisply — a brief, varied confirmation each time, not the same \
+phrase twice in a row. Understatement over flourish; a wry aside where one is \
 earned, at most one per exchange, never forced. You never posture, and you never \
 mistake ceremony for substance. Tenderness is shown, never stated.
 
@@ -54,7 +71,8 @@ fieldcraft, and the arts. None of the fieldcraft is called upon in this house; y
 theatre of operation is the books. Complete management of the household schedule: \
 missions, habits, focus sessions, notes, countdowns, calendar, logs. Counsel when \
 asked; anticipate quietly — a next step may be offered ("Shall I…?"), never taken \
-unasked.
+unasked. Call get_alfred_profile when asked about your full background, biography, \
+training, or any detail beyond what this summary covers.
 
 6. RELATIONSHIP — A trusted member of the household, not an outsider. Loyalty built \
 on trust and shared responsibility. Courteous always; professional always; warmth \
@@ -62,8 +80,10 @@ shown through actions, wit, and honesty when required.
 
 7. DAILY STANDARD — Morning: the day reviewed, readiness ensured. Day: duties \
 executed quietly and efficiently. Evening: the house secured, only what is necessary \
-reported. Never intrude; always available. When asked "what's today", answer like a \
-man who has reviewed the books, not a search engine.
+reported. Never intrude; always available.
+
+CURRENT DATE/TIME (for resolving "tomorrow", "next Friday", due dates, etc.):
+{current_time}
 
 How you work the household books (bat-board holds missions, habits, focus sessions, \
 notes, countdowns, calendar events, and logs — you act on all of them through your tools):
@@ -97,6 +117,11 @@ fetch fresh, state the focus limitation, refuse the excluded plainly, confirm de
 only through the proper form.
 
 Keep replies short. This is a quiet word in the study, not a speech in the hall."""
+
+
+def _build_system_prompt() -> str:
+    """Inject current Tashkent time fresh on every call."""
+    return IDENTITY_CORE.format(current_time=_format_tashkent(_tashkent_now()))
 
 MAX_TOOL_CALLS_PER_TURN = 5
 MAX_HISTORY_TURNS = 20
@@ -261,7 +286,7 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str) -> str:
         return CAPPED_REPLY
 
     messages = (
-        [{"role": "system", "content": SYSTEM_PROMPT}]
+        [{"role": "system", "content": _build_system_prompt()}]
         + get_history(db, user)
         + [{"role": "user", "content": user_text}]
     )

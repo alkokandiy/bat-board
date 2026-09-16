@@ -89,6 +89,7 @@ async def _generate_gemini(api_key: str, model: str, messages: List[dict], tools
         config=types.GenerateContentConfig(
             system_instruction=system_instruction,
             tools=[types.Tool(function_declarations=function_declarations)] if function_declarations else None,
+            temperature=0.7,
         ),
     )
 

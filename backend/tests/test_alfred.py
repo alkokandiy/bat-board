@@ -390,3 +390,51 @@ def test_executor_refuses_destructive_tools(auth_headers):
             raise AssertionError(f"{name} executed without confirmation")
     finally:
         db.close()
+
+
+def test_system_prompt_injects_current_tashkent_date(client, auth_headers, monkeypatch):
+    """Alfred must know the real date. The system prompt is built fresh every turn
+    with the current Tashkent time — verify it appears and matches."""
+    h = auth_headers("alfred_date")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "date-chat")
+
+    captured = []
+
+    async def capturing_llm(messages, tools):
+        captured.append(messages)
+        return LLMResponse(text="It is Wednesday, the 16th of September 2026, sir.")
+
+    monkeypatch.setattr(llm_provider, "generate", capturing_llm)
+    client.post("/api/telegram/webhook", json=_update("date-chat", "what day is today"), headers=_headers())
+
+    assert len(captured) == 1
+    system_msg = captured[0][0]
+    assert system_msg["role"] == "system"
+    content = system_msg["content"]
+    # Must contain a Tashkent timestamp
+    assert "Tashkent time" in content
+    # Must contain the actual current year (guards against stale/missing date)
+    from datetime import datetime, timezone, timedelta
+
+    now_tashkent = datetime.now(timezone(timedelta(hours=5)))
+    assert str(now_tashkent.year) in content
+
+
+def test_get_alfred_profile_tool_returns_full_text(client, auth_headers, monkeypatch):
+    """The get_alfred_profile tool must return the full profile document."""
+    h = auth_headers("alfred_profile_tool")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "profile-chat")
+
+    calls = _mock_llm(monkeypatch, [
+        LLMResponse(tool_calls=[ToolCall("get_alfred_profile", {})]),
+        LLMResponse(text="My background is extensive, sir."),
+    ])
+    client.post("/api/telegram/webhook", json=_update("profile-chat", "tell me about yourself"), headers=_headers())
+
+    assert len(calls) == 2
+    # The tool result in the second LLM call must contain profile content
+    tool_result_msg = calls[1][0][-1]
+    assert tool_result_msg["role"] == "tool"
+    assert "ALFRED" in tool_result_msg["result"]["profile"]
