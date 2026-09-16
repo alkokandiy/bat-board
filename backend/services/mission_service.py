@@ -16,8 +16,68 @@ from services.common import auto_log_event, calculate_bat_level
 def list_missions(
     db: Session,
     current_user: models.BatAccount,
+    due_date: Optional[datetime] = None,
 ) -> List[models.BatMission]:
-    return db.query(models.BatMission).filter(models.BatMission.owner_id == current_user.id).all()
+    q = db.query(models.BatMission).filter(models.BatMission.owner_id == current_user.id)
+    if due_date is not None:
+        day_start = due_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999999)
+        q = q.filter(models.BatMission.due_date >= day_start, models.BatMission.due_date <= day_end)
+    return q.all()
+
+
+def update_mission(
+    db: Session,
+    current_user: models.BatAccount,
+    mission_id: int,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    due_date: Optional[datetime] = None,
+    priority: Optional[str] = None,
+    tags: Optional[str] = None,
+    location: Optional[str] = None,
+    notes: Optional[str] = None,
+    subtasks: Optional[str] = None,
+    is_pinned: Optional[bool] = None,
+    is_dismissed: Optional[bool] = None,
+) -> Optional[models.BatMission]:
+    """Update an existing mission. Returns None if not found."""
+    mission = (
+        db.query(models.BatMission)
+        .filter(
+            models.BatMission.id == mission_id,
+            models.BatMission.owner_id == current_user.id,
+        )
+        .first()
+    )
+    if mission is None:
+        return None
+
+    if title is not None:
+        mission.title = title
+    if description is not None:
+        mission.description = description
+    if due_date is not None:
+        mission.due_date = due_date
+    if priority is not None:
+        mission.priority = priority
+    if tags is not None:
+        mission.tags = tags
+    if location is not None:
+        mission.location = location
+    if notes is not None:
+        mission.notes = notes
+    if subtasks is not None:
+        mission.subtasks = subtasks
+    if is_pinned is not None:
+        mission.is_pinned = is_pinned
+    if is_dismissed is not None:
+        mission.is_dismissed = is_dismissed
+
+    db.flush()
+    db.refresh(mission)
+    db.commit()
+    return mission
 
 
 def create_mission(

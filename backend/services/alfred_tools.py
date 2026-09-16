@@ -108,8 +108,10 @@ def _parse_dt(value, field_name):
 
 
 READ_TOOLS = [
-    {"name": "list_missions", "description": "List the user's missions.",
-     "parameters": {"type": "object", "properties": {}}},
+    {"name": "list_missions", "description": "List the user's missions. Optionally filter by due date.",
+     "parameters": {"type": "object", "properties": {
+         "due_date": {"type": "string", "description": "ISO date to filter missions due on that day."},
+     }}},
     {"name": "list_habits", "description": "List the user's habits with streaks.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "list_upcoming_events", "description": "List calendar events ordered by start time.",
@@ -151,6 +153,16 @@ WRITE_TOOLS = [
     {"name": "complete_mission", "description": "Mark a mission completed (awards points).",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"},
+     }, "required": ["mission_id"]}},
+    {"name": "update_mission", "description": "Update an existing mission's fields (due date, priority, title, etc).",
+     "parameters": {"type": "object", "properties": {
+         "mission_id": {"type": "integer"},
+         "title": {"type": "string"}, "description": {"type": "string"},
+         "due_date": {"type": "string", "description": "ISO datetime."},
+         "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+         "tags": {"type": "string"}, "location": {"type": "string"},
+         "notes": {"type": "string"}, "subtasks": {"type": "string"},
+         "is_pinned": {"type": "boolean"}, "is_dismissed": {"type": "boolean"},
      }, "required": ["mission_id"]}},
     {"name": "create_habit", "description": "Create a new habit.",
      "parameters": {"type": "object", "properties": {
@@ -238,7 +250,9 @@ def execute_tool(
         raise RuntimeError(f"Tool {name} requires confirmation and cannot execute directly")
 
     if name == "list_missions":
-        return {"missions": [_mission_dict(m) for m in mission_service.list_missions(db, current_user)]}
+        return {"missions": [_mission_dict(m) for m in mission_service.list_missions(
+            db, current_user,
+            due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None)]}
     if name == "list_habits":
         return {"habits": [_habit_dict(h) for h in habit_service.list_habits(db, current_user)]}
     if name == "list_upcoming_events":
@@ -286,6 +300,18 @@ def execute_tool(
         return {"mission": _mission_dict(m)}
     if name == "complete_mission":
         m = mission_service.complete_mission(db, current_user, int(args["mission_id"]))
+        if m is None:
+            return {"error": "Mission not found"}
+        return {"mission": _mission_dict(m)}
+    if name == "update_mission":
+        m = mission_service.update_mission(
+            db, current_user, int(args["mission_id"]),
+            title=args.get("title"), description=args.get("description"),
+            due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None,
+            priority=args.get("priority"), tags=args.get("tags"),
+            location=args.get("location"), notes=args.get("notes"),
+            subtasks=args.get("subtasks"),
+            is_pinned=args.get("is_pinned"), is_dismissed=args.get("is_dismissed"))
         if m is None:
             return {"error": "Mission not found"}
         return {"mission": _mission_dict(m)}
