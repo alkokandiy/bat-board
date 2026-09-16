@@ -173,12 +173,27 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "habit_id": {"type": "integer"},
      }, "required": ["habit_id"]}},
+    {"name": "update_habit", "description": "Update an existing habit's name, description, or frequency.",
+     "parameters": {"type": "object", "properties": {
+         "habit_id": {"type": "integer"},
+         "name": {"type": "string"}, "description": {"type": "string"},
+         "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+         "target_date": {"type": "string", "description": "ISO datetime."},
+     }, "required": ["habit_id"]}},
     {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "start_time": {"type": "string", "description": "ISO datetime."},
          "description": {"type": "string"}, "end_time": {"type": "string", "description": "ISO datetime."},
          "color": {"type": "string"}, "mission_id": {"type": "integer", "description": "Link to a mission."},
      }, "required": ["title", "start_time"]}},
+    {"name": "update_event", "description": "Update an existing calendar event.",
+     "parameters": {"type": "object", "properties": {
+         "event_id": {"type": "integer"},
+         "title": {"type": "string"}, "description": {"type": "string"},
+         "start_time": {"type": "string", "description": "ISO datetime."},
+         "end_time": {"type": "string", "description": "ISO datetime."},
+         "color": {"type": "string"}, "mission_id": {"type": "integer"},
+     }, "required": ["event_id"]}},
     {"name": "create_note", "description": "Create a note.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "body": {"type": "string"},
@@ -199,6 +214,11 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime."},
      }, "required": ["title", "target_date"]}},
+    {"name": "update_countdown", "description": "Update an existing countdown's title or target date.",
+     "parameters": {"type": "object", "properties": {
+         "countdown_id": {"type": "integer"},
+         "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime."},
+     }, "required": ["countdown_id"]}},
     {"name": "start_focus_session", "description": "Record a focus session start (database record only). Optionally link a mission or habit.",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"}, "habit_id": {"type": "integer"},
@@ -218,6 +238,18 @@ DESTRUCTIVE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "countdown_id": {"type": "integer"},
      }, "required": ["countdown_id"]}},
+    {"name": "delete_mission", "description": "Delete a mission. Requires user confirmation — never call directly.",
+     "parameters": {"type": "object", "properties": {
+         "mission_id": {"type": "integer"},
+     }, "required": ["mission_id"]}},
+    {"name": "delete_habit", "description": "Delete a habit and its completion history. Requires user confirmation — never call directly.",
+     "parameters": {"type": "object", "properties": {
+         "habit_id": {"type": "integer"},
+     }, "required": ["habit_id"]}},
+    {"name": "delete_event", "description": "Delete a calendar event. Requires user confirmation — never call directly.",
+     "parameters": {"type": "object", "properties": {
+         "event_id": {"type": "integer"},
+     }, "required": ["event_id"]}},
 ]
 
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + DESTRUCTIVE_TOOLS
@@ -235,6 +267,18 @@ def describe_tool_target(
     if name == "delete_countdown":
         cd = countdown_service.get_countdown(db, current_user, int(args.get("countdown_id")))
         return cd.title if cd else None
+    if name == "delete_mission":
+        m = mission_service.list_missions(db, current_user)
+        match = next((x for x in m if x.id == int(args.get("mission_id"))), None)
+        return match.title if match else None
+    if name == "delete_habit":
+        h = habit_service.list_habits(db, current_user)
+        match = next((x for x in h if x.id == int(args.get("habit_id"))), None)
+        return match.name if match else None
+    if name == "delete_event":
+        e = calendar_service.list_upcoming_events(db, current_user)
+        match = next((x for x in e if x.id == int(args.get("event_id"))), None)
+        return match.title if match else None
     return None
 
 
@@ -325,6 +369,15 @@ def execute_tool(
         if h is None:
             return {"error": "Habit not found"}
         return {"habit": _habit_dict(h)}
+    if name == "update_habit":
+        h = habit_service.update_habit(
+            db, current_user, int(args["habit_id"]),
+            name=args.get("name"), description=args.get("description"),
+            frequency=args.get("frequency"),
+            target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
+        if h is None:
+            return {"error": "Habit not found"}
+        return {"habit": _habit_dict(h)}
     if name == "create_event":
         mission_id = args.get("mission_id")
         e = calendar_service.create_event(
@@ -336,6 +389,18 @@ def execute_tool(
             mission_id=int(mission_id) if mission_id is not None else None)
         if e is None:
             return {"error": "Event not created"}
+        return {"event": _event_dict(e)}
+    if name == "update_event":
+        mission_id = args.get("mission_id")
+        e = calendar_service.update_event(
+            db, current_user, int(args["event_id"]),
+            title=args.get("title"), description=args.get("description"),
+            start_time=_parse_dt(args.get("start_time"), "start_time") if args.get("start_time") else None,
+            end_time=_parse_dt(args.get("end_time"), "end_time") if args.get("end_time") else None,
+            color=args.get("color"),
+            mission_id=int(mission_id) if mission_id is not None else None)
+        if e is None:
+            return {"error": "Event not found"}
         return {"event": _event_dict(e)}
     if name == "create_note":
         n = notes_service.create_note(
@@ -360,6 +425,14 @@ def execute_tool(
         c = countdown_service.create_countdown(
             db, current_user, title=args["title"],
             target_date=_parse_dt(args["target_date"], "target_date"))
+        return {"countdown": _countdown_dict(c)}
+    if name == "update_countdown":
+        c = countdown_service.update_countdown(
+            db, current_user, int(args["countdown_id"]),
+            title=args.get("title"),
+            target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
+        if c is None:
+            return {"error": "Countdown not found"}
         return {"countdown": _countdown_dict(c)}
     if name == "start_focus_session":
         try:

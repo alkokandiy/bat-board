@@ -81,3 +81,25 @@ def delete_countdown(
     db.delete(countdown)
     db.commit()
     return True
+
+
+def update_countdown(
+    db: Session,
+    current_user: models.BatAccount,
+    countdown_id: int,
+    title: Optional[str] = None,
+    target_date: Optional[datetime] = None,
+) -> Optional[models.BatCountdown]:
+    """Update an existing countdown. Returns None if not found."""
+    countdown = get_countdown(db, current_user, countdown_id)
+    if countdown is None:
+        return None
+
+    if title is not None:
+        countdown.title = title
+    if target_date is not None:
+        countdown.target_date = target_date
+
+    db.commit()
+    db.refresh(countdown)
+    return countdown

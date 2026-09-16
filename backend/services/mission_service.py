@@ -80,6 +80,33 @@ def update_mission(
     return mission
 
 
+def delete_mission(
+    db: Session,
+    current_user: models.BatAccount,
+    mission_id: int,
+) -> Optional[models.BatMission]:
+    """Delete a mission. Returns the deleted mission, or None if not found."""
+    mission = (
+        db.query(models.BatMission)
+        .filter(
+            models.BatMission.id == mission_id,
+            models.BatMission.owner_id == current_user.id,
+        )
+        .first()
+    )
+    if mission is None:
+        return None
+    title = mission.title
+    db.delete(mission)
+    db.flush()
+    auto_log_event(db, current_user.id, "mission_deleted", {
+        "mission_id": mission_id,
+        "title": title,
+    })
+    db.commit()
+    return mission
+
+
 def create_mission(
     db: Session,
     current_user: models.BatAccount,

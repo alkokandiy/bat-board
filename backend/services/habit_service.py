@@ -121,3 +121,58 @@ def check_in_habit(
     db.refresh(habit)
     db.refresh(current_user)
     return habit
+
+
+def update_habit(
+    db: Session,
+    current_user: models.BatAccount,
+    habit_id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    frequency: Optional[str] = None,
+    target_date: Optional[datetime] = None,
+) -> Optional[models.BatHabit]:
+    """Update an existing habit. Returns None if not found."""
+    habit = db.query(models.BatHabit).filter(
+        models.BatHabit.id == habit_id,
+        models.BatHabit.owner_id == current_user.id,
+    ).first()
+    if habit is None:
+        return None
+
+    if name is not None:
+        habit.name = name
+    if description is not None:
+        habit.description = description
+    if frequency is not None:
+        habit.frequency = frequency
+    if target_date is not None:
+        habit.target_date = target_date
+
+    db.flush()
+    db.refresh(habit)
+    db.commit()
+    return habit
+
+
+def delete_habit(
+    db: Session,
+    current_user: models.BatAccount,
+    habit_id: int,
+) -> Optional[models.BatHabit]:
+    """Delete a habit. Returns the deleted habit, or None if not found."""
+    habit = db.query(models.BatHabit).filter(
+        models.BatHabit.id == habit_id,
+        models.BatHabit.owner_id == current_user.id,
+    ).first()
+    if habit is None:
+        return None
+    name = habit.name
+    db.delete(habit)
+    db.flush()
+    auto_log_event(db, current_user.id, "habit_deleted", {
+        "habit_id": habit_id,
+        "name": name,
+    })
+    db.commit()
+    return habit

@@ -21,6 +21,9 @@ from services.alfred_tools import (
 )
 from services.countdown_service import delete_countdown
 from services.notes_service import delete_note
+from services.mission_service import delete_mission
+from services.habit_service import delete_habit
+from services.calendar_service import delete_event
 
 logger = structlog.get_logger()
 
@@ -253,7 +256,14 @@ def _get_pending(db: Session, user: models.BatAccount) -> Optional[models.BatPen
 
 
 def _confirmation_template(action_type: str, title: str) -> str:
-    kind = "note" if action_type == "delete_note" else "countdown"
+    kind_map = {
+        "delete_note": "note",
+        "delete_countdown": "countdown",
+        "delete_mission": "mission",
+        "delete_habit": "habit",
+        "delete_event": "event",
+    }
+    kind = kind_map.get(action_type, "item")
     return f"Delete the {kind} '{title}'? This can't be undone. Reply YES to confirm."
 
 
@@ -271,6 +281,12 @@ def _execute_pending(
         delete_note(db, user, int(args.get("note_id", -1)))
     elif row.action_type == "delete_countdown":
         delete_countdown(db, user, int(args.get("countdown_id", -1)))
+    elif row.action_type == "delete_mission":
+        delete_mission(db, user, int(args.get("mission_id", -1)))
+    elif row.action_type == "delete_habit":
+        delete_habit(db, user, int(args.get("habit_id", -1)))
+    elif row.action_type == "delete_event":
+        delete_event(db, user, int(args.get("event_id", -1)))
     db.delete(row)
     db.commit()
     return f"Deleted '{title}'."
