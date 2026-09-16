@@ -146,10 +146,13 @@ def _as_aware(dt: datetime) -> datetime:
 
 # --- Conversation memory (Part 3) ---
 
-def get_history(db: Session, user: models.BatAccount, limit: int = MAX_HISTORY_TURNS) -> List[dict]:
+def get_history(db: Session, user: models.BatAccount, session_id: int, limit: int = MAX_HISTORY_TURNS) -> List[dict]:
     rows = (
         db.query(models.BatAlfredMessage)
-        .filter(models.BatAlfredMessage.owner_id == user.id)
+        .filter(
+            models.BatAlfredMessage.owner_id == user.id,
+            models.BatAlfredMessage.session_id == session_id,
+        )
         .order_by(models.BatAlfredMessage.created_at.desc(), models.BatAlfredMessage.id.desc())
         .limit(limit)
         .all()
@@ -157,9 +160,12 @@ def get_history(db: Session, user: models.BatAccount, limit: int = MAX_HISTORY_T
     return [{"role": r.role, "content": r.content} for r in reversed(rows)]
 
 
-def store_turn(db: Session, user: models.BatAccount, user_text: str, reply_text: str) -> None:
-    db.add(models.BatAlfredMessage(owner_id=user.id, role="user", content=user_text))
-    db.add(models.BatAlfredMessage(owner_id=user.id, role="assistant", content=reply_text))
+def store_turn(db: Session, user: models.BatAccount, session_id: int, user_text: str, reply_text: str) -> None:
+    db.add(models.BatAlfredMessage(owner_id=user.id, session_id=session_id, role="user", content=user_text))
+    db.add(models.BatAlfredMessage(owner_id=user.id, session_id=session_id, role="assistant", content=reply_text))
+    session = db.query(models.BatAlfredSession).filter_by(id=session_id).first()
+    if session:
+        session.updated_at = _utcnow()
     db.commit()
 
 
@@ -186,6 +192,45 @@ def check_usage(db: Session, user: models.BatAccount) -> bool:
     row.count += 1
     db.commit()
     return True
+
+
+# --- Session management ---
+
+def create_session(db: Session, user: models.BatAccount, title: str = "") -> models.BatAlfredSession:
+    session = models.BatAlfredSession(title=title, owner_id=user.id)
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def get_active_session(db: Session, user: models.BatAccount) -> Optional[models.BatAlfredSession]:
+    if user.active_alfred_session_id is None:
+        return None
+    return (
+        db.query(models.BatAlfredSession)
+        .filter(
+            models.BatAlfredSession.id == user.active_alfred_session_id,
+            models.BatAlfredSession.owner_id == user.id,
+        )
+        .first()
+    )
+
+
+def set_active_session(db: Session, user: models.BatAccount, session_id: int) -> None:
+    user.active_alfred_session_id = session_id
+    db.commit()
+
+
+def auto_title_session(db: Session, session: models.BatAlfredSession, user_text: str) -> None:
+    """Set session title from first user message if still untitled."""
+    if session.title and session.title != "New conversation":
+        return
+    title = user_text.strip()
+    if len(title) > 40:
+        title = title[:40] + "…"
+    session.title = title
+    db.commit()
 
 
 # --- Destructive confirmation gate (Part 4) ---
@@ -275,11 +320,19 @@ def gate_destructive_tool(
 
 # --- Main turn loop (Part 5.5) ---
 
-async def run_turn(db: Session, user: models.BatAccount, user_text: str) -> str:
-    """Process one user message. Always returns the exact reply string."""
+async def run_turn(db: Session, user: models.BatAccount, user_text: str, session_id: int = None) -> str:
+    """Process one user message. Always returns the exact reply string.
+
+    If session_id is None, auto-creates a session (first-ever message case).
+    """
+    if session_id is None:
+        session = create_session(db, user)
+        session_id = session.id
+        set_active_session(db, user, session_id)
+
     status, reply = check_pending_action(db, user, user_text)
     if status == "handled":
-        store_turn(db, user, user_text, reply)
+        store_turn(db, user, session_id, user_text, reply)
         return reply
 
     if not check_usage(db, user):
@@ -287,7 +340,7 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str) -> str:
 
     messages = (
         [{"role": "system", "content": _build_system_prompt()}]
-        + get_history(db, user)
+        + get_history(db, user, session_id)
         + [{"role": "user", "content": user_text}]
     )
 
@@ -299,7 +352,13 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str) -> str:
         logger.error("alfred_turn_failed", error_type=type(exc).__name__, error=str(exc))
         final_text = SNAG_REPLY
 
-    store_turn(db, user, user_text, final_text)
+    store_turn(db, user, session_id, user_text, final_text)
+
+    # Auto-title after first exchange
+    session = db.query(models.BatAlfredSession).filter_by(id=session_id).first()
+    if session:
+        auto_title_session(db, session, user_text)
+
     return final_text
 
 

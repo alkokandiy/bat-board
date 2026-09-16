@@ -1,35 +1,81 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Minus, X } from 'lucide-react';
+import { Bot, Minus, X, Plus, MessageSquare } from 'lucide-react';
 import { api } from '../utils/api.js';
 
 /**
  * Floating Alfred companion: present on every tab, bottom-right.
- * Open via the launcher, minimize to a pill, quit to close.
+ * Multi-session chat: session list sidebar, new chat, load messages.
  * Conversation state persists across tab switches while mounted.
  */
 export default function AlfredWidget() {
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
-  const [messages, setMessages] = useState([
-    { role: 'alfred', text: 'Good evening, Master Al-Kokandiy. The books are open — what shall we log?' },
-  ]);
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
   const bottomRef = useRef(null);
+  const loadedRef = useRef(false);
+
+  // Load sessions on mount
+  useEffect(() => {
+    if (!open || loadedRef.current) return;
+    loadedRef.current = true;
+    (async () => {
+      try {
+        const s = await api.getAlfredSessions();
+        setSessions(s);
+        if (s.length > 0) {
+          await selectSession(s[0].id);
+        } else {
+          const created = await api.createAlfredSession('New conversation');
+          setSessions([{ id: created.id, title: created.title, updated_at: new Date().toISOString() }]);
+          setActiveSessionId(created.id);
+          setMessages([{ role: 'alfred', text: 'Good evening, Master Al-Kokandiy. The books are open — what shall we log?' }]);
+        }
+      } catch {
+        setMessages([{ role: 'alfred', text: 'Good evening, Master Al-Kokandiy. The books are open — what shall we log?' }]);
+      }
+    })();
+  }, [open]);
 
   useEffect(() => {
     if (open && !minimized) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, sending, open, minimized]);
 
+  const selectSession = async (id) => {
+    setActiveSessionId(id);
+    setShowSidebar(false);
+    try {
+      const msgs = await api.getAlfredSessionMessages(id);
+      setMessages(msgs.map(m => ({ role: m.role === 'assistant' ? 'alfred' : 'user', text: m.content })));
+    } catch {
+      setMessages([]);
+    }
+  };
+
+  const newChat = async () => {
+    try {
+      const created = await api.createAlfredSession('New conversation');
+      setSessions(prev => [{ id: created.id, title: created.title, updated_at: new Date().toISOString() }, ...prev]);
+      await selectSession(created.id);
+    } catch {}
+  };
+
   const send = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (!text || sending || !activeSessionId) return;
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text }]);
     setSending(true);
     try {
-      const res = await api.sendAlfredMessage(text);
+      const res = await api.sendAlfredMessage(text, activeSessionId);
       setMessages(prev => [...prev, { role: 'alfred', text: res.reply }]);
+      // Refresh session list (title may have been auto-set)
+      const s = await api.getAlfredSessions();
+      setSessions(s);
     } catch (err) {
       setMessages(prev => [...prev, { role: 'alfred', text: `The line went dead: ${err.message}` }]);
     } finally {
@@ -60,14 +106,25 @@ export default function AlfredWidget() {
     );
   }
 
+  const activeSession = sessions.find(s => s.id === activeSessionId);
+
   return (
     <div className="fixed bottom-6 right-6 z-50 w-[22rem] max-w-[calc(100vw-3rem)] h-[28rem] max-h-[calc(100vh-6rem)] bg-dark-slate border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+      {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-matte-obsidian">
         <div className="flex items-center gap-2 text-electric-bat-yellow">
           <Bot size={16} />
           <span className="text-xs font-mono tracking-widest">ALFRED</span>
+          {activeSession && (
+            <span className="text-[10px] text-slate-500 font-body truncate max-w-[120px]">
+              {activeSession.title}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
+          <button onClick={() => setShowSidebar(!showSidebar)} title="Conversations" className="p-1.5 text-slate-500 hover:text-electric-bat-yellow transition">
+            <MessageSquare size={14} />
+          </button>
           <button onClick={() => setMinimized(true)} title="Minimize" className="p-1.5 text-slate-500 hover:text-slate-200 transition">
             <Minus size={14} />
           </button>
@@ -77,6 +134,33 @@ export default function AlfredWidget() {
         </div>
       </div>
 
+      {/* Session sidebar */}
+      {showSidebar && (
+        <div className="shrink-0 border-b border-slate-800 bg-matte-obsidian max-h-[10rem] overflow-y-auto">
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-[10px] font-mono text-slate-500 tracking-widest">CONVERSATIONS</span>
+            <button onClick={newChat} className="p-1 text-electric-bat-yellow hover:brightness-110 transition" title="New chat">
+              <Plus size={12} />
+            </button>
+          </div>
+          {sessions.map(s => (
+            <button
+              key={s.id}
+              onClick={() => selectSession(s.id)}
+              className={`w-full text-left px-3 py-1.5 text-[12px] font-body transition ${
+                s.id === activeSessionId
+                  ? 'bg-electric-bat-yellow/10 text-electric-bat-yellow'
+                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+              }`}
+            >
+              <div className="truncate">{s.title || 'Untitled'}</div>
+              <div className="text-[10px] text-slate-600">{new Date(s.updated_at).toLocaleDateString()}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -101,6 +185,7 @@ export default function AlfredWidget() {
         <div ref={bottomRef} />
       </div>
 
+      {/* Input */}
       <div className="shrink-0 flex gap-2 p-3 border-t border-slate-800">
         <input
           type="text"
@@ -109,12 +194,12 @@ export default function AlfredWidget() {
           onKeyDown={e => { if (e.key === 'Enter') send(); }}
           placeholder="Ask Alfred..."
           maxLength={2000}
-          disabled={sending}
+          disabled={sending || !activeSessionId}
           className="flex-1 bg-matte-obsidian border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow transition font-body disabled:opacity-50"
         />
         <button
           onClick={send}
-          disabled={sending || !input.trim()}
+          disabled={sending || !input.trim() || !activeSessionId}
           className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded-lg text-[11px] font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
         >
           SEND

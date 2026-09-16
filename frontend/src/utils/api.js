@@ -208,5 +208,10 @@ export const api = {
   unlinkTelegram: () => request('/account/telegram-link', { method: 'DELETE' }),
 
   // Alfred in-app chat (same brain as the Telegram bot, JWT user)
-  sendAlfredMessage: (message) => request('/alfred/chat', { method: 'POST', body: { message } }),
+  sendAlfredMessage: (message, session_id) => request('/alfred/chat', { method: 'POST', body: { message, session_id } }),
+
+  // Alfred sessions
+  getAlfredSessions: () => request('/alfred/sessions'),
+  createAlfredSession: (title) => request('/alfred/sessions', { method: 'POST', body: { title } }),
+  getAlfredSessionMessages: (id) => request(`/alfred/sessions/${id}/messages`),
 };

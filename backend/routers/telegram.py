@@ -116,9 +116,15 @@ def _claim_update(db: Session, update_id: int) -> bool:
 
 
 async def process_telegram_update(payload: dict) -> None:
-    """Background processing: linking exchange or Alfred turn, then reply."""
+    """Background processing: linking exchange, slash commands, callback queries, or Alfred turn."""
     db = SessionLocal()
     try:
+        # --- Callback query (inline keyboard tap) ---
+        callback = payload.get("callback_query")
+        if callback:
+            await _handle_callback_query(db, callback)
+            return
+
         message = payload.get("message") or {}
         chat = message.get("chat") or {}
         chat_id = chat.get("id")
@@ -145,12 +151,54 @@ async def process_telegram_update(payload: dict) -> None:
             _reply(chat_id, UNLINKED_REPLY)
             return
 
-        reply = await alfred_agent.run_turn(db, user, text)
+        # --- Slash commands (before pending-confirmation check) ---
+        if text.startswith("/"):
+            # Cancel any pending destructive action on /-commands
+            pending = db.query(models.BatPendingAlfredAction).filter_by(owner_id=user.id).first()
+            if pending:
+                db.delete(pending)
+                db.commit()
+
+            if text == "/new":
+                session = alfred_agent.create_session(db, user, "New conversation")
+                alfred_agent.set_active_session(db, user, session.id)
+                _reply(chat_id, "Started a new conversation.")
+                return
+
+            if text.startswith("/chats"):
+                query = text[len("/chats"):].strip()
+                if not query:
+                    _reply(chat_id, "Usage: /chats <search term>")
+                    return
+                sessions = (
+                    db.query(models.BatAlfredSession)
+                    .filter(
+                        models.BatAlfredSession.owner_id == user.id,
+                        models.BatAlfredSession.title.ilike(f"%{query}%"),
+                    )
+                    .order_by(models.BatAlfredSession.updated_at.desc())
+                    .limit(10)
+                    .all()
+                )
+                if not sessions:
+                    _reply(chat_id, "No matching conversations found.")
+                    return
+                keyboard = [[{"text": s.title, "callback_data": f"switch:{s.id}"}] for s in sessions]
+                _reply_markup(chat_id, "Select a conversation:", {"inline_keyboard": keyboard})
+                return
+
+            # Unknown command — fall through to Alfred
+            pass
+
+        # --- Normal Alfred turn (session-scoped) ---
+        active = alfred_agent.get_active_session(db, user)
+        session_id = active.id if active else None
+        reply = await alfred_agent.run_turn(db, user, text, session_id=session_id)
         _reply(chat_id, reply)
     except Exception as exc:
         logger.error("telegram_process_failed", error_type=type(exc).__name__, error=str(exc))
         try:
-            chat = (payload.get("message") or {}).get("chat") or {}
+            chat = (payload.get("message") or payload.get("callback_query", {}).get("message") or {}).get("chat") or {}
             if chat.get("id") is not None:
                 _reply(str(chat.get("id")), alfred_agent.SNAG_REPLY)
         except Exception:
@@ -159,9 +207,64 @@ async def process_telegram_update(payload: dict) -> None:
         db.close()
 
 
+async def _handle_callback_query(db: Session, callback: dict) -> None:
+    """Handle inline keyboard callback (session switch)."""
+    data = callback.get("data", "")
+    if not data.startswith("switch:"):
+        return
+
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+
+    try:
+        session_id = int(data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+
+    # Resolve the user from the callback's from field
+    from_user = callback.get("from") or {}
+    telegram_user_id = str(from_user.get("id", ""))
+    if not telegram_user_id:
+        return
+
+    try:
+        user = get_user_by_telegram_chat_id(telegram_user_id, db)
+    except Exception:
+        user = None
+    if user is None:
+        return
+
+    # Verify ownership
+    session = (
+        db.query(models.BatAlfredSession)
+        .filter_by(id=session_id, owner_id=user.id)
+        .first()
+    )
+    if session is None:
+        telegram_service.answer_callback_query(settings.telegram_bot_token, callback["id"], "Session not found.")
+        return
+
+    alfred_agent.set_active_session(db, user, session_id)
+    telegram_service.answer_callback_query(settings.telegram_bot_token, callback["id"])
+
+    # Reply confirmation to the chat
+    chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
+    if chat_id:
+        _reply(chat_id, f"Switched to: {session.title}")
+
+
 def _reply(chat_id: str, text: str) -> None:
     settings = get_settings()
     if not settings.telegram_bot_token:
         logger.error("telegram_not_configured", hint="Set TELEGRAM_BOT_TOKEN in Railway.")
         return
     telegram_service.send_telegram_message(settings.telegram_bot_token, chat_id, text)
+
+
+def _reply_markup(chat_id: str, text: str, reply_markup: dict) -> None:
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        logger.error("telegram_not_configured", hint="Set TELEGRAM_BOT_TOKEN in Railway.")
+        return
+    telegram_service.send_telegram_message(settings.telegram_bot_token, chat_id, text, reply_markup=reply_markup)

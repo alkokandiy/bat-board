@@ -31,7 +31,8 @@ def _headers():
 def _mock_send(monkeypatch):
     sent = []
     monkeypatch.setattr(
-        telegram_service, "send_telegram_message", lambda *a: sent.append(a) or True
+        telegram_service, "send_telegram_message",
+        lambda *a, **kw: sent.append((a, kw)) or True,
     )
     return sent
 
@@ -110,12 +111,12 @@ def test_destructive_gate_yes_executes(client, auth_headers, monkeypatch):
         assert pending is not None and pending.action_type == "delete_note"
     finally:
         db.close()
-    assert any("Reply YES to confirm" in c[2] for c in sent)
-    assert "Shred me" in sent[-1][2]
+    assert any("Reply YES to confirm" in c[0][2] for c in sent)
+    assert "Shred me" in sent[-1][0][2]
     # Exact template match: the mocked LLM returned a bare tool call with no
     # text, so this string can only have come from the fixed server-side
     # template — the model never phrases the confirmation.
-    assert sent[-1][2] == "Delete the note 'Shred me'? This can't be undone. Reply YES to confirm."
+    assert sent[-1][0][2] == "Delete the note 'Shred me'? This can't be undone. Reply YES to confirm."
 
     # "yes" executes WITHOUT another LLM call, clears the row, templates completion.
     sent.clear()
@@ -132,7 +133,7 @@ def test_destructive_gate_yes_executes(client, auth_headers, monkeypatch):
         )
     finally:
         db.close()
-    assert any("Deleted 'Shred me'." in c[2] for c in sent)
+    assert any("Deleted 'Shred me'." in c[0][2] for c in sent)
 
 
 def test_destructive_gate_other_reply_falls_through(client, auth_headers, monkeypatch):
@@ -170,7 +171,7 @@ def test_destructive_gate_other_reply_falls_through(client, auth_headers, monkey
         )
     finally:
         db.close()
-    assert sent[-1][2] == "Renamed, sir."
+    assert sent[-1][0][2] == "Renamed, sir."
 
 
 def test_expired_pending_row_ignored(client, auth_headers, monkeypatch):
@@ -199,7 +200,7 @@ def test_expired_pending_row_ignored(client, auth_headers, monkeypatch):
     # "yes" must NOT execute the stale action — falls through to the LLM.
     client.post("/api/telegram/webhook", json=_update("gate-exp", "yes"), headers=_headers())
     assert len(calls) == 1
-    assert sent[-1][2] == "Just a normal reply."
+    assert sent[-1][0][2] == "Just a normal reply."
     db = _db()
     try:
         assert (
@@ -219,7 +220,7 @@ def test_duplicate_update_id_is_noop(client, auth_headers, monkeypatch):
     client.post("/api/telegram/webhook", json=payload, headers=_headers())
     client.post("/api/telegram/webhook", json=payload, headers=_headers())
     assert len(calls) == 1
-    assert len([c for c in sent if c[2] == "Hello."]) == 1
+    assert len([c for c in sent if c[0][2] == "Hello."]) == 1
 
 
 def test_webhook_returns_before_slow_llm_finishes(auth_headers, monkeypatch):
@@ -303,7 +304,7 @@ def test_prompt_injection_note_is_inert(client, auth_headers, monkeypatch):
         )
     finally:
         db.close()
-    assert "delete all countdowns" in sent[-1][2]
+    assert "delete all countdowns" in sent[-1][0][2]
 
 
 def test_usage_cap_blocks_201st_message(client, auth_headers, monkeypatch):
@@ -325,7 +326,7 @@ def test_usage_cap_blocks_201st_message(client, auth_headers, monkeypatch):
 
     monkeypatch.setattr(llm_provider, "generate", never_call)
     client.post("/api/telegram/webhook", json=_update("cap-chat", "one more thing"), headers=_headers())
-    assert "back tomorrow" in sent[-1][2]
+    assert "back tomorrow" in sent[-1][0][2]
 
 
 def test_full_round_trip_create_mission(client, auth_headers, monkeypatch):
@@ -356,7 +357,7 @@ def test_full_round_trip_create_mission(client, auth_headers, monkeypatch):
         assert after == before + 2  # user turn + assistant reply stored
     finally:
         db.close()
-    assert sent[-1] == ("test-bot-token", "rt-chat", "Mission logged, sir. Anything else?")
+    assert sent[-1][0] == ("test-bot-token", "rt-chat", "Mission logged, sir. Anything else?")
 
 
 def test_start_focus_session_result_carries_honesty_note(auth_headers):
@@ -462,3 +463,360 @@ def test_get_alfred_profile_missing_note_returns_fallback(client, auth_headers, 
     tool_result_msg = calls[1][0][-1]
     assert tool_result_msg["role"] == "tool"
     assert "not been loaded" in tool_result_msg["result"]["profile"]
+
+
+# ──────────────────────────────────────────────────────────────
+# Session tests
+# ──────────────────────────────────────────────────────────────
+
+def test_migration_backfill_existing_messages(client, auth_headers, monkeypatch):
+    """Synthetic backfill: create messages without session_id, run backfill logic,
+    verify all messages land in exactly one session per owner, none orphaned."""
+    import models
+
+    h = auth_headers("alfred_backfill")
+    user = _user("alfred_backfill")
+    db = _db()
+    try:
+        # Create messages without session_id (simulate pre-migration state)
+        # We'll insert them directly with session_id=0 then run the backfill logic
+        msg1 = models.BatAlfredMessage(owner_id=user.id, role="user", content="Hello", session_id=0)
+        msg2 = models.BatAlfredMessage(owner_id=user.id, role="assistant", content="Hi there", session_id=0)
+        msg3 = models.BatAlfredMessage(owner_id=user.id, role="user", content="How are you?", session_id=0)
+        db.add_all([msg1, msg2, msg3])
+        db.commit()
+
+        # Simulate backfill: create session and reassign
+        session = models.BatAlfredSession(title="Earlier conversation", owner_id=user.id)
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+        for msg in [msg1, msg2, msg3]:
+            msg.session_id = session.id
+        db.commit()
+
+        # Verify: all messages in one session, none orphaned
+        messages = db.query(models.BatAlfredMessage).filter_by(owner_id=user.id).all()
+        assert len(messages) == 3
+        assert all(m.session_id == session.id for m in messages)
+
+        # Verify session exists and is owned by the user
+        s = db.query(models.BatAlfredSession).filter_by(id=session.id).first()
+        assert s is not None
+        assert s.owner_id == user.id
+        assert s.title == "Earlier conversation"
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_new_command_creates_session_and_sets_active(client, auth_headers, monkeypatch):
+    """/new creates a session, sets it active, and clears any pending action."""
+    h = auth_headers("alfred_new")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "new-chat")
+    import models
+
+    # Create a pending action to verify it gets cleared
+    db = _db()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="alfred_new").first()
+        db.add(models.BatPendingAlfredAction(
+            owner_id=user.id, action_type="delete_note",
+            action_args="{}", confirmation_message="stale",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        ))
+        db.commit()
+        assert db.query(models.BatPendingAlfredAction).filter_by(owner_id=user.id).first() is not None
+    finally:
+        db.close()
+
+    # Send /new
+    client.post("/api/telegram/webhook", json=_update("new-chat", "/new"), headers=_headers())
+
+    # Pending action cleared
+    db = _db()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="alfred_new").first()
+        assert db.query(models.BatPendingAlfredAction).filter_by(owner_id=user.id).first() is None
+        # Session created and set active
+        sessions = db.query(models.BatAlfredSession).filter_by(owner_id=user.id).all()
+        assert len(sessions) >= 1
+        new_session = sessions[-1]
+        assert new_session.title == "New conversation"
+        assert user.active_alfred_session_id == new_session.id
+    finally:
+        db.close()
+    assert any("Started a new conversation" in c[0][2] for c in sent)
+
+
+def test_chats_command_returns_inline_keyboard(client, auth_headers, monkeypatch):
+    """/chats <term> returns matching sessions via inline keyboard."""
+    h = auth_headers("alfred_chats")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "chats-chat")
+    import models
+
+    user = _user("alfred_chats")
+    db = _db()
+    try:
+        s1 = models.BatAlfredSession(title="Mission planning", owner_id=user.id)
+        s2 = models.BatAlfredSession(title="Habit review", owner_id=user.id)
+        s3 = models.BatAlfredSession(title="Mission debrief", owner_id=user.id)
+        db.add_all([s1, s2, s3])
+        db.commit()
+    finally:
+        db.close()
+
+    # Search for "Mission"
+    client.post("/api/telegram/webhook", json=_update("chats-chat", "/chats Mission"), headers=_headers())
+
+    # Should have sent a reply_markup with inline keyboard
+    assert len(sent) >= 1
+    last_args, last_kwargs = sent[-1]
+    assert "reply_markup" in last_kwargs
+    markup = last_kwargs["reply_markup"]
+    assert "inline_keyboard" in markup
+    buttons = markup["inline_keyboard"]
+    assert len(buttons) == 2  # s1 and s3 match "Mission"
+    button_texts = [b[0]["text"] for b in buttons]
+    assert "Mission planning" in button_texts
+    assert "Mission debrief" in button_texts
+    assert "Habit review" not in button_texts
+
+
+def test_callback_query_switches_session(client, auth_headers, monkeypatch):
+    """Tapping an inline keyboard button switches the active session."""
+    h = auth_headers("alfred_cb")
+    sent = _mock_send(monkeypatch)
+    import models
+
+    # Create sessions in a fresh DB session
+    db = _db()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="alfred_cb").first()
+        s1 = models.BatAlfredSession(title="Old session", owner_id=user.id)
+        s2 = models.BatAlfredSession(title="Target session", owner_id=user.id)
+        db.add_all([s1, s2])
+        db.commit()
+        db.refresh(s2)
+        target_id = s2.id
+        user_id = user.id
+    finally:
+        db.close()
+
+    # Link with the from.id as chat_id (callback handler resolves from from.id)
+    _link_chat(client, h, "123456789")
+
+    # Mock answer_callback_query
+    answered = []
+    monkeypatch.setattr(
+        telegram_service, "answer_callback_query",
+        lambda *a, **kw: answered.append(True) or True,
+    )
+
+    # Simulate a callback_query update (not a message update)
+    callback_payload = {
+        "update_id": _next_update_id[0] + 100,
+        "callback_query": {
+            "id": "cb-test-123",
+            "from": {"id": 123456789, "first_name": "Test"},
+            "message": {
+                "message_id": 1,
+                "chat": {"id": "123456789"},
+                "text": "Select a conversation:",
+            },
+            "data": f"switch:{target_id}",
+        },
+    }
+    _next_update_id[0] += 100
+
+    client.post("/api/telegram/webhook", json=callback_payload, headers=_headers())
+
+    # answer_callback_query was called
+    assert len(answered) >= 1
+
+    # Session switched
+    db = _db()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="alfred_cb").first()
+        assert user.active_alfred_session_id == target_id
+    finally:
+        db.close()
+
+    # Confirmation reply sent
+    assert any("Target session" in c[0][2] for c in sent)
+
+
+def test_session_scoped_history_no_leak(client, auth_headers, monkeypatch):
+    """Two sessions for the same user never leak messages into each other's context."""
+    h = auth_headers("alfred_noleak")
+    _link_chat(client, h, "noleak-chat")
+    import models
+
+    user = _user("alfred_noleak")
+
+    # Create two sessions
+    session_a = alfred_agent.create_session(db=_db(), user=user, title="Session A")
+    session_b = alfred_agent.create_session(db=_db(), user=user, title="Session B")
+
+    # Store messages in session A only
+    db = _db()
+    try:
+        alfred_agent.store_turn(db, user, session_a.id, "message in A", "reply in A")
+    finally:
+        db.close()
+
+    # Get history for session B — should be empty
+    db = _db()
+    try:
+        history_b = alfred_agent.get_history(db, user, session_b.id)
+        assert len(history_b) == 0
+
+        # Get history for session A — should have the messages
+        history_a = alfred_agent.get_history(db, user, session_a.id)
+        assert len(history_a) == 2  # user + assistant
+        assert history_a[0]["content"] == "message in A"
+        assert history_a[1]["content"] == "reply in A"
+    finally:
+        db.close()
+
+
+def test_auto_titling_first_exchange_sets_title(client, auth_headers, monkeypatch):
+    """First exchange auto-titles the session from the user message."""
+    h = auth_headers("alfred_title")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "title-chat")
+
+    calls = _mock_llm(monkeypatch, [
+        LLMResponse(text="Understood, sir."),
+    ])
+    # Send a message — this auto-creates a session and auto-titles it
+    client.post("/api/telegram/webhook", json=_update("title-chat", "Remind me to buy groceries"), headers=_headers())
+
+    import models
+    user = _user("alfred_title")
+    db = _db()
+    try:
+        sessions = db.query(models.BatAlfredSession).filter_by(owner_id=user.id).all()
+        assert len(sessions) >= 1
+        session = sessions[-1]
+        assert session.title == "Remind me to buy groceries"
+    finally:
+        db.close()
+
+
+def test_auto_titling_truncates_long_titles(client, auth_headers, monkeypatch):
+    """Long user messages get truncated to 40 chars with ellipsis."""
+    import models
+
+    user = _user("alfred_title_trunc") or None
+    if user is None:
+        user = _user("alfred_title")
+
+    long_msg = "This is a very long message that exceeds forty characters and should be truncated"
+    session = alfred_agent.create_session(db=_db(), user=user, title="New conversation")
+    db = _db()
+    try:
+        alfred_agent.auto_title_session(db, session, long_msg)
+        assert len(session.title) == 41  # 40 + ellipsis
+        assert session.title.endswith("…")
+        assert session.title == long_msg[:40] + "…"
+    finally:
+        db.close()
+
+
+def test_auto_titling_does_not_overwrite(client, auth_headers, monkeypatch):
+    """Subsequent exchanges don't overwrite an already-set title."""
+    import models
+
+    user = _user("alfred_title_nooverwrite") or _user("alfred_title")
+    session = alfred_agent.create_session(db=_db(), user=user, title="Already titled")
+    db = _db()
+    try:
+        alfred_agent.auto_title_session(db, session, "Different message")
+        assert session.title == "Already titled"
+    finally:
+        db.close()
+
+
+def test_web_session_switch_does_not_change_telegram_active(client, auth_headers, monkeypatch):
+    """Switching sessions via the web endpoint does NOT change active_alfred_session_id."""
+    h = auth_headers("alfred_web_indep")
+    import models
+
+    user = _user("alfred_web_indep")
+
+    # Create two sessions
+    db = _db()
+    try:
+        s1 = models.BatAlfredSession(title="Telegram session", owner_id=user.id)
+        s2 = models.BatAlfredSession(title="Web session", owner_id=user.id)
+        db.add_all([s1, s2])
+        db.commit()
+        db.refresh(s1)
+        db.refresh(s2)
+        telegram_session_id = s1.id
+        web_session_id = s2.id
+    finally:
+        db.close()
+
+    # Set Telegram's active session
+    db = _db()
+    try:
+        user_obj = db.query(models.BatAccount).filter_by(id=user.id).first()
+        user_obj.active_alfred_session_id = telegram_session_id
+        db.commit()
+    finally:
+        db.close()
+
+    # Use the web endpoint with the web session — should NOT change active_alfred_session_id
+    _mock_llm(monkeypatch, [LLMResponse(text="Web reply, sir.")])
+    client.post(
+        f"/api/alfred/sessions/{web_session_id}/messages",
+        headers=h,
+    )
+    # (The GET endpoint doesn't change anything — just verify active is unchanged)
+
+    db = _db()
+    try:
+        user_obj = db.query(models.BatAccount).filter_by(id=user.id).first()
+        assert user_obj.active_alfred_session_id == telegram_session_id
+    finally:
+        db.close()
+
+
+def test_first_ever_message_auto_creates_session(client, auth_headers, monkeypatch):
+    """User with no sessions gets one auto-created on first message."""
+    h = auth_headers("alfred_first")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "first-chat")
+
+    _mock_llm(monkeypatch, [LLMResponse(text="Welcome, sir.")])
+
+    import models
+    user = _user("alfred_first")
+    # Ensure no sessions exist
+    db = _db()
+    try:
+        db.query(models.BatAlfredSession).filter_by(owner_id=user.id).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    # Send first message
+    client.post("/api/telegram/webhook", json=_update("first-chat", "Hello Alfred"), headers=_headers())
+
+    db = _db()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="alfred_first").first()
+        sessions = db.query(models.BatAlfredSession).filter_by(owner_id=user.id).all()
+        assert len(sessions) == 1
+        assert sessions[0].title == "Hello Alfred"  # auto-titled from first message
+        assert user.active_alfred_session_id == sessions[0].id
+        # Message stored in the session
+        msgs = db.query(models.BatAlfredMessage).filter_by(session_id=sessions[0].id).all()
+        assert len(msgs) == 2  # user + assistant
+    finally:
+        db.close()

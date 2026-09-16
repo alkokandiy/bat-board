@@ -143,12 +143,16 @@ def is_telegram_linked(
     )
 
 
-def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: float = 10.0) -> bool:
+def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: float = 10.0, reply_markup: dict = None) -> bool:
     """POST a sendMessage to Telegram's Bot API. Returns True on success."""
     try:
+        payload = {"chat_id": chat_id, "text": text}
+        if reply_markup is not None:
+            import json as _json
+            payload["reply_markup"] = _json.dumps(reply_markup)
         resp = httpx.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json=payload,
             timeout=timeout,
         )
         if resp.status_code != 200:
@@ -157,4 +161,21 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: floa
         return True
     except Exception as exc:
         logger.error("telegram_send_error", error_type=type(exc).__name__, error=str(exc))
+        return False
+
+
+def answer_callback_query(bot_token: str, callback_query_id: str, text: str = "", timeout: float = 10.0) -> bool:
+    """Answer a Telegram callback query to stop the button loading spinner."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id, "text": text},
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            logger.error("telegram_answer_callback_failed", status_code=resp.status_code)
+            return False
+        return True
+    except Exception as exc:
+        logger.error("telegram_answer_callback_error", error_type=type(exc).__name__, error=str(exc))
         return False

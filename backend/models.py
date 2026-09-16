@@ -26,8 +26,12 @@ class BatAccount(Base):
     personal_access_tokens = relationship("BatPersonalAccessToken", back_populates="owner", cascade="all, delete-orphan")
     telegram_link_codes = relationship("BatTelegramLinkCode", back_populates="owner", cascade="all, delete-orphan")
     alfred_messages = relationship("BatAlfredMessage", back_populates="owner", cascade="all, delete-orphan")
+    alfred_sessions = relationship("BatAlfredSession", back_populates="owner", cascade="all, delete-orphan",
+                                    foreign_keys="[BatAlfredSession.owner_id]")
     pending_alfred_actions = relationship("BatPendingAlfredAction", back_populates="owner", cascade="all, delete-orphan")
     alfred_usage = relationship("BatAlfredUsage", back_populates="owner", cascade="all, delete-orphan")
+
+    active_alfred_session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="SET NULL"), nullable=True)
 
 
 class BatMission(Base):
@@ -196,6 +200,22 @@ class BatTelegramLinkCode(Base):
     owner = relationship("BatAccount", back_populates="telegram_link_codes")
 
 
+class BatAlfredSession(Base):
+    """A distinct conversation thread, shared across Telegram and web UI."""
+
+    __tablename__ = "bat_alfred_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False, default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="alfred_sessions", foreign_keys=[owner_id])
+    messages = relationship("BatAlfredMessage", back_populates="session", cascade="all, delete-orphan",
+                            foreign_keys="[BatAlfredMessage.session_id]")
+
+
 class BatAlfredMessage(Base):
     """Conversation memory: only human-readable turns are stored, never
     intermediate tool-call/tool-result exchanges."""
@@ -209,6 +229,8 @@ class BatAlfredMessage(Base):
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
     owner = relationship("BatAccount", back_populates="alfred_messages")
+    session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    session = relationship("BatAlfredSession", back_populates="messages")
 
 
 class BatPendingAlfredAction(Base):
