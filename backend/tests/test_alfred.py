@@ -421,20 +421,44 @@ def test_system_prompt_injects_current_tashkent_date(client, auth_headers, monke
     assert str(now_tashkent.year) in content
 
 
-def test_get_alfred_profile_tool_returns_full_text(client, auth_headers, monkeypatch):
-    """The get_alfred_profile tool must return the full profile document."""
-    h = auth_headers("alfred_profile_tool")
+def test_get_alfred_profile_from_note(client, auth_headers, monkeypatch):
+    """When a Note titled 'Alfred Context — Master Profile' exists, the tool returns its body."""
+    h = auth_headers("alfred_profile_note")
     sent = _mock_send(monkeypatch)
-    _link_chat(client, h, "profile-chat")
+    _link_chat(client, h, "profile-note")
+
+    profile_body = "ALFRED — FULL PROFILE\n=====================\n\n1. IDENTITY\n-----------\nFull Name: Alfred Pennyworth."
+    client.post(
+        "/api/notes",
+        json={"title": "Alfred Context — Master Profile", "body": profile_body},
+        headers=h,
+    )
 
     calls = _mock_llm(monkeypatch, [
         LLMResponse(tool_calls=[ToolCall("get_alfred_profile", {})]),
         LLMResponse(text="My background is extensive, sir."),
     ])
-    client.post("/api/telegram/webhook", json=_update("profile-chat", "tell me about yourself"), headers=_headers())
+    client.post("/api/telegram/webhook", json=_update("profile-note", "tell me about yourself"), headers=_headers())
 
     assert len(calls) == 2
-    # The tool result in the second LLM call must contain profile content
     tool_result_msg = calls[1][0][-1]
     assert tool_result_msg["role"] == "tool"
-    assert "ALFRED" in tool_result_msg["result"]["profile"]
+    assert tool_result_msg["result"]["profile"] == profile_body
+
+
+def test_get_alfred_profile_missing_note_returns_fallback(client, auth_headers, monkeypatch):
+    """When no matching Note exists, the tool returns a fallback message — no exception."""
+    h = auth_headers("alfred_profile_missing")
+    sent = _mock_send(monkeypatch)
+    _link_chat(client, h, "profile-missing")
+
+    calls = _mock_llm(monkeypatch, [
+        LLMResponse(tool_calls=[ToolCall("get_alfred_profile", {})]),
+        LLMResponse(text="The profile is not loaded yet, sir."),
+    ])
+    client.post("/api/telegram/webhook", json=_update("profile-missing", "tell me about yourself"), headers=_headers())
+
+    assert len(calls) == 2
+    tool_result_msg = calls[1][0][-1]
+    assert tool_result_msg["role"] == "tool"
+    assert "not been loaded" in tool_result_msg["result"]["profile"]
