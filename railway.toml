@@ -25,3 +25,8 @@ value = '["*"]'
 [[service.variables]]
 key = "SECRET_KEY"
 value = "set-this-to-a-random-64-char-string-in-railway"
+
+# Single-user: 1 worker (was 4). Does not touch the database.
+[[service.variables]]
+key = "WEB_CONCURRENCY"
+value = "1"

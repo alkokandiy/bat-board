@@ -17,4 +17,5 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["gunicorn", "main:app", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "--keep-alive", "5", "--log-level", "info"]
+# Single-user local/dev: 1 worker (was 4)
+CMD ["sh", "-c", "gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers ${WEB_CONCURRENCY:-1} --timeout 60 --keep-alive 5 --log-level info"]

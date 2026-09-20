@@ -27,5 +27,6 @@ COPY --from=frontend-builder /app/frontend/dist /app/static
 
 EXPOSE 8000
 
-# Railway provides PORT env, but we bind to 8000 internally
-CMD gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 4 --timeout 120 --keep-alive 5 --log-level info
+# Single-user: 1 worker is plenty (was 4). Override with WEB_CONCURRENCY=2 if needed.
+# Railway provides PORT env, default to 8000 locally.
+CMD sh -c 'gunicorn main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --timeout 60 --keep-alive 5 --log-level info'

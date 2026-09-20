@@ -2,9 +2,15 @@
 .gitignore
 __pycache__
 *.pyc
+.pytest_cache
 .env
 .env.*
 *.log
+*.db
 node_modules
+frontend/dist
+frontend/node_modules
+backend/__pycache__
+backend/.venv
 .venv
 venv
