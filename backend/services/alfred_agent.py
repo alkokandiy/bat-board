@@ -24,6 +24,7 @@ from services.notes_service import delete_note
 from services.mission_service import delete_mission
 from services.habit_service import delete_habit
 from services.calendar_service import delete_event
+from services.llm_providers.base import LLMProviderAdapter, extract_system_instruction
 
 logger = structlog.get_logger()
 
@@ -387,12 +388,21 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str, session
     return final_text
 
 
-async def _tool_loop(db: Session, user: models.BatAccount, messages: List[dict]) -> str:
+async def _tool_loop(
+    db: Session,
+    user: models.BatAccount,
+    messages: List[dict],
+    adapter: Optional["LLMProviderAdapter"] = None,
+) -> str:
     executions = 0
     last_text = None
 
     while executions < MAX_TOOL_CALLS_PER_TURN:
-        response = await llm_provider.generate(messages, alfred_tools.ALL_TOOLS)
+        if adapter is None:
+            response = await llm_provider.generate(messages, alfred_tools.ALL_TOOLS)
+        else:
+            system, _ = extract_system_instruction(messages)
+            response = await adapter.generate(messages, alfred_tools.ALL_TOOLS, system)
         if response.text:
             last_text = response.text
         if not response.tool_calls:

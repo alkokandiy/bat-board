@@ -38,6 +38,8 @@ httpx==0.28.1
 
 # LLM (Alfred)
 google-genai==2.23.0
+anthropic==1.8.0
+openai==3.19.2
 
 # Type Checking
 mypy==1.10.0
