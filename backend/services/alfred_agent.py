@@ -137,6 +137,10 @@ CONFIRM_WORDS = {"yes", "y", "confirm"}
 DAILY_MESSAGE_CAP = 200
 
 NOT_CONFIGURED_REPLY = "Alfred isn't configured yet — the server is missing its model key."
+SETUP_REPLY = (
+    "Alfred isn't connected to a model yet, sir. Open bat-board → Alfred settings "
+    "to add your provider key, or send /setkey <provider> <model> <key> here."
+)
 SNAG_REPLY = "Alfred hit a snag — try again in a moment."
 RATE_LIMIT_REPLY = "Alfred's thinking engine is rate-limited right now — give it a minute and try again."
 SERVICE_DOWN_REPLY = "Alfred's thinking engine is temporarily overloaded — try again in a moment."
@@ -342,6 +346,23 @@ def gate_destructive_tool(
 
 # --- Main turn loop (Part 5.5) ---
 
+class NoProviderConfiguredError(RuntimeError):
+    """Raised when a turn needs an LLM but the user has no provider config."""
+
+
+def resolve_adapter_for_user(db: Session, user: models.BatAccount):
+    """Per-user adapter selection. Raises NoProviderConfiguredError when absent."""
+    from services import provider_config_service
+
+    row = provider_config_service.get_config_row(db, user)
+    if row is None:
+        raise NoProviderConfiguredError(
+            "No AI provider configured for this user."
+        )
+    raw_key = provider_config_service.decrypt_key(row.api_key_encrypted)
+    return provider_config_service.build_adapter(row.provider, row.model_name, raw_key)
+
+
 async def run_turn(db: Session, user: models.BatAccount, user_text: str, session_id: int = None) -> str:
     """Process one user message. Always returns the exact reply string.
 
@@ -357,6 +378,12 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str, session
         store_turn(db, user, session_id, user_text, reply)
         return reply
 
+    try:
+        adapter = resolve_adapter_for_user(db, user)
+    except NoProviderConfiguredError:
+        store_turn(db, user, session_id, user_text, SETUP_REPLY)
+        return SETUP_REPLY
+
     if not check_usage(db, user):
         return CAPPED_REPLY
 
@@ -367,7 +394,7 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str, session
     )
 
     try:
-        final_text = await _tool_loop(db, user, messages)
+        final_text = await _tool_loop(db, user, messages, adapter=adapter)
     except llm_provider.LLMNotConfiguredError:
         final_text = NOT_CONFIGURED_REPLY
     except llm_provider.LLMLimitError:

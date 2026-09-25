@@ -30,6 +30,7 @@ class BatAccount(Base):
                                     foreign_keys="[BatAlfredSession.owner_id]")
     pending_alfred_actions = relationship("BatPendingAlfredAction", back_populates="owner", cascade="all, delete-orphan")
     alfred_usage = relationship("BatAlfredUsage", back_populates="owner", cascade="all, delete-orphan")
+    ai_provider_config = relationship("BatAIProviderConfig", back_populates="owner", cascade="all, delete-orphan", uselist=False)
 
     active_alfred_session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="SET NULL"), nullable=True)
 
@@ -272,3 +273,19 @@ class BatAlfredUsage(Base):
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
     owner = relationship("BatAccount", back_populates="alfred_usage")
+
+
+class BatAIProviderConfig(Base):
+    """Per-user LLM provider config (BYOK). One row per user, key encrypted."""
+
+    __tablename__ = "bat_ai_provider_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    provider = Column(String, nullable=False)  # gemini|anthropic|openai|deepseek|kimi
+    model_name = Column(String, nullable=False)  # user-supplied, never hardcoded
+    api_key_encrypted = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    owner = relationship("BatAccount", back_populates="ai_provider_config")

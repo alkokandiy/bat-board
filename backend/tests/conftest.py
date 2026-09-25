@@ -8,6 +8,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"
 # since get_settings() is lru-cached at import time).
 os.environ.setdefault("TELEGRAM_WEBHOOK_SECRET", "test-webhook-secret-12345")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-bot-token")
+os.environ.setdefault("PROVIDER_KEY_ENCRYPTION_SECRET", "test-provider-secret-1234567890")
 
 import pytest
 from fastapi.testclient import TestClient
@@ -60,6 +61,21 @@ def auth_headers():
             finally:
                 db.close()
             created.add(username)
+        # Every test user gets a dummy provider config so run_turn
+        # reaches the tool loop; tests then mock adapter resolution.
+        # Idempotent: only creates when missing. Tests for the no-config
+        # path delete this row explicitly after getting headers.
+        from services import provider_config_service
+
+        db = SessionLocal()
+        try:
+            user = db.query(models.BatAccount).filter_by(username=username).first()
+            if user is not None and provider_config_service.get_config_row(db, user) is None:
+                provider_config_service.save_config(
+                    db, user, "gemini", "test-model", "test-key"
+                )
+        finally:
+            db.close()
         token = create_access_token({"sub": username})
         return {"Authorization": f"Bearer {token}"}
 

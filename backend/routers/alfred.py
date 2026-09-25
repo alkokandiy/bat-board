@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 
 import models
 from dependencies import get_current_active_user, get_db, limiter
-from services import alfred_agent
+from services import alfred_agent, provider_config_service
+
+
+class ProviderKeyRequest(BaseModel):
+    provider: str = Field(..., min_length=1, max_length=32)
+    model_name: str = Field(..., min_length=1, max_length=128)
+    api_key: str = Field(..., min_length=1, max_length=512)
 
 logger = structlog.get_logger()
 
@@ -96,3 +102,59 @@ def get_session_messages(
         .all()
     )
     return [{"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()} for m in messages]
+
+
+@router.get("/api/alfred/provider")
+def provider_status(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Status only — never the key."""
+    return provider_config_service.get_config_status(db, current_user)
+
+
+@router.post("/api/alfred/provider/test")
+@limiter.limit("10/minute")
+async def provider_test(
+    request: Request,
+    payload: ProviderKeyRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Validate a key without saving. Returns {ok, message}."""
+    ok, message = await provider_config_service.test_config(
+        payload.provider, payload.model_name, payload.api_key
+    )
+    return {"ok": ok, "message": message}
+
+
+@router.post("/api/alfred/provider")
+@limiter.limit("10/minute")
+async def provider_save(
+    request: Request,
+    payload: ProviderKeyRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Test first; reject the save when the key doesn't work."""
+    ok, message = await provider_config_service.test_config(
+        payload.provider, payload.model_name, payload.api_key
+    )
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    try:
+        row = provider_config_service.save_config(
+            db, current_user, payload.provider, payload.model_name, payload.api_key
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {"provider": row.provider, "model_name": row.model_name, "configured": True}
+
+
+@router.delete("/api/alfred/provider")
+def provider_delete(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    provider_config_service.delete_config(db, current_user)
+    return {"provider": None, "model_name": None, "configured": False}

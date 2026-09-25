@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Minus, X, Plus, MessageSquare } from 'lucide-react';
+import { Bot, Minus, X, Plus, MessageSquare, Settings } from 'lucide-react';
 import { api } from '../utils/api.js';
+
+const PROVIDERS = ['gemini', 'anthropic', 'openai', 'deepseek', 'kimi'];
+const MODEL_HINTS = {
+  gemini: 'gemini-3.1-flash-lite',
+  anthropic: 'claude-sonnet-5',
+  openai: 'gpt-5.6',
+  deepseek: 'deepseek-chat',
+  kimi: 'kimi-k3',
+};
 
 /**
  * Floating Alfred companion: present on every tab, bottom-right.
@@ -16,6 +25,13 @@ export default function AlfredWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [providerStatus, setProviderStatus] = useState(null);
+  const [provProvider, setProvProvider] = useState('gemini');
+  const [provModel, setProvModel] = useState('');
+  const [provKey, setProvKey] = useState('');
+  const [provTest, setProvTest] = useState(null); // {ok, message, fingerprint}
+  const [provBusy, setProvBusy] = useState(false);
   const bottomRef = useRef(null);
   const loadedRef = useRef(false);
 
@@ -62,6 +78,62 @@ export default function AlfredWidget() {
       setSessions(prev => [{ id: created.id, title: created.title, updated_at: new Date().toISOString() }, ...prev]);
       await selectSession(created.id);
     } catch {}
+  };
+
+  const loadProviderStatus = async () => {
+    try {
+      setProviderStatus(await api.getAlfredProvider());
+    } catch {
+      setProviderStatus(null);
+    }
+  };
+
+  const openSettings = async () => {
+    setShowSettings(v => !v);
+    setProvTest(null);
+    await loadProviderStatus();
+  };
+
+  const provFingerprint = `${provProvider}|${provModel.trim()}|${provKey.trim()}`;
+  const testPassedCurrent = provTest?.ok && provTest?.fingerprint === provFingerprint;
+
+  const testProvider = async () => {
+    if (!provModel.trim() || !provKey.trim() || provBusy) return;
+    setProvBusy(true);
+    setProvTest(null);
+    try {
+      const res = await api.testAlfredProvider(provProvider, provModel.trim(), provKey.trim());
+      setProvTest({ ...res, fingerprint: provFingerprint });
+    } catch (err) {
+      setProvTest({ ok: false, message: err.message, fingerprint: provFingerprint });
+    } finally {
+      setProvBusy(false);
+    }
+  };
+
+  const saveProvider = async () => {
+    if (!testPassedCurrent || provBusy) return;
+    setProvBusy(true);
+    try {
+      const res = await api.saveAlfredProvider(provProvider, provModel.trim(), provKey.trim());
+      setProviderStatus(res);
+      setProvKey('');
+      setProvTest(null);
+    } catch (err) {
+      setProvTest({ ok: false, message: err.message, fingerprint: provFingerprint });
+    } finally {
+      setProvBusy(false);
+    }
+  };
+
+  const removeProvider = async () => {
+    if (provBusy) return;
+    setProvBusy(true);
+    try {
+      setProviderStatus(await api.deleteAlfredProvider());
+    } catch {} finally {
+      setProvBusy(false);
+    }
   };
 
   const send = async () => {
@@ -125,6 +197,9 @@ export default function AlfredWidget() {
           <button onClick={() => setShowSidebar(!showSidebar)} title="Conversations" className="p-1.5 text-slate-500 hover:text-electric-bat-yellow transition">
             <MessageSquare size={14} />
           </button>
+          <button onClick={openSettings} title="Model settings" className="p-1.5 text-slate-500 hover:text-electric-bat-yellow transition">
+            <Settings size={14} />
+          </button>
           <button onClick={() => setMinimized(true)} title="Minimize" className="p-1.5 text-slate-500 hover:text-slate-200 transition">
             <Minus size={14} />
           </button>
@@ -157,6 +232,75 @@ export default function AlfredWidget() {
               <div className="text-[10px] text-slate-600">{new Date(s.updated_at).toLocaleDateString()}</div>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Provider settings */}
+      {showSettings && (
+        <div className="shrink-0 border-b border-slate-800 bg-matte-obsidian px-3 py-2.5 space-y-2 max-h-[16rem] overflow-y-auto">
+          <span className="text-[10px] font-mono text-slate-500 tracking-widest">MODEL SETTINGS</span>
+          {providerStatus?.configured ? (
+            <div className="space-y-2">
+              <div className="text-[12px] font-body text-slate-300">
+                {providerStatus.provider} · <span className="text-slate-500">{providerStatus.model_name}</span>
+              </div>
+              <div className="text-[11px] font-body text-slate-600">Key stored — never shown again.</div>
+              <button
+                onClick={removeProvider}
+                disabled={provBusy}
+                className="px-3 py-1.5 border border-red-400/40 text-red-400 rounded-lg text-[11px] font-mono tracking-widest hover:bg-red-400/10 transition disabled:opacity-50"
+              >
+                REMOVE
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <select
+                value={provProvider}
+                onChange={e => { setProvProvider(e.target.value); setProvTest(null); }}
+                className="w-full bg-dark-slate border border-slate-800 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-electric-bat-yellow font-body"
+              >
+                {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <input
+                type="text"
+                value={provModel}
+                onChange={e => setProvModel(e.target.value)}
+                placeholder={MODEL_HINTS[provProvider]}
+                className="w-full bg-dark-slate border border-slate-800 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow font-body"
+              />
+              <input
+                type="password"
+                value={provKey}
+                onChange={e => setProvKey(e.target.value)}
+                placeholder="API key"
+                autoComplete="off"
+                className="w-full bg-dark-slate border border-slate-800 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow font-body"
+              />
+              {provTest && (
+                <div className={`text-[11px] font-body ${provTest.ok ? 'text-green-400' : 'text-red-400'}`}>
+                  {provTest.ok ? '✓ ' : '✗ '}{provTest.message}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={testProvider}
+                  disabled={provBusy || !provModel.trim() || !provKey.trim()}
+                  className="px-3 py-1.5 border border-slate-700 text-slate-300 rounded-lg text-[11px] font-mono tracking-widest hover:border-electric-bat-yellow transition disabled:opacity-50"
+                >
+                  TEST
+                </button>
+                <button
+                  onClick={saveProvider}
+                  disabled={!testPassedCurrent || provBusy}
+                  title={testPassedCurrent ? 'Save tested key' : 'Test the key first'}
+                  className="px-3 py-1.5 bg-electric-bat-yellow text-matte-obsidian font-bold rounded-lg text-[11px] font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+                >
+                  SAVE
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

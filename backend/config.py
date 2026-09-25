@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3.1-flash-lite"
 
+    # Per-user provider keys (BYOK). Fail-loudly like SECRET_KEY: the app
+    # refuses to boot without it, so stored keys are never unreadable.
+    provider_key_encryption_secret: Optional[str] = None
+
     log_level: str = "INFO"
     log_format: str = "console"
 
@@ -58,6 +62,17 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "SECRET_KEY must be set to a strong random value in production. "
                 "Refusing to start with a missing or default key."
+            )
+        return v
+
+    @field_validator("provider_key_encryption_secret", mode="before")
+    @classmethod
+    def validate_provider_secret(cls, v) -> str:
+        if not v or len(v) < 16:
+            raise RuntimeError(
+                "PROVIDER_KEY_ENCRYPTION_SECRET must be set to a strong random "
+                "value in production. Refusing to start without it — stored "
+                "provider keys would be unreadable."
             )
         return v
 

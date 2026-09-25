@@ -24,7 +24,7 @@ from dependencies import (
     get_user_by_telegram_chat_id,
     limiter,
 )
-from services import alfred_agent, telegram_service
+from services import alfred_agent, provider_config_service, telegram_service
 
 logger = structlog.get_logger()
 
@@ -163,6 +163,34 @@ async def process_telegram_update(payload: dict) -> None:
                 session = alfred_agent.create_session(db, user, "New conversation")
                 alfred_agent.set_active_session(db, user, session.id)
                 _reply(chat_id, "Started a new conversation.")
+                return
+
+            if text.startswith("/setkey"):
+                parts = text.split(None, 3)
+                if len(parts) < 4:
+                    _reply(chat_id, "Usage: /setkey <provider> <model> <key>\nProviders: gemini, anthropic, openai, deepseek, kimi")
+                else:
+                    _, provider, model_name, raw_key = parts
+                    provider = provider.strip().lower()
+                    ok, msg = await provider_config_service.test_config(provider, model_name.strip(), raw_key)
+                    if ok:
+                        try:
+                            provider_config_service.save_config(db, user, provider, model_name.strip(), raw_key)
+                            _reply(chat_id, f"Provider key saved: {provider} / {model_name.strip()}. Alfred is at your service.")
+                        except ValueError as exc:
+                            _reply(chat_id, f"Not saved: {exc}")
+                    else:
+                        _reply(chat_id, f"Key test failed — not saved. {msg}")
+                # Always scrub the raw-key message; deletion failure must not
+                # break the flow — the key is already saved encrypted.
+                try:
+                    message_id = message.get("message_id")
+                    if message_id is not None:
+                        telegram_service.delete_telegram_message(
+                            get_settings().telegram_bot_token, chat_id, message_id
+                        )
+                except Exception as exc:
+                    logger.warning("setkey_message_delete_failed", error=str(exc))
                 return
 
             if text.startswith("/chats"):

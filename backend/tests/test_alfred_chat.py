@@ -1,6 +1,6 @@
 """Tests for the in-app Alfred chat endpoint (LLM mocked)."""
 
-from services import llm_provider
+from services import alfred_agent, llm_provider
 from services.llm_provider import LLMResponse, ToolCall
 from services import telegram_service
 
@@ -8,14 +8,15 @@ from services import telegram_service
 def _mock_llm(monkeypatch, script):
     calls = []
 
-    async def fake(messages, tools):
-        calls.append((messages, tools))
-        item = script[min(len(calls) - 1, len(script) - 1)]
-        if isinstance(item, Exception):
-            raise item
-        return item
+    class FakeAdapter:
+        async def generate(self, messages, tools, system_instruction=None):
+            calls.append((messages, tools, system_instruction))
+            item = script[min(len(calls) - 1, len(script) - 1)]
+            if isinstance(item, Exception):
+                raise item
+            return item
 
-    monkeypatch.setattr(llm_provider, "generate", fake)
+    monkeypatch.setattr(alfred_agent, "resolve_adapter_for_user", lambda db, user: FakeAdapter())
     return calls
 
 
@@ -52,12 +53,24 @@ def test_alfred_chat_round_trip(client, auth_headers, monkeypatch):
         db.close()
 
 
-def test_alfred_chat_unconfigured_without_key(client, auth_headers):
-    h = auth_headers("alfred_chat_nokey")
-    session_id = _create_session(client, h, "Nokey test")
+def test_alfred_chat_no_provider_setup_reply(client, auth_headers):
+    h = auth_headers("alfred_chat_noconfig")
+    # Remove the autouse dummy config → truly unconfigured user.
+    from database import SessionLocal
+    import models
+    from services import provider_config_service
+
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="alfred_chat_noconfig").first()
+        provider_config_service.delete_config(db, user)
+    finally:
+        db.close()
+
+    session_id = _create_session(client, h, "Noconfig test")
     r = client.post("/api/alfred/chat", json={"message": "hello", "session_id": session_id}, headers=h)
     assert r.status_code == 200
-    assert "isn't configured yet" in r.json()["reply"]
+    assert "isn't connected to a model" in r.json()["reply"]
 
 
 def test_alfred_chat_validation(client, auth_headers):

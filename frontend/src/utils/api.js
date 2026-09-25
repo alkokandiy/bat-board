@@ -214,4 +214,10 @@ export const api = {
   getAlfredSessions: () => request('/alfred/sessions'),
   createAlfredSession: (title) => request('/alfred/sessions', { method: 'POST', body: { title } }),
   getAlfredSessionMessages: (id) => request(`/alfred/sessions/${id}/messages`),
+
+  // Alfred provider (BYOK — key never returned by any of these)
+  getAlfredProvider: () => request('/alfred/provider'),
+  testAlfredProvider: (provider, model_name, api_key) => request('/alfred/provider/test', { method: 'POST', body: { provider, model_name, api_key } }),
+  saveAlfredProvider: (provider, model_name, api_key) => request('/alfred/provider', { method: 'POST', body: { provider, model_name, api_key } }),
+  deleteAlfredProvider: () => request('/alfred/provider', { method: 'DELETE' }),
 };

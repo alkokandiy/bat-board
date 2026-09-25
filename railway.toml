@@ -26,6 +26,10 @@ value = '["*"]'
 key = "SECRET_KEY"
 value = "set-this-to-a-random-64-char-string-in-railway"
 
+[[service.variables]]
+key = "PROVIDER_KEY_ENCRYPTION_SECRET"
+value = "set-this-to-a-random-64-char-string-in-railway"
+
 # Single-user: 1 worker (was 4). Does not touch the database.
 [[service.variables]]
 key = "WEB_CONCURRENCY"

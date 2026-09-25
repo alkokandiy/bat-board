@@ -179,3 +179,20 @@ def answer_callback_query(bot_token: str, callback_query_id: str, text: str = ""
     except Exception as exc:
         logger.error("telegram_answer_callback_error", error_type=type(exc).__name__, error=str(exc))
         return False
+
+
+def delete_telegram_message(bot_token: str, chat_id: str, message_id: int, timeout: float = 10.0) -> bool:
+    """Delete a message via deleteMessage. False on any failure — log, never raise."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/deleteMessage",
+            json={"chat_id": chat_id, "message_id": message_id},
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            logger.warning("telegram_delete_failed", status_code=resp.status_code, body=resp.text[:200])
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("telegram_delete_error", error_type=type(exc).__name__, error=str(exc))
+        return False
