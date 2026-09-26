@@ -220,6 +220,15 @@ def test_registry_known_pairs():
     assert get_capabilities("kimi", "kimi-k3").supports_tool_calling is True
 
 
+def test_registry_vision_audio_verified():
+    # Re-verified 2026-09-26 against provider docs (see verification report).
+    assert get_capabilities("anthropic", "claude-sonnet-5").supports_vision_input is True
+    assert get_capabilities("openai", "gpt-5.6").supports_vision_input is True
+    assert get_capabilities("anthropic", "claude-sonnet-5").supports_audio_input is False
+    assert get_capabilities("openai", "gpt-5.6").supports_audio_input is False
+    assert get_capabilities("anthropic", "claude-sonnet-5").supports_image_generation is False
+
+
 def test_registry_unknown_pair_returns_safe_default():
     caps = get_capabilities("nope", "nope-999")
     assert caps == ProviderCapabilities()
