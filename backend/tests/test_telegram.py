@@ -5,7 +5,8 @@ import inspect
 from datetime import datetime, timedelta, timezone
 
 import routers.telegram as telegram_router
-from services import telegram_service
+from services import alfred_agent, telegram_service
+from services.llm_provider import LLMResponse
 
 SECRET_HEADER = {"X-Telegram-Bot-Api-Secret-Token": "test-webhook-secret-12345"}
 
@@ -157,6 +158,12 @@ def test_placeholder_reply_for_linked_user(client, auth_headers, monkeypatch):
         telegram_service, "send_telegram_message", lambda *a: sent.append(a) or True
     )
 
+    class FakeAdapter:
+        async def generate(self, messages, tools, system_instruction=None):
+            return LLMResponse(text="Today is quiet, sir.")
+
+    monkeypatch.setattr(alfred_agent, "resolve_adapter_for_user", lambda db, user: FakeAdapter())
+
     code = client.post("/api/account/telegram-link/generate-code", headers=h).json()["code"]
     client.post("/api/telegram/webhook", json=_update(chat_id="chat-p", text=code), headers=SECRET_HEADER)
     sent.clear()
@@ -169,8 +176,9 @@ def test_placeholder_reply_for_linked_user(client, auth_headers, monkeypatch):
     bot_token, chat_id, text = sent[0]
     assert bot_token == "test-bot-token"
     assert chat_id == "chat-p"
-    # No GEMINI_API_KEY in tests → fail-closed reply, no crash.
-    assert "isn't configured yet" in text
+    # Linked user with a configured provider gets a real Alfred reply
+    # through the full webhook path — no network, adapter mocked.
+    assert text == "Today is quiet, sir."
 
 
 def test_unlink_revokes_and_unlinks(client, auth_headers, monkeypatch):
