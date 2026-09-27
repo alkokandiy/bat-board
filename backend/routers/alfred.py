@@ -6,13 +6,13 @@ shared (same tables, same user). Each surface (web vs Telegram) tracks its
 own "currently active" session independently."""
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import models
 from dependencies import get_current_active_user, get_db, limiter
-from services import alfred_agent, provider_config_service
+from services import alfred_agent, alfred_memory_reviewer, provider_config_service
 
 
 class ProviderKeyRequest(BaseModel):
@@ -39,6 +39,7 @@ class CreateSessionRequest(BaseModel):
 async def alfred_chat(
     request: Request,
     payload: ChatRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
@@ -55,6 +56,12 @@ async def alfred_chat(
     except Exception as exc:
         logger.error("alfred_chat_failed", error_type=type(exc).__name__, error=str(exc))
         reply = alfred_agent.SNAG_REPLY
+    # Memory review runs after the reply is sent — never on quota/setup
+    # short-circuits, which need no review and no extra spend.
+    if reply not in (alfred_agent.CAPPED_REPLY, alfred_agent.SETUP_REPLY):
+        alfred_memory_reviewer.schedule_memory_review(
+            background_tasks, current_user.id, payload.message, reply
+        )
     return {"reply": reply}
 
 

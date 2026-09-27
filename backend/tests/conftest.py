@@ -99,3 +99,17 @@ def _reset_rate_limits():
         except Exception:
             pass
     yield
+
+
+@pytest.fixture(autouse=True)
+def _silence_memory_reviewer(monkeypatch):
+    """Keep conversation tests deterministic: the background review pass is
+    silenced unless a test opts back in (test_memory_reviewer.py does, to
+    prove scheduling order/latency with the real scheduler)."""
+    from services import alfred_memory_reviewer
+
+    monkeypatch.setattr(
+        alfred_memory_reviewer, "schedule_memory_review",
+        lambda *a, **kw: None,
+    )
+    yield

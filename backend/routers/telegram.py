@@ -24,7 +24,7 @@ from dependencies import (
     get_user_by_telegram_chat_id,
     limiter,
 )
-from services import alfred_agent, provider_config_service, setup_wizard, telegram_service
+from services import alfred_agent, alfred_memory_reviewer, provider_config_service, setup_wizard, telegram_service
 
 logger = structlog.get_logger()
 
@@ -97,7 +97,7 @@ async def handle_telegram_webhook(request: Request, background_tasks, db: Sessio
     if update_id is not None and not _claim_update(db, update_id):
         return {"ok": True}  # duplicate delivery — no-op
 
-    background_tasks.add_task(process_telegram_update, payload)
+    background_tasks.add_task(process_telegram_update, payload, background_tasks)
     return {"ok": True}
 
 
@@ -115,7 +115,7 @@ def _claim_update(db: Session, update_id: int) -> bool:
         return True  # never block delivery on bookkeeping failure
 
 
-async def process_telegram_update(payload: dict) -> None:
+async def process_telegram_update(payload: dict, background_tasks) -> None:
     """Background processing: linking exchange, slash commands, callback queries, or Alfred turn."""
     db = SessionLocal()
     try:
@@ -239,6 +239,10 @@ async def process_telegram_update(payload: dict) -> None:
         session_id = active.id if active else None
         reply = await alfred_agent.run_turn(db, user, text, session_id=session_id)
         _reply(chat_id, reply)
+        # Memory review runs after the reply is already sent — never on
+        # quota/setup short-circuits, which need no review and no extra spend.
+        if reply not in (alfred_agent.CAPPED_REPLY, alfred_agent.SETUP_REPLY):
+            alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, text, reply)
     except Exception as exc:
         logger.error("telegram_process_failed", error_type=type(exc).__name__, error=str(exc))
         try:
