@@ -64,3 +64,14 @@ CAPABILITIES: Dict[Tuple[str, str], ProviderCapabilities] = {
 def get_capabilities(provider: str, model: str) -> ProviderCapabilities:
     """Conservative all-False default for unrecognized pairs — never crash."""
     return CAPABILITIES.get((provider, model), SAFE_DEFAULT)
+
+
+# Confirmed-working default per provider (keys of CAPABILITIES above).
+# Used as the recommended option in setup flows; free text still allowed.
+RECOMMENDED_MODELS = {
+    "gemini": "gemini-3.1-flash-lite",
+    "anthropic": "claude-sonnet-5",
+    "openai": "gpt-5.6",
+    "deepseek": "deepseek-chat",
+    "kimi": "kimi-k3",
+}

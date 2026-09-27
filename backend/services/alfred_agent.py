@@ -309,6 +309,10 @@ def check_pending_action(
     row = _get_pending(db, user)
     if row is None:
         return None, None
+    if not (row.action_type or "").startswith("delete_"):
+        # Not a destructive confirmation (e.g. a setup wizard row owned by
+        # the Telegram flow) — leave it alone for its own handler.
+        return None, None
     if text.strip().lower() in CONFIRM_WORDS:
         return "handled", _execute_pending(db, user, row)
     # Anything else clears the gate silently and the message is handled

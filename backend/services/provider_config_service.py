@@ -16,6 +16,20 @@ from config import get_settings
 SUPPORTED_PROVIDERS = ("gemini", "anthropic", "openai", "deepseek", "kimi")
 
 
+def detect_provider_from_key(raw_key: str) -> Optional[str]:
+    """Confident auto-detection only where the format is unambiguous.
+
+    OpenAI/DeepSeek/Kimi commonly share the bare 'sk-' prefix and cannot
+    be told apart by format — returns None there (ask, don't guess).
+    """
+    key = (raw_key or "").strip()
+    if key.startswith("AIzaSy"):
+        return "gemini"
+    if key.startswith("sk-ant-"):
+        return "anthropic"
+    return None
+
+
 def _fernet():
     from cryptography.fernet import Fernet
 
@@ -114,7 +128,13 @@ def build_adapter(provider: str, model_name: str, raw_api_key: str):
 
 
 async def test_config(provider: str, model_name: str, raw_api_key: str) -> Tuple[bool, str]:
-    """ONE minimal cheap call through the real adapter. Returns (ok, message)."""
+    """ONE minimal cheap call through the real adapter. Returns (ok, message).
+
+    Deliberately sends a tools-bearing request (one trivial declaration),
+    mirroring what a real turn does — a key that can chat but can't do
+    function calling must fail HERE with a clear message, not one message
+    after a "saved" reply.
+    """
     if provider not in SUPPORTED_PROVIDERS:
         return False, f"Unknown provider: {provider}. Choose one of: {', '.join(SUPPORTED_PROVIDERS)}."
     if not model_name or not model_name.strip():
@@ -125,7 +145,8 @@ async def test_config(provider: str, model_name: str, raw_api_key: str) -> Tuple
         adapter = build_adapter(provider, model_name.strip(), raw_api_key.strip())
         resp = await adapter.generate(
             [{"role": "user", "content": "Reply with exactly: ok"}],
-            [],
+            [{"name": "ping_check", "description": "Connectivity check, takes no arguments.",
+              "parameters": {"type": "object", "properties": {}}}],
             "Reply with exactly: ok",
         )
         text = (resp.text or "").strip().lower()
