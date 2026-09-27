@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from jose import JWTError, jwt
+import jwt
 import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -94,7 +94,7 @@ def decode_token(token: str) -> Optional[TokenData]:
         if username is None:
             return None
         return TokenData(username=username)
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 
@@ -107,7 +107,7 @@ def decode_refresh_token(token: str) -> Optional[TokenData]:
         if username is None:
             return None
         return TokenData(username=username)
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 
