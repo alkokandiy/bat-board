@@ -29,12 +29,29 @@ FOCUS_NO_LIVE_SYNC_NOTE = (
 )
 
 
-ALFRED_PROFILE_NOTE_TITLE = "Alfred Context — Master Profile"
-ALFRED_PROFILE_FALLBACK = (
-    "The full profile document has not been loaded into bat-board yet. "
-    "Create a Note titled 'Alfred Context — Master Profile' with the "
-    "profile content to enable this tool."
-)
+MEMORY_TAG = "alfred-memory"
+
+
+def _has_memory_tag(note) -> bool:
+    return any(
+        t.strip().lower() == MEMORY_TAG
+        for t in (note.tags or "").split(",")
+        if t.strip()
+    )
+
+
+def _memory_notes(db: Session, current_user: models.BatAccount):
+    """Alfred's private memory notes only — never the user's own notes."""
+    return [n for n in notes_service.list_notes(db, current_user) if _has_memory_tag(n)]
+
+
+def _memory_brief(note) -> str:
+    """One-line description: first non-empty body line, truncated."""
+    for line in (note.body or "").splitlines():
+        line = line.strip()
+        if line:
+            return line[:120]
+    return ""
 
 
 def _iso(dt):
@@ -135,8 +152,12 @@ READ_TOOLS = [
      }}},
     {"name": "get_profile", "description": "The user's profile: points and bat level.",
      "parameters": {"type": "object", "properties": {}}},
-    {"name": "get_alfred_profile", "description": "Alfred's full background, biography, training, and operational history. Call only when asked about Alfred's personal background or capabilities beyond the standard summary.",
+    {"name": "alfred_list_memory_topics", "description": "List Alfred's private memory topics (titles + one-line descriptions only). Call first to see what is already known before reading further or writing.",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "alfred_recall", "description": "Search Alfred's private memory notes by title/body match. Returns matching bodies. Never includes the user's own notes.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "Substring to match in memory title or body."},
+     }, "required": ["query"]}},
 ]
 
 WRITE_TOOLS = [
@@ -210,6 +231,11 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "note_id": {"type": "integer"},
      }, "required": ["note_id"]}},
+    {"name": "alfred_remember", "description": "Write or update one of Alfred's private memory notes (upsert by exact title). One note per topic — update the existing topic note rather than creating near-duplicates. Only store what the user actually stated, never inferences.",
+     "parameters": {"type": "object", "properties": {
+         "title": {"type": "string", "description": "Clear, specific topic title."},
+         "content": {"type": "string", "description": "The stated fact, verbatim-ish."},
+     }, "required": ["title", "content"]}},
     {"name": "create_countdown", "description": "Create a countdown to a target date.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime."},
@@ -321,17 +347,20 @@ def execute_tool(
     if name == "get_profile":
         u = profile_service.get_profile(db, current_user)
         return {"username": u.username, "points": u.points, "bat_level": u.bat_level}
-    if name == "get_alfred_profile":
-        notes = notes_service.list_notes(
-            db, current_user, search=ALFRED_PROFILE_NOTE_TITLE, sort="title"
-        )
-        match = next(
-            (n for n in notes if n.title.strip() == ALFRED_PROFILE_NOTE_TITLE),
-            None,
-        )
-        if match is None or not match.body:
-            return {"profile": ALFRED_PROFILE_FALLBACK}
-        return {"profile": match.body}
+    if name == "alfred_list_memory_topics":
+        return {"topics": [
+            {"title": n.title, "description": _memory_brief(n)}
+            for n in _memory_notes(db, current_user)
+        ]}
+    if name == "alfred_recall":
+        query = (args.get("query") or "").strip()
+        if not query:
+            return {"error": "query is required"}
+        matches = [
+            n for n in notes_service.list_notes(db, current_user, search=query)
+            if _has_memory_tag(n)
+        ]
+        return {"memories": [{"title": n.title, "body": n.body} for n in matches]}
 
     if name == "create_mission":
         m = mission_service.create_mission(
@@ -421,6 +450,20 @@ def execute_tool(
         if n is None:
             return {"error": "Note not found"}
         return {"note": _note_dict(n)}
+    if name == "alfred_remember":
+        title = (args.get("title") or "").strip()
+        content = (args.get("content") or "").strip()
+        if not title or not content:
+            return {"error": "title and content are both required"}
+        existing = next(
+            (n for n in _memory_notes(db, current_user) if (n.title or "").strip() == title),
+            None,
+        )
+        if existing is not None:
+            n = notes_service.update_note(db, current_user, existing.id, body=content)
+            return {"note": {"id": n.id, "title": n.title}, "updated": True}
+        n = notes_service.create_note(db, current_user, title=title, body=content, tags=MEMORY_TAG)
+        return {"note": {"id": n.id, "title": n.title}, "updated": False}
     if name == "create_countdown":
         c = countdown_service.create_countdown(
             db, current_user, title=args["title"],
