@@ -12,10 +12,14 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, Tup
 logger = structlog.get_logger()
 
 # Retry policy shared by all adapters (transient provider errors only).
-MAX_RETRIES = 3
+MAX_RETRIES = 3  # timeouts, 429s, and other transient errors keep this budget
+MAX_RETRIES_5XX = 5  # 500/502/503/504 get a longer budget: overloaded models
+# clear on minute-scale, not second-scale (all four Sept-28 failures were 503s
+# that outlasted 3 attempts over ~7s of backoff)
 RETRY_BASE_DELAY = 1.0  # seconds; doubles each attempt
 REQUEST_TIMEOUT = 30.0  # seconds per API attempt
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+_RETRYABLE_5XX = frozenset({500, 502, 503, 504})
 
 
 @dataclass
@@ -101,32 +105,49 @@ def extract_status(exc: Exception) -> Optional[int]:
 
 
 async def run_with_retries(fn: Callable[[], Awaitable[T]], provider: str) -> T:
-    """Call fn with timeout + backoff on transient errors; map exhaustion to typed errors."""
+    """Call fn with timeout + backoff on transient errors; map exhaustion to typed errors.
+
+    5xx responses get an extended budget (overloaded models clear on
+    minute-scale); timeouts/429s keep the original budget. Non-transient
+    errors raise immediately, unchanged.
+    """
     last_exc: Optional[Exception] = None
-    for attempt in range(MAX_RETRIES):
+    tries = 0
+    five_xx_strikes = 0
+    other_strikes = 0
+    while True:
         try:
             return await asyncio.wait_for(fn(), timeout=REQUEST_TIMEOUT)
         except asyncio.TimeoutError:
             last_exc = TimeoutError(f"{provider} API timed out after {REQUEST_TIMEOUT}s")
-            logger.warning("llm_timeout", provider=provider, attempt=attempt + 1, max_retries=MAX_RETRIES)
+            other_strikes += 1
+            logger.warning("llm_timeout", provider=provider, attempt=tries + 1, max_retries=MAX_RETRIES)
         except Exception as exc:  # noqa: BLE001 — status-sniffed below, then re-raised
             last_exc = exc
             status = extract_status(exc)
+            budget = MAX_RETRIES_5XX if status in _RETRYABLE_5XX else MAX_RETRIES
             logger.warning(
                 "llm_api_error", provider=provider,
-                attempt=attempt + 1, max_retries=MAX_RETRIES,
+                attempt=tries + 1, max_retries=budget,
                 status_code=status, error=str(exc)[:200],
             )
             if status is not None and status not in TRANSIENT_STATUSES:
                 raise  # Non-transient (400, 401, ...) — don't retry.
             if status is None and not _looks_transient(exc):
                 raise
-        await asyncio.sleep(RETRY_BASE_DELAY * (2 ** attempt))
+            if status in _RETRYABLE_5XX:
+                five_xx_strikes += 1
+            else:
+                other_strikes += 1
+        tries += 1
+        if five_xx_strikes >= MAX_RETRIES_5XX or other_strikes >= MAX_RETRIES:
+            break
+        await asyncio.sleep(RETRY_BASE_DELAY * (2 ** (tries - 1)))
 
     status = extract_status(last_exc) if last_exc else None
     if status == 429:
         raise LLMLimitError(f"{provider} is rate-limiting — too many requests. Try again shortly.")
-    raise LLMServiceError(f"{provider} API unavailable after {MAX_RETRIES} retries: {last_exc}")
+    raise LLMServiceError(f"{provider} API unavailable after {tries} retries: {last_exc}")
 
 
 def _looks_transient(exc: Exception) -> bool:

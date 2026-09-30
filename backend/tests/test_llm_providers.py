@@ -7,7 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from services.llm_providers.anthropic_adapter import AnthropicAdapter
-from services.llm_providers.base import ProviderCapabilities
+from services.llm_providers.base import (
+    LLMLimitError,
+    LLMServiceError,
+    ProviderCapabilities,
+    run_with_retries,
+)
 from services.llm_providers.capabilities import get_capabilities
 from services.llm_providers.gemini import GeminiAdapter
 from services.llm_providers.openai_compatible import OpenAICompatibleAdapter
@@ -233,3 +238,81 @@ def test_registry_unknown_pair_returns_safe_default():
     caps = get_capabilities("nope", "nope-999")
     assert caps == ProviderCapabilities()
     assert caps.supports_tool_calling is False
+
+
+class _E503(Exception):
+    status_code = 503
+
+
+class _E429(Exception):
+    status_code = 429
+
+
+def _no_sleep(monkeypatch):
+    delays = []
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    return delays
+
+
+def test_5xx_gets_extended_budget_then_old_reply(monkeypatch):
+    """Sustained 503s: 5 attempts (not 3), then LLMServiceError → SERVICE_DOWN reply."""
+    calls = []
+    delays = _no_sleep(monkeypatch)
+
+    async def always_503():
+        calls.append(1)
+        raise _E503("503 UNAVAILABLE")
+
+    with pytest.raises(LLMServiceError, match="after 5 retries"):
+        run(run_with_retries(always_503, "Gemini"))
+    assert len(calls) == 5
+    assert delays == [1, 2, 4, 8]
+
+
+def test_5xx_clearing_on_fourth_attempt_succeeds(monkeypatch):
+    """The actual fix: a storm clearing on attempt 4 now succeeds (old code failed at 3)."""
+    calls = []
+    _no_sleep(monkeypatch)
+
+    async def flaky():
+        calls.append(1)
+        if len(calls) < 4:
+            raise _E503("503 UNAVAILABLE")
+        return "recovered"
+
+    assert run(run_with_retries(flaky, "Gemini")) == "recovered"
+    assert len(calls) == 4
+
+
+def test_429_budget_unchanged(monkeypatch):
+    """429s keep the original 3-attempt budget and map to LLMLimitError."""
+    calls = []
+    delays = _no_sleep(monkeypatch)
+
+    async def always_429():
+        calls.append(1)
+        raise _E429("429 RESOURCE_EXHAUSTED")
+
+    with pytest.raises(LLMLimitError):
+        run(run_with_retries(always_429, "Gemini"))
+    assert len(calls) == 3
+    assert delays == [1, 2]
+
+
+def test_timeout_budget_unchanged(monkeypatch):
+    """Timeouts keep the original 3-attempt budget → LLMServiceError (old reply)."""
+    calls = []
+    delays = _no_sleep(monkeypatch)
+
+    async def always_timeout():
+        calls.append(1)
+        raise asyncio.TimeoutError()
+
+    with pytest.raises(LLMServiceError, match="after 3 retries"):
+        run(run_with_retries(always_timeout, "Gemini"))
+    assert len(calls) == 3
+    assert delays == [1, 2]
