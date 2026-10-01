@@ -59,6 +59,32 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
     }
   };
 
+  const [eraseMemory, setEraseMemory] = useState(false);
+  const [alfredResetting, setAlfredResetting] = useState(false);
+  const [alfredResetMsg, setAlfredResetMsg] = useState(null);
+
+  const handleResetAlfred = async () => {
+    const what = eraseMemory
+      ? "every Alfred conversation AND everything Alfred remembers about you"
+      : 'every Alfred conversation (Alfred keeps its memory notes)';
+    if (!window.confirm(`Permanently delete ${what}? This cannot be undone.`)) return;
+    setAlfredResetting(true);
+    setAlfredResetMsg(null);
+    try {
+      const res = await api.resetAlfred(eraseMemory);
+      window.dispatchEvent(new CustomEvent('alfred:reset'));
+      setAlfredResetMsg(
+        `Deleted ${res.sessions} conversation${res.sessions === 1 ? '' : 's'}` +
+        (eraseMemory ? ` and ${res.memory_notes} memory note${res.memory_notes === 1 ? '' : 's'}.` : '.')
+      );
+      setEraseMemory(false);
+    } catch (err) {
+      setAlfredResetMsg(err.message);
+    } finally {
+      setAlfredResetting(false);
+    }
+  };
+
   const [tzBusy, setTzBusy] = useState(false);
   const [tzError, setTzError] = useState(null);
   const deviceTz = browserTimezone();
@@ -356,6 +382,30 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
             >
               {resetting ? 'RESETTING...' : 'RESET BAT POINTS'}
             </button>
+
+            <div className="mt-6 pt-4 border-t border-red-900/30">
+              <p className="text-xs text-slate-400 mb-3">
+                Start fresh with Alfred: permanently delete all your conversations (web and Telegram).
+                Your model key, Telegram link and your own notes are kept.
+              </p>
+              <label className="flex items-center gap-2 text-xs text-slate-400 mb-4 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={eraseMemory}
+                  onChange={e => setEraseMemory(e.target.checked)}
+                  className="accent-red-500"
+                />
+                Also erase everything Alfred remembers about me (its memory notes)
+              </label>
+              <button
+                onClick={handleResetAlfred}
+                disabled={alfredResetting}
+                className="px-5 py-2 bg-red-900/30 border border-red-900/50 text-red-400 font-bold rounded text-xs font-mono tracking-widest hover:bg-red-900/50 transition disabled:opacity-50"
+              >
+                {alfredResetting ? 'RESETTING...' : 'RESET ALFRED'}
+              </button>
+              {alfredResetMsg && <div className="text-xs text-slate-400 mt-2">{alfredResetMsg}</div>}
+            </div>
           </div>
 
           {/* Link Telegram */}

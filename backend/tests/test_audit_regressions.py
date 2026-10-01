@@ -477,3 +477,82 @@ def test_alfred_address_validation_and_reset(client, auth_headers):
     assert r.json()["alfred_address"] == "Miss Kyle"
     r = client.put("/api/account", headers=h, json={"alfred_address": ""})
     assert r.json()["alfred_address"] is None
+
+
+# --- Conversation management / reset -----------------------------------------------
+
+def _new_session(client, h, title="t"):
+    return client.post("/api/alfred/sessions", json={"title": title}, headers=h).json()["id"]
+
+
+def test_rename_and_delete_conversation(client, auth_headers, monkeypatch):
+    h = auth_headers("audit_chats")
+    _mock_llm(monkeypatch, [LLMResponse(text="Hello.")])
+    sid = _new_session(client, h)
+    client.post("/api/alfred/chat", json={"message": "hi", "session_id": sid}, headers=h)
+
+    r = client.patch(f"/api/alfred/sessions/{sid}", json={"title": "Gotham plans"}, headers=h)
+    assert r.status_code == 200 and r.json()["title"] == "Gotham plans"
+    assert client.patch(f"/api/alfred/sessions/{sid}", json={"title": "   "}, headers=h).status_code == 422
+
+    assert client.delete(f"/api/alfred/sessions/{sid}", headers=h).status_code == 204
+    assert sid not in [s["id"] for s in client.get("/api/alfred/sessions", headers=h).json()]
+    assert client.get(f"/api/alfred/sessions/{sid}/messages", headers=h).status_code == 404
+    db = SessionLocal()
+    try:
+        assert db.query(models.BatAlfredMessage).filter_by(session_id=sid).count() == 0
+    finally:
+        db.close()
+
+
+def test_conversations_are_owner_scoped(client, auth_headers):
+    owner = auth_headers("audit_chats_owner")
+    other = auth_headers("audit_chats_other")
+    sid = _new_session(client, owner)
+    assert client.delete(f"/api/alfred/sessions/{sid}", headers=other).status_code == 404
+    assert client.patch(f"/api/alfred/sessions/{sid}", json={"title": "x"}, headers=other).status_code == 404
+    assert client.post("/api/alfred/reset", json={"erase_memory": True}, headers=other).status_code == 200
+    assert sid in [s["id"] for s in client.get("/api/alfred/sessions", headers=owner).json()]
+
+
+def test_deleting_active_session_starts_fresh_on_telegram(client, auth_headers):
+    h = auth_headers("audit_chats_active")
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="audit_chats_active").first()
+        session = alfred_agent.create_session(db, user, "active")
+        alfred_agent.set_active_session(db, user, session.id)
+        sid = session.id
+    finally:
+        db.close()
+    client.delete(f"/api/alfred/sessions/{sid}", headers=h)
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="audit_chats_active").first()
+        assert user.active_alfred_session_id is None
+    finally:
+        db.close()
+
+
+def test_reset_alfred_keeps_key_and_user_notes(client, auth_headers, monkeypatch):
+    h = auth_headers("audit_reset")
+    _mock_llm(monkeypatch, [
+        LLMResponse(tool_calls=[ToolCall("alfred_remember", {"title": "Coffee", "content": "Black."})]),
+        LLMResponse(text="Noted."),
+    ])
+    sid = _new_session(client, h)
+    client.post("/api/alfred/chat", json={"message": "I take coffee black", "session_id": sid}, headers=h)
+    own_note = client.post("/api/notes", json={"title": "My own note"}, headers=h).json()
+
+    r = client.post("/api/alfred/reset", json={}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["sessions"] >= 1 and r.json()["messages"] >= 2 and r.json()["memory_notes"] == 0
+    assert client.get("/api/alfred/sessions", headers=h).json() == []
+    titles = [n["title"] for n in client.get("/api/notes", headers=h).json()]
+    assert "Coffee" in titles and "My own note" in titles  # memory kept unless asked
+
+    r = client.post("/api/alfred/reset", json={"erase_memory": True}, headers=h)
+    assert r.json()["memory_notes"] == 1
+    titles = [n["title"] for n in client.get("/api/notes", headers=h).json()]
+    assert "Coffee" not in titles and own_note["title"] in titles
+    assert client.get("/api/alfred/provider", headers=h).json()["configured"] is True

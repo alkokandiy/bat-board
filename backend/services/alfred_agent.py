@@ -276,6 +276,68 @@ def set_active_session(db: Session, user: models.BatAccount, session_id: int) ->
     db.commit()
 
 
+SESSION_TITLE_MAX = 80
+
+
+def get_owned_session(db: Session, user: models.BatAccount, session_id: int) -> Optional[models.BatAlfredSession]:
+    return (
+        db.query(models.BatAlfredSession)
+        .filter_by(id=session_id, owner_id=user.id)
+        .first()
+    )
+
+
+def rename_session(db: Session, user: models.BatAccount, session_id: int, title: str) -> Optional[models.BatAlfredSession]:
+    session = get_owned_session(db, user, session_id)
+    if session is None:
+        return None
+    session.title = title.strip()[:SESSION_TITLE_MAX]
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def delete_session(db: Session, user: models.BatAccount, session_id: int) -> bool:
+    """Delete one conversation and its messages. False if not the user's."""
+    session = get_owned_session(db, user, session_id)
+    if session is None:
+        return False
+    if user.active_alfred_session_id == session_id:
+        # Explicit, not only ON DELETE SET NULL: SQLite doesn't enforce FKs.
+        # The next Telegram message then starts a fresh conversation.
+        user.active_alfred_session_id = None
+    db.query(models.BatAlfredMessage).filter_by(session_id=session_id, owner_id=user.id).delete()
+    db.delete(session)
+    db.commit()
+    return True
+
+
+def reset_alfred(db: Session, user: models.BatAccount, erase_memory: bool = False) -> dict:
+    """Start fresh: delete every conversation, pending confirmation/setup step
+    and (optionally) Alfred's private memory notes for this user only.
+
+    Keeps the provider key, usage counter, Telegram link and the user's own
+    notes. Returns what was deleted.
+    """
+    from services.alfred_tools import _memory_notes
+
+    user.active_alfred_session_id = None
+    messages = db.query(models.BatAlfredMessage).filter_by(owner_id=user.id).delete()
+    sessions = db.query(models.BatAlfredSession).filter_by(owner_id=user.id).delete()
+    db.query(models.BatPendingAlfredAction).filter_by(owner_id=user.id).delete()
+    memories = 0
+    if erase_memory:
+        for note in _memory_notes(db, user):
+            db.delete(note)
+            memories += 1
+    from services.common import auto_log_event
+
+    result = {"sessions": sessions, "messages": messages, "memory_notes": memories}
+    auto_log_event(db, user.id, "alfred_reset", result)
+    db.commit()
+    return result
+
+
 def auto_title_session(db: Session, session: models.BatAlfredSession, user_text: str) -> None:
     """Set session title from first user message if still untitled."""
     if session.title and session.title != "New conversation":

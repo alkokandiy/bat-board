@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bot, Minus, X, Plus, MessageSquare, Settings } from 'lucide-react';
+import { Bot, Minus, X, Plus, MessageSquare, Settings, Pencil, Trash2, Check } from 'lucide-react';
 import { api } from '../utils/api.js';
 
 const PROVIDERS = ['gemini', 'anthropic', 'openai', 'deepseek', 'kimi'];
@@ -46,26 +46,45 @@ export default function AlfredWidget({ account }) {
   const activeSessionRef = useRef(null);
   useEffect(() => { activeSessionRef.current = activeSessionId; }, [activeSessionId]);
 
-  // Load sessions on mount
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+
+  // Open the most recent conversation, or start one when there are none.
+  const loadSessions = async () => {
+    try {
+      const s = await api.getAlfredSessions();
+      setSessions(s);
+      if (s.length > 0) {
+        await selectSession(s[0].id);
+      } else {
+        await newChat();
+      }
+    } catch {
+      setMessages([{ role: 'alfred', text: greeting(account) }]);
+    }
+  };
+
+  // Load sessions on first open
   useEffect(() => {
     if (!open || loadedRef.current) return;
     loadedRef.current = true;
-    (async () => {
-      try {
-        const s = await api.getAlfredSessions();
-        setSessions(s);
-        if (s.length > 0) {
-          await selectSession(s[0].id);
-        } else {
-          const created = await api.createAlfredSession('New conversation');
-          setSessions([{ id: created.id, title: created.title, updated_at: new Date().toISOString() }]);
-          setActiveSessionId(created.id);
-          setMessages([{ role: 'alfred', text: greeting(account) }]);
-        }
-      } catch {
-        setMessages([{ role: 'alfred', text: greeting(account) }]);
+    loadSessions();
+  }, [open]);
+
+  // "Reset Alfred" in Profile wipes every conversation: drop the stale view.
+  useEffect(() => {
+    const onReset = () => {
+      setSessions([]);
+      setActiveSessionId(null);
+      setMessages([]);
+      loadedRef.current = false;
+      if (open) {
+        loadedRef.current = true;
+        loadSessions();
       }
-    })();
+    };
+    window.addEventListener('alfred:reset', onReset);
+    return () => window.removeEventListener('alfred:reset', onReset);
   }, [open]);
 
   useEffect(() => {
@@ -77,7 +96,9 @@ export default function AlfredWidget({ account }) {
     setShowSidebar(false);
     try {
       const msgs = await api.getAlfredSessionMessages(id);
-      setMessages(msgs.map(m => ({ role: m.role === 'assistant' ? 'alfred' : 'user', text: m.content })));
+      setMessages(msgs.length
+        ? msgs.map(m => ({ role: m.role === 'assistant' ? 'alfred' : 'user', text: m.content }))
+        : [{ role: 'alfred', text: greeting(account) }]);
     } catch {
       setMessages([]);
     }
@@ -87,8 +108,45 @@ export default function AlfredWidget({ account }) {
     try {
       const created = await api.createAlfredSession('New conversation');
       setSessions(prev => [{ id: created.id, title: created.title, updated_at: new Date().toISOString() }, ...prev]);
-      await selectSession(created.id);
+      setActiveSessionId(created.id);
+      setShowSidebar(false);
+      setMessages([{ role: 'alfred', text: greeting(account) }]);
     } catch {}
+  };
+
+  const startRename = (s) => {
+    setEditingId(s.id);
+    setEditTitle(s.title || '');
+  };
+
+  const commitRename = async () => {
+    const id = editingId;
+    const title = editTitle.trim();
+    setEditingId(null);
+    if (!id || !title) return;
+    try {
+      const saved = await api.renameAlfredSession(id, title);
+      setSessions(prev => prev.map(s => (s.id === id ? { ...s, title: saved.title } : s)));
+    } catch {}
+  };
+
+  const deleteChat = async (s) => {
+    if (!window.confirm(`Delete "${s.title || 'Untitled'}"? This conversation will be permanently removed.`)) return;
+    try {
+      await api.deleteAlfredSession(s.id);
+    } catch {
+      return;
+    }
+    const remaining = sessions.filter(x => x.id !== s.id);
+    setSessions(remaining);
+    if (s.id === activeSessionId) {
+      if (remaining.length > 0) {
+        await selectSession(remaining[0].id);
+        setShowSidebar(true);
+      } else {
+        await newChat();
+      }
+    }
   };
 
   const loadProviderStatus = async () => {
@@ -227,26 +285,63 @@ export default function AlfredWidget({ account }) {
 
       {/* Session sidebar */}
       {showSidebar && (
-        <div className="shrink-0 border-b border-slate-800 bg-matte-obsidian max-h-[10rem] overflow-y-auto">
+        <div className="shrink-0 border-b border-slate-800 bg-matte-obsidian max-h-[14rem] overflow-y-auto">
           <div className="flex items-center justify-between px-3 py-2">
             <span className="text-[10px] font-mono text-slate-500 tracking-widest">CONVERSATIONS</span>
             <button onClick={newChat} className="p-1 text-electric-bat-yellow hover:brightness-110 transition" title="New chat">
               <Plus size={12} />
             </button>
           </div>
+          {sessions.length === 0 && (
+            <div className="px-3 pb-2 text-[11px] text-slate-600 font-body">No conversations yet.</div>
+          )}
           {sessions.map(s => (
-            <button
+            <div
               key={s.id}
-              onClick={() => selectSession(s.id)}
-              className={`w-full text-left px-3 py-1.5 text-[12px] font-body transition ${
+              className={`group flex items-center gap-1 pr-1.5 transition ${
                 s.id === activeSessionId
                   ? 'bg-electric-bat-yellow/10 text-electric-bat-yellow'
                   : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
               }`}
             >
-              <div className="truncate">{s.title || 'Untitled'}</div>
-              <div className="text-[10px] text-slate-600">{new Date(s.updated_at).toLocaleDateString()}</div>
-            </button>
+              {editingId === s.id ? (
+                <form
+                  onSubmit={e => { e.preventDefault(); commitRename(); }}
+                  className="flex-1 min-w-0 flex items-center gap-1 px-3 py-1.5"
+                >
+                  <input
+                    autoFocus
+                    value={editTitle}
+                    maxLength={80}
+                    onChange={e => setEditTitle(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={e => { if (e.key === 'Escape') setEditingId(null); }}
+                    className="flex-1 min-w-0 bg-dark-slate border border-slate-700 rounded px-1.5 py-0.5 text-[12px] text-slate-200 focus:outline-none focus:border-electric-bat-yellow font-body"
+                  />
+                  <button type="submit" title="Save" className="p-1 text-slate-400 hover:text-electric-bat-yellow">
+                    <Check size={12} />
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <button
+                    onClick={() => selectSession(s.id)}
+                    className="flex-1 min-w-0 text-left px-3 py-1.5 text-[12px] font-body"
+                  >
+                    <div className="truncate">{s.title || 'Untitled'}</div>
+                    <div className="text-[10px] text-slate-600">{new Date(s.updated_at).toLocaleDateString()}</div>
+                  </button>
+                  <div className="flex items-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition">
+                    <button onClick={() => startRename(s)} title="Rename" aria-label={`Rename ${s.title || 'conversation'}`} className="p-1 text-slate-500 hover:text-electric-bat-yellow">
+                      <Pencil size={12} />
+                    </button>
+                    <button onClick={() => deleteChat(s)} title="Delete" aria-label={`Delete ${s.title || 'conversation'}`} className="p-1 text-slate-500 hover:text-red-400">
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           ))}
         </div>
       )}

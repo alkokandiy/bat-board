@@ -34,6 +34,14 @@ class CreateSessionRequest(BaseModel):
     title: str = "New conversation"
 
 
+class RenameSessionRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=alfred_agent.SESSION_TITLE_MAX)
+
+
+class ResetAlfredRequest(BaseModel):
+    erase_memory: bool = False
+
+
 @router.post("/api/alfred/chat")
 @limiter.limit("20/minute")
 async def alfred_chat(
@@ -87,6 +95,44 @@ def create_session(
 ):
     session = alfred_agent.create_session(db, current_user, payload.title)
     return {"id": session.id, "title": session.title}
+
+
+@router.patch("/api/alfred/sessions/{session_id}")
+def rename_session(
+    session_id: int,
+    payload: RenameSessionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    if not payload.title.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Title can't be empty")
+    session = alfred_agent.rename_session(db, current_user, session_id, payload.title)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return {"id": session.id, "title": session.title, "updated_at": session.updated_at.isoformat()}
+
+
+@router.delete("/api/alfred/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    if not alfred_agent.delete_session(db, current_user, session_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return None
+
+
+@router.post("/api/alfred/reset")
+@limiter.limit("5/minute")
+def reset_alfred(
+    request: Request,
+    payload: ResetAlfredRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Delete all of the caller's Alfred conversations (and optionally memory)."""
+    return alfred_agent.reset_alfred(db, current_user, erase_memory=payload.erase_memory)
 
 
 @router.get("/api/alfred/sessions/{session_id}/messages")

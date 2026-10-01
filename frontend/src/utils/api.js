@@ -250,6 +250,10 @@ export const api = {
   getAlfredSessions: () => request('/alfred/sessions'),
   createAlfredSession: (title) => request('/alfred/sessions', { method: 'POST', body: { title } }),
   getAlfredSessionMessages: (id) => request(`/alfred/sessions/${id}/messages`),
+  renameAlfredSession: (id, title) => request(`/alfred/sessions/${id}`, { method: 'PATCH', body: { title } }),
+  deleteAlfredSession: (id) => request(`/alfred/sessions/${id}`, { method: 'DELETE' }),
+  // Deletes all conversations (and Alfred's memory notes when eraseMemory).
+  resetAlfred: (eraseMemory) => request('/alfred/reset', { method: 'POST', body: { erase_memory: !!eraseMemory } }),
 
   // Alfred provider (BYOK — key never returned by any of these)
   getAlfredProvider: () => request('/alfred/provider'),
