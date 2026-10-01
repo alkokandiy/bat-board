@@ -37,6 +37,18 @@ def get_db():
 def _ensure_columns():
     inspector = inspect(engine)
 
+    # BatAccount columns (011; the alembic migration also backfills timezone)
+    account_columns = {c["name"] for c in inspector.get_columns("bat_account")}
+    with engine.connect() as conn:
+        if "timezone" not in account_columns:
+            conn.execute(text("ALTER TABLE bat_account ADD COLUMN timezone VARCHAR"))
+        if "token_version" not in account_columns:
+            conn.execute(text(
+                "ALTER TABLE bat_account ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
+            ))
+        if not {"timezone", "token_version"} <= account_columns:
+            conn.commit()
+
     # BatMission columns
     mission_columns = {c["name"] for c in inspector.get_columns("bat_missions")}
     expected_mission = {"tags", "is_pinned", "is_dismissed", "location", "notes", "subtasks", "focus_minutes", "completed_focus_sessions"}
@@ -106,6 +118,7 @@ def create_db_tables():
 
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    alembic_cfg.attributes["configure_logger"] = False  # keep the app's logging
 
     inspector = inspect(engine)
     has_version_table = inspector.has_table("alembic_version")

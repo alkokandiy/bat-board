@@ -36,6 +36,10 @@ UNLINKED_REPLY = (
     "This Telegram account isn't linked to a bat-board account yet. "
     "Go to Profile → Link Telegram in the app to get a code."
 )
+LINK_THROTTLED_REPLY = (
+    "Too many incorrect codes. Wait 10 minutes, then generate a fresh code "
+    "in Profile → Link Telegram."
+)
 LINK_SUCCESS_REPLY = (
     "Linked ✓ — this Telegram account is now connected to your bat-board account."
 )
@@ -149,20 +153,29 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             return
         chat_id = str(chat_id)
 
-        if LINK_CODE_RE.match(text):
-            user = telegram_service.exchange_link_code(db, text, chat_id)
-            if user is not None:
-                logger.info("telegram_linked", username=user.username)
-                _reply(chat_id, LINK_SUCCESS_REPLY)
-            else:
-                _reply(chat_id, UNLINKED_REPLY)
-            return
-
         try:
             user = get_user_by_telegram_chat_id(chat_id, db)
         except Exception as exc:
             logger.error("telegram_user_lookup_failed", error=str(exc))
             user = None
+
+        if LINK_CODE_RE.match(text):
+            if user is None and telegram_service.link_attempts_blocked(db, chat_id):
+                _reply(chat_id, LINK_THROTTLED_REPLY)
+                return
+            linked = telegram_service.exchange_link_code(db, text, chat_id)
+            if linked is not None:
+                telegram_service.clear_link_failures(db, chat_id)
+                logger.info("telegram_linked", username=linked.username)
+                _reply(chat_id, LINK_SUCCESS_REPLY)
+                return
+            if user is None:
+                telegram_service.record_link_failure(db, chat_id)
+                _reply(chat_id, UNLINKED_REPLY)
+                return
+            # Already linked and not a valid code: it's just a number meant
+            # for Alfred (it used to get the "not linked" reply).
+
         if user is None:
             _reply(chat_id, UNLINKED_REPLY)
             return

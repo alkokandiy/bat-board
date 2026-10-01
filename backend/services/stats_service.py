@@ -9,11 +9,12 @@ will call.
 """
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 import models
+from services.timezones import day_bounds_utc, local_date, local_today, user_tz
 
 
 def _completed_sessions_query(db: Session, current_user: models.BatAccount):
@@ -25,7 +26,9 @@ def _completed_sessions_query(db: Session, current_user: models.BatAccount):
 
 
 def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: str) -> dict:
-    today = datetime.now(timezone.utc).date()
+    # Periods, heatmap days and the streak follow the user's local calendar.
+    tz = user_tz(current_user)
+    today = local_today(current_user)
 
     if period == "day":
         range_start = today
@@ -45,12 +48,9 @@ def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: s
 
     q = _completed_sessions_query(db, current_user)
     if range_start:
-        q = q.filter(models.BatFocus.end_time >= datetime(range_start.year, range_start.month, range_start.day))
+        q = q.filter(models.BatFocus.end_time >= day_bounds_utc(range_start, tz)[0])
     if range_end:
-        q = q.filter(
-            models.BatFocus.end_time
-            < datetime(range_end.year, range_end.month, range_end.day) + timedelta(days=1)
-        )
+        q = q.filter(models.BatFocus.end_time < day_bounds_utc(range_end, tz)[1])
     sessions = q.all()
 
     total_minutes = 0
@@ -63,7 +63,7 @@ def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: s
 
     for s in sessions:
         total_minutes += s.duration_minutes
-        d = s.end_time.date()
+        d = local_date(s.end_time, tz)
         heatmap[d] += s.duration_minutes
         days_with_sessions.add(d)
         if s.mission_id is not None:

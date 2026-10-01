@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../utils/api';
+import { api, browserTimezone } from '../utils/api';
+
+function timezoneOptions(current) {
+  let zones = [];
+  try {
+    zones = Intl.supportedValuesOf('timeZone');
+  } catch {
+    zones = [];
+  }
+  const all = new Set(['UTC', ...zones]);
+  if (current) all.add(current);
+  return [...all].sort();
+}
 
 const LEVELS = [
   { min: 0, max: 1999, title: 'The Orphan' },
@@ -29,6 +41,24 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   const [showLogs, setShowLogs] = useState(false);
   const [ledger, setLedger] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [tzBusy, setTzBusy] = useState(false);
+  const [tzError, setTzError] = useState(null);
+  const deviceTz = browserTimezone();
+  const accountTz = account?.timezone || 'UTC';
+
+  const saveTimezone = async (tz) => {
+    if (!tz || tz === account?.timezone) return;
+    setTzBusy(true);
+    setTzError(null);
+    try {
+      await api.updateAccount({ timezone: tz });
+      await onRefreshAccount();
+    } catch (err) {
+      setTzError(err.message);
+    } finally {
+      setTzBusy(false);
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -210,7 +240,7 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   required
-                  minLength={4}
+                  minLength={8}
                   className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow"
                 />
               </div>
@@ -233,6 +263,35 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
                 UPDATE PASSWORD
               </button>
             </form>
+          </div>
+
+          {/* Timezone */}
+          <div className="bg-dark-slate rounded border border-slate-800 p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+              Timezone
+            </h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Days for habits, daily stats, and Alfred's clock and daily limit start at midnight in this zone.
+            </p>
+            <select
+              value={accountTz}
+              disabled={tzBusy}
+              onChange={e => saveTimezone(e.target.value)}
+              className="w-full bg-matte-obsidian border border-slate-800 rounded px-2.5 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
+            >
+              {timezoneOptions(accountTz).map(tz => <option key={tz} value={tz}>{tz}</option>)}
+            </select>
+            {deviceTz && deviceTz !== accountTz && (
+              <button
+                type="button"
+                onClick={() => saveTimezone(deviceTz)}
+                disabled={tzBusy}
+                className="mt-3 text-[10px] font-mono tracking-widest text-slate-400 hover:text-electric-bat-yellow border border-slate-800 hover:border-electric-bat-yellow/50 rounded px-2 py-1 transition disabled:opacity-50"
+              >
+                USE THIS DEVICE'S ZONE ({deviceTz})
+              </button>
+            )}
+            {tzError && <div className="text-xs text-red-400 mt-2">{tzError}</div>}
           </div>
 
           {/* Reset Points */}

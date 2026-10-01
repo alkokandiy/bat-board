@@ -288,3 +288,157 @@ def test_relinking_an_already_linked_chat(client, auth_headers):
         db.close()
     assert client.get("/api/account/telegram-link/status", headers=second).json()["linked"]
     assert not client.get("/api/account/telegram-link/status", headers=first).json()["linked"]
+
+
+# --- Multi-user hardening (migration 011) -----------------------------------------
+
+def _set_tz(client, h, tz):
+    r = client.put("/api/account", headers=h, json={"timezone": tz})
+    assert r.status_code == 200, r.text
+    return r
+
+
+def test_timezone_is_validated_and_returned(client, auth_headers):
+    h = auth_headers("audit_tz_setting")
+    assert client.put("/api/account", headers=h, json={"timezone": "Mars/Olympus"}).status_code == 422
+    _set_tz(client, h, "America/New_York")
+    assert client.get("/api/auth/me", headers=h).json()["timezone"] == "America/New_York"
+
+
+def test_register_stores_browser_timezone(client):
+    r = client.post("/api/auth/register", json={
+        "username": "audit_tz_signup", "password": "pass12345", "timezone": "Asia/Tashkent",
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["timezone"] == "Asia/Tashkent"
+
+
+def test_daily_habit_day_follows_user_timezone(client, auth_headers):
+    """A check-in at 01:00 local (20:00 UTC the day before) is a new local day."""
+    from services import habit_service
+    from zoneinfo import ZoneInfo
+
+    h = auth_headers("audit_tz_habit")
+    _set_tz(client, h, "Asia/Tashkent")
+    habit = client.post("/api/habits", headers=h, json={"name": "read"}).json()
+
+    tz = ZoneInfo("Asia/Tashkent")
+    local_now = datetime.now(tz)
+    yesterday_evening = (local_now - timedelta(days=1)).replace(hour=23, minute=0)
+    db = SessionLocal()
+    try:
+        row = db.query(models.BatHabit).filter_by(id=habit["id"]).first()
+        row.last_completed = yesterday_evening.astimezone(timezone.utc)
+        row.streak = 2
+        db.commit()
+        user = db.query(models.BatAccount).filter_by(username="audit_tz_habit").first()
+        result = habit_service.check_in_habit(db, user, habit["id"])
+        assert result.streak == 3
+    finally:
+        db.close()
+
+
+def test_password_change_signs_out_other_sessions(client):
+    client.post("/api/auth/register", json={"username": "audit_pw_revoke", "password": "pass12345"})
+    login = lambda: client.post(
+        "/api/auth/login", data={"username": "audit_pw_revoke", "password": "pass12345"}
+    ).json()
+    laptop, phone = login(), login()
+    laptop_h = {"Authorization": f"Bearer {laptop['access_token']}"}
+
+    r = client.put("/api/account/password", headers=laptop_h, json={
+        "current_password": "pass12345", "new_password": "new-pass-6789",
+    })
+    assert r.status_code == 200, r.text
+    fresh = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    assert client.get("/api/auth/me", headers=fresh).status_code == 200
+    assert client.get("/api/auth/me", headers=laptop_h).status_code == 401
+    phone_h = {"Authorization": f"Bearer {phone['access_token']}"}
+    assert client.get("/api/auth/me", headers=phone_h).status_code == 401
+    assert client.post("/api/auth/refresh", json=phone["refresh_token"]).status_code == 401
+
+
+def test_link_code_guessing_is_throttled_per_chat(client, monkeypatch):
+    from routers.telegram import LINK_THROTTLED_REPLY, process_telegram_update
+
+    sent = []
+    monkeypatch.setattr(telegram_service, "send_telegram_message", lambda *a, **kw: sent.append(a[2]) or True)
+
+    def send(text):
+        _run(process_telegram_update(
+            {"message": {"message_id": 1, "chat": {"id": 777001}, "text": text}}, None,
+        ))
+
+    for i in range(telegram_service.LINK_MAX_FAILURES):
+        send(f"{i:06d}")
+    assert LINK_THROTTLED_REPLY not in sent
+    send("999999")
+    assert sent[-1] == LINK_THROTTLED_REPLY
+
+
+def test_linked_user_sending_digits_reaches_alfred(client, auth_headers, monkeypatch):
+    from routers.telegram import UNLINKED_REPLY, process_telegram_update
+
+    h = auth_headers("audit_digits")
+    db = SessionLocal()
+    try:
+        code = client.post("/api/account/telegram-link/generate-code", headers=h).json()["code"]
+        assert telegram_service.exchange_link_code(db, code, "777002")
+    finally:
+        db.close()
+    sent = []
+    monkeypatch.setattr(telegram_service, "send_telegram_message", lambda *a, **kw: sent.append(a[2]) or True)
+    _mock_llm(monkeypatch, [LLMResponse(text="Noted: 123456.")])
+
+    class _Tasks:
+        def add_task(self, *a, **kw):
+            pass
+
+    _run(process_telegram_update(
+        {"message": {"message_id": 2, "chat": {"id": 777002}, "text": "123456"}}, _Tasks(),
+    ))
+    assert sent == ["Noted: 123456."]
+    assert UNLINKED_REPLY not in sent
+
+
+def test_usage_quota_is_one_row_and_capped(auth_headers, monkeypatch):
+    auth_headers("audit_quota")
+    monkeypatch.setattr(alfred_agent, "DAILY_MESSAGE_CAP", 3)
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="audit_quota").first()
+        results = [alfred_agent.check_usage(db, user) for _ in range(5)]
+        assert results == [True, True, True, False, False]
+        rows = db.query(models.BatAlfredUsage).filter_by(owner_id=user.id).all()
+        assert len(rows) == 1 and rows[0].count == 3
+    finally:
+        db.close()
+
+
+def test_usage_table_rejects_duplicate_day_rows(auth_headers):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    auth_headers("audit_quota_dupe")
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="audit_quota_dupe").first()
+        db.add(models.BatAlfredUsage(owner_id=user.id, day="2026-01-01", count=1))
+        db.commit()
+        db.add(models.BatAlfredUsage(owner_id=user.id, day="2026-01-01", count=1))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+    finally:
+        db.close()
+
+
+def test_placeholder_secrets_are_rejected_outside_development(monkeypatch):
+    import pytest
+    from config import Settings
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("SECRET_KEY", "set-this-to-a-random-64-char-string-in-railway")
+    with pytest.raises(Exception, match="SECRET_KEY"):
+        Settings()

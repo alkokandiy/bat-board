@@ -28,6 +28,9 @@ class TokenData(BaseModel):
     # token can't outlive a rename and then authenticate whoever registers
     # the old username. Older tokens without it fall back to the username.
     user_id: Optional[int] = None
+    # "tv" claim; must equal the account's token_version. Tokens minted
+    # before versioning carry none and count as version 0.
+    token_version: int = 0
 
 
 USERNAME_PATTERN = r"^[A-Za-z0-9_.\- ]+$"
@@ -57,6 +60,15 @@ def validate_username(v: str) -> str:
 class UserCreate(BaseModel):
     username: str
     password: str
+    # Browser-detected IANA zone; optional (falls back to UTC).
+    timezone: Optional[str] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: Optional[str]) -> Optional[str]:
+        from services.timezones import validate_timezone
+
+        return validate_timezone(v) if v else None
 
     @field_validator("username")
     @classmethod
@@ -77,6 +89,7 @@ class UserResponse(BaseModel):
     points: int
     bat_level: str
     is_active: bool
+    timezone: Optional[str] = None
     created_at: datetime
 
 
@@ -117,7 +130,7 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
 
 
 def token_claims(user: models.BatAccount) -> dict:
-    return {"sub": user.username, "uid": user.id}
+    return {"sub": user.username, "uid": user.id, "tv": user.token_version or 0}
 
 
 def _decode(token: str, expected_type: str) -> Optional[TokenData]:
@@ -131,7 +144,12 @@ def _decode(token: str, expected_type: str) -> Optional[TokenData]:
     if username is None:
         return None
     uid = payload.get("uid")
-    return TokenData(username=username, user_id=uid if isinstance(uid, int) else None)
+    tv = payload.get("tv", 0)
+    return TokenData(
+        username=username,
+        user_id=uid if isinstance(uid, int) else None,
+        token_version=tv if isinstance(tv, int) else -1,
+    )
 
 
 def decode_token(token: str) -> Optional[TokenData]:
@@ -147,9 +165,19 @@ def get_user(db: Session, username: str) -> Optional[models.BatAccount]:
 
 
 def get_user_for_token(db: Session, token_data: TokenData) -> Optional[models.BatAccount]:
+    """Resolve a decoded token to its account; None if revoked or unknown."""
     if token_data.user_id is not None:
-        return db.query(models.BatAccount).filter(models.BatAccount.id == token_data.user_id).first()
-    return get_user(db, token_data.username)
+        user = db.query(models.BatAccount).filter(models.BatAccount.id == token_data.user_id).first()
+    else:
+        user = get_user(db, token_data.username)
+    if user is None or token_data.token_version != (user.token_version or 0):
+        return None
+    return user
+
+
+def revoke_all_tokens(user: models.BatAccount) -> None:
+    """Invalidate every access/refresh token issued so far (caller commits)."""
+    user.token_version = (user.token_version or 0) + 1
 
 
 # Verified against when the username is unknown, so a login attempt takes

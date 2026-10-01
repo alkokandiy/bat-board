@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 import models
 from services.common import auto_log_event, calculate_bat_level
+from services.timezones import local_date, user_tz
 
 
 def list_habits(
@@ -64,8 +65,9 @@ def check_in_habit(
 ) -> Optional[models.BatHabit]:
     """Check in to a habit: streak rollover, points, and log fan-out.
 
-    Idempotent per period (day / ISO week / month, by frequency) — a repeat
-    within the same period logs history without re-applying streak/reward.
+    Idempotent per period (day / ISO week / month by frequency, in the
+    user's timezone) — a repeat within the same period logs history
+    without re-applying streak/reward.
     The streak continues when the previous check-in was in the immediately
     preceding period. Returns None for unknown/foreign habits.
     """
@@ -77,10 +79,13 @@ def check_in_habit(
     if not habit:
         return None
 
+    # Periods are the user's local days/weeks/months, not UTC ones: in
+    # Tashkent a 01:00 check-in used to count toward the previous day.
     now = datetime.now(timezone.utc)
-    current_period = _period_index(habit.frequency, now.date())
+    tz = user_tz(current_user)
+    current_period = _period_index(habit.frequency, local_date(now, tz))
     last_period = (
-        _period_index(habit.frequency, habit.last_completed.date())
+        _period_index(habit.frequency, local_date(habit.last_completed, tz))
         if habit.last_completed else None
     )
     is_new_completion = last_period != current_period

@@ -35,6 +35,14 @@ function formatErrorDetail(detail) {
   return String(detail);
 }
 
+export function browserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 let isRefreshing = false;
 let refreshQueue = [];
 
@@ -143,7 +151,8 @@ export const api = {
   register: (username, password) =>
     request('/auth/register', {
       method: 'POST',
-      body: { username, password },
+      // The account's day boundaries (habits, stats, Alfred) follow this zone.
+      body: { username, password, timezone: browserTimezone() },
     }),
 
   getMe: () => request('/auth/me'),
@@ -195,8 +204,14 @@ export const api = {
     request(`/stats/focus/sessions?limit=${limit}&offset=${offset}`),
 
   // Account
+  // A password change revokes every session; the server hands this device
+  // fresh tokens so it stays signed in.
   changePassword: (current_password, new_password) =>
-    request('/account/password', { method: 'PUT', body: { current_password, new_password } }),
+    request('/account/password', { method: 'PUT', body: { current_password, new_password } })
+      .then(data => {
+        if (data?.access_token) setTokens(data.access_token, data.refresh_token);
+        return data;
+      }),
   resetPoints: () => request('/account/reset-points', { method: 'POST' }),
 
   // Calendar Events

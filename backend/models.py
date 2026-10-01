@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy import DateTime as _SQLDateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
@@ -40,6 +40,10 @@ class BatAccount(Base):
     points = Column(Integer, default=0, nullable=False)
     bat_level = Column(String, default="The Orphan", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # IANA zone name (e.g. "Asia/Tashkent"); day boundaries are computed in it.
+    timezone = Column(String, nullable=True)
+    # Embedded in every JWT ("tv"); bumping it revokes all issued tokens.
+    token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -289,13 +293,26 @@ class BatTelegramSeenUpdate(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
+class BatTelegramLinkAttempt(Base):
+    """Failed link-code attempts per Telegram chat (brute-force guard).
+
+    Table-backed so the limit holds across gunicorn workers."""
+
+    __tablename__ = "bat_telegram_link_attempts"
+
+    chat_id = Column(String, primary_key=True)
+    failures = Column(Integer, default=0, nullable=False)
+    window_started_at = Column(DateTime, nullable=False)
+
+
 class BatAlfredUsage(Base):
-    """Per-user daily message counter (quota guard)."""
+    """Per-user daily message counter (quota guard). One row per (user, day)."""
 
     __tablename__ = "bat_alfred_usage"
+    __table_args__ = (UniqueConstraint("owner_id", "day", name="uq_bat_alfred_usage_owner_day"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    day = Column(String, nullable=False)  # YYYY-MM-DD (UTC)
+    day = Column(String, nullable=False)  # YYYY-MM-DD in the user's timezone
     count = Column(Integer, default=0, nullable=False)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)

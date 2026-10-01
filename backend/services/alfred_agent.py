@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Optional, Tuple
 
 import structlog
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
@@ -25,21 +26,21 @@ from services.mission_service import delete_mission
 from services.habit_service import delete_habit
 from services.calendar_service import delete_event
 from services.llm_providers.base import LLMProviderAdapter, extract_system_instruction
+from services.timezones import local_now, local_today
 
 logger = structlog.get_logger()
 
-TASHKENT = timezone(timedelta(hours=5))
-
-
-def _tashkent_now() -> datetime:
-    return datetime.now(TASHKENT)
-
-
-def _format_tashkent(dt: datetime) -> str:
-    """e.g. 'Wednesday, the 16th of September 2026, 02:47 AM (Tashkent time)'"""
+def _format_local(dt: datetime) -> str:
+    """e.g. 'Wednesday, the 16th of September 2026, 2:47 AM (Asia/Tashkent, UTC+05:00)'"""
     day = dt.day
     suffix = {1: "st", 2: "nd", 3: "rd"}.get(day if day < 20 else day % 10, "th")
-    return dt.strftime(f"%A, the {day}{suffix} of %B %Y, %I:%M %p").replace(" 0", " ") + " (Tashkent time)"
+    offset = dt.strftime("%z")
+    offset = f"UTC{offset[:3]}:{offset[3:]}" if offset else "UTC"
+    zone = getattr(dt.tzinfo, "key", None) or "UTC"
+    return (
+        dt.strftime(f"%A, the {day}{suffix} of %B %Y, %I:%M %p").replace(" 0", " ")
+        + f" ({zone}, {offset})"
+    )
 
 
 # --- Identity core (always sent, ~400 tokens) ---
@@ -134,9 +135,9 @@ only through the proper form.
 Keep replies short. This is a quiet word in the study, not a speech in the hall."""
 
 
-def _build_system_prompt() -> str:
-    """Inject current Tashkent time fresh on every call."""
-    return IDENTITY_CORE.format(current_time=_format_tashkent(_tashkent_now()))
+def _build_system_prompt(user: models.BatAccount) -> str:
+    """Inject the user's current local time fresh on every call."""
+    return IDENTITY_CORE.format(current_time=_format_local(local_now(user)))
 
 MAX_TOOL_CALLS_PER_TURN = 5
 MAX_MODEL_CALLS_PER_TURN = 8
@@ -201,27 +202,40 @@ def store_turn(db: Session, user: models.BatAccount, session_id: int, user_text:
 
 # --- Usage guard (Part 7) ---
 
-def _today_key() -> str:
-    return _utcnow().date().isoformat()
+def _today_key(user: models.BatAccount) -> str:
+    """The quota resets at the user's local midnight."""
+    return local_today(user).isoformat()
 
 
 def check_usage(db: Session, user: models.BatAccount) -> bool:
-    """True if the user may proceed (and counts this message). False at cap."""
-    day = _today_key()
-    row = (
-        db.query(models.BatAlfredUsage)
-        .filter(models.BatAlfredUsage.owner_id == user.id, models.BatAlfredUsage.day == day)
-        .first()
-    )
-    if row is None:
-        row = models.BatAlfredUsage(owner_id=user.id, day=day, count=0)
-        db.add(row)
-        db.flush()
-    if row.count >= DAILY_MESSAGE_CAP:
-        return False
-    row.count += 1
-    db.commit()
-    return True
+    """True if the user may proceed (and counts this message). False at cap.
+
+    Race-free across workers: a single conditional UPDATE both checks the cap
+    and increments; the first message of the day inserts the row, and the
+    (owner_id, day) unique constraint turns a concurrent insert into a retry
+    of the UPDATE. (The old read-then-write could double-insert or overshoot.)
+    """
+    day = _today_key(user)
+    usage = models.BatAlfredUsage
+    for _ in range(2):
+        updated = (
+            db.query(usage)
+            .filter(usage.owner_id == user.id, usage.day == day, usage.count < DAILY_MESSAGE_CAP)
+            .update({usage.count: usage.count + 1}, synchronize_session=False)
+        )
+        if updated:
+            db.commit()
+            return True
+        if db.query(usage.id).filter(usage.owner_id == user.id, usage.day == day).first():
+            db.rollback()
+            return False  # row exists and is at the cap
+        try:
+            db.add(usage(owner_id=user.id, day=day, count=1))
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()  # another worker inserted first; count via UPDATE
+    return False
 
 
 # --- Session management ---
@@ -409,7 +423,7 @@ async def run_turn(db: Session, user: models.BatAccount, user_text: str, session
         return CAPPED_REPLY
 
     messages = (
-        [{"role": "system", "content": _build_system_prompt()}]
+        [{"role": "system", "content": _build_system_prompt(user)}]
         + get_history(db, user, session_id)
         + [{"role": "user", "content": user_text}]
     )

@@ -3,7 +3,23 @@ import logging as stdlib_logging
 from functools import lru_cache
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator, ConfigDict
+from pydantic import Field, ValidationInfo, field_validator, ConfigDict
+
+
+# Example values that appear in this repo (README/.env.example/old
+# railway.toml). Long enough to pass the length check, but public, so a
+# deployment that copied one would accept forged tokens.
+_PLACEHOLDER_SECRETS = frozenset({
+    "change-me-to-a-secure-random-string-in-production",
+    "set-this-to-a-random-64-char-string-in-railway",
+    "your-super-secret-key-change-in-production-min-32-chars",
+    "dev-secret-key-change-in-production-min32chars",
+})
+
+
+def _is_placeholder(value: str, info: ValidationInfo) -> bool:
+    """Placeholders are allowed only in local development (docker-compose)."""
+    return value in _PLACEHOLDER_SECRETS and info.data.get("environment") != "development"
 
 
 class Settings(BaseSettings):
@@ -57,8 +73,8 @@ class Settings(BaseSettings):
 
     @field_validator("secret_key", mode="before")
     @classmethod
-    def validate_secret_key(cls, v: str) -> str:
-        if v == "change-me-to-a-secure-random-string-in-production" or len(v) < 16:
+    def validate_secret_key(cls, v: str, info: ValidationInfo) -> str:
+        if _is_placeholder(v, info) or len(v) < 16:
             raise RuntimeError(
                 "SECRET_KEY must be set to a strong random value in production. "
                 "Refusing to start with a missing or default key."
@@ -67,8 +83,8 @@ class Settings(BaseSettings):
 
     @field_validator("provider_key_encryption_secret", mode="before")
     @classmethod
-    def validate_provider_secret(cls, v) -> str:
-        if not v or len(v) < 16:
+    def validate_provider_secret(cls, v, info: ValidationInfo) -> str:
+        if not v or _is_placeholder(v, info) or len(v) < 16:
             raise RuntimeError(
                 "PROVIDER_KEY_ENCRYPTION_SECRET must be set to a strong random "
                 "value in production. Refusing to start without it — stored "

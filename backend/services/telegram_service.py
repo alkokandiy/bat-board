@@ -19,6 +19,9 @@ import models
 logger = structlog.get_logger()
 
 LINK_CODE_TTL = timedelta(minutes=5)
+# Brute-force guard for 6-digit codes: failed attempts per chat per window.
+LINK_MAX_FAILURES = 5
+LINK_FAILURE_WINDOW = timedelta(minutes=10)
 
 
 def _utcnow() -> datetime:
@@ -116,6 +119,34 @@ def exchange_link_code(
     db.delete(row)
     db.commit()
     return user
+
+
+def link_attempts_blocked(db: Session, telegram_chat_id: str) -> bool:
+    """True while this chat has used up its failed-attempt budget."""
+    row = db.get(models.BatTelegramLinkAttempt, telegram_chat_id)
+    if row is None or _as_aware(row.window_started_at) + LINK_FAILURE_WINDOW <= _utcnow():
+        return False
+    return row.failures >= LINK_MAX_FAILURES
+
+
+def record_link_failure(db: Session, telegram_chat_id: str) -> None:
+    row = db.get(models.BatTelegramLinkAttempt, telegram_chat_id)
+    now = _utcnow()
+    if row is None:
+        db.add(models.BatTelegramLinkAttempt(chat_id=telegram_chat_id, failures=1, window_started_at=now))
+    elif _as_aware(row.window_started_at) + LINK_FAILURE_WINDOW <= now:
+        row.failures = 1
+        row.window_started_at = now
+    else:
+        row.failures += 1
+    db.commit()
+
+
+def clear_link_failures(db: Session, telegram_chat_id: str) -> None:
+    row = db.get(models.BatTelegramLinkAttempt, telegram_chat_id)
+    if row is not None:
+        db.delete(row)
+        db.commit()
 
 
 def unlink_telegram(

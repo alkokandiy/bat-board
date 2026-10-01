@@ -25,6 +25,7 @@ services:
       DATABASE_URL: postgresql://batboard:batboard@db:5432/batboard
       ENVIRONMENT: development
       SECRET_KEY: dev-secret-key-change-in-production-min32chars
+      PROVIDER_KEY_ENCRYPTION_SECRET: dev-provider-secret-local-only-0123456789
       CORS_ORIGINS: '["http://localhost:5173"]'
       LOG_FORMAT: console
     depends_on:

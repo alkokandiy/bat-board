@@ -27,6 +27,9 @@ structlog==24.1.0
 
 # Utilities
 email-validator==2.1.0.post1
+# IANA timezone database for zoneinfo (per-user timezones); slim Docker
+# images don't ship the system copy.
+tzdata==2026.4
 
 # Testing
 pytest==9.1.1
