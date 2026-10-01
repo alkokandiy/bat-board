@@ -13,7 +13,10 @@ from config import get_settings
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep loggers that already exist: migrations also run at app startup,
+    # and the default (disable_existing_loggers=True) silenced the server's
+    # own gunicorn/uvicorn loggers for the rest of the process.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)

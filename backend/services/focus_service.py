@@ -18,6 +18,14 @@ from services.common import auto_log_event, calculate_bat_level
 _UNSET = object()
 
 
+def _owns(db: Session, model, row_id, current_user: models.BatAccount) -> bool:
+    if not row_id:
+        return False
+    return db.query(model.id).filter(
+        model.id == row_id, model.owner_id == current_user.id
+    ).first() is not None
+
+
 def start_focus_session(
     db: Session,
     current_user: models.BatAccount,
@@ -76,6 +84,7 @@ def end_focus_session(
 
     Omitted keyword arguments mean "not provided" (mirrors the route's
     model_fields_set semantics); end_time defaults to now when unset.
+    Ending an already-ended session is a no-op that returns it unchanged.
     """
     session = db.query(models.BatFocus).filter(
         models.BatFocus.id == session_id,
@@ -85,24 +94,37 @@ def end_focus_session(
     if not session:
         return None
 
-    if end_time is not _UNSET:
-        session.end_time = end_time.replace(tzinfo=None) if end_time else None
-    elif not session.end_time:
-        session.end_time = datetime.now(timezone.utc)
+    # Ending is idempotent: a session that already has an end_time keeps its
+    # recorded result. Re-ending used to re-award points and re-add focus
+    # minutes on every repeated PUT.
+    if session.end_time is not None:
+        return session
 
-    provided = {
-        "duration_minutes": duration_minutes,
-        "soundtrack_metadata": soundtrack_metadata,
-        "mission_id": mission_id,
-        "habit_id": habit_id,
-    }
-    for field, value in provided.items():
+    now = datetime.now(timezone.utc)
+    if end_time is not _UNSET and end_time is not None:
+        if end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+        session.end_time = min(max(end_time, session.start_time), now)
+    else:
+        session.end_time = now
+
+    for field, value in (("soundtrack_metadata", soundtrack_metadata),):
         if value is not _UNSET:
             setattr(session, field, value)
+    # Links can be set at end time, but only to the caller's own rows.
+    if mission_id is not _UNSET:
+        session.mission_id = mission_id if _owns(db, models.BatMission, mission_id, current_user) else None
+    if habit_id is not _UNSET:
+        session.habit_id = habit_id if _owns(db, models.BatHabit, habit_id, current_user) else None
 
-    if session.duration_minutes is None and session.end_time:
-        delta = session.end_time - session.start_time
-        session.duration_minutes = int(delta.total_seconds() / 60)
+    # Credited minutes come from the client (it excludes paused time) but can
+    # never exceed the wall-clock span of the session, nor go negative —
+    # otherwise points could be minted with an arbitrary duration_minutes.
+    elapsed = max(0, int((session.end_time - session.start_time).total_seconds() // 60))
+    if duration_minutes is not _UNSET and duration_minutes is not None:
+        session.duration_minutes = max(0, min(int(duration_minutes), elapsed + 1))
+    else:
+        session.duration_minutes = elapsed
 
     if session.duration_minutes:
         if session.mission_id:
@@ -121,7 +143,7 @@ def end_focus_session(
             if habit:
                 habit.focus_minutes = (habit.focus_minutes or 0) + session.duration_minutes
 
-    reward = session.duration_minutes if session.duration_minutes else 0
+    reward = session.duration_minutes or 0
     current_user.points += reward
     old_level = current_user.bat_level
     current_user.bat_level = calculate_bat_level(current_user.points)

@@ -1,7 +1,34 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean
+from sqlalchemy import DateTime as _SQLDateTime
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import TypeDecorator
 from datetime import datetime, timezone
 from database import Base
+
+
+class DateTime(TypeDecorator):
+    """Timestamp stored as naive UTC, always returned timezone-aware (UTC).
+
+    Columns are TIMESTAMP WITHOUT TIME ZONE. Without this, values came back
+    naive and were serialized without an offset, so browsers parsed UTC
+    times as local time (events/countdowns shifted by the user's offset and
+    drifted on every edit), and naive-vs-aware arithmetic crashed. Aware
+    inputs in any offset are converted to UTC; naive inputs are taken as UTC.
+    """
+
+    impl = _SQLDateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
+
 
 
 class BatAccount(Base):

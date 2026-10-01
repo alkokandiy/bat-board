@@ -286,7 +286,19 @@ TOOL_NAMES = {t["name"] for t in ALL_TOOLS}
 def describe_tool_target(
     db: Session, current_user: models.BatAccount, name: str, args: Dict[str, Any]
 ) -> Optional[str]:
-    """Read-only fetch of a destructive tool's target title for the confirmation template."""
+    """Read-only fetch of a destructive tool's target title for the confirmation template.
+
+    None when the target doesn't exist or the id argument is missing/invalid.
+    """
+    try:
+        return _describe_tool_target(db, current_user, name, args)
+    except (TypeError, ValueError):
+        return None
+
+
+def _describe_tool_target(
+    db: Session, current_user: models.BatAccount, name: str, args: Dict[str, Any]
+) -> Optional[str]:
     if name == "delete_note":
         note = notes_service.get_note(db, current_user, int(args.get("note_id")))
         return note.title if note else None
@@ -338,7 +350,7 @@ def execute_tool(
             {"id": l.id, "timestamp": _iso(l.timestamp), "event_type": l.event_type, "details": l.details}
             for l in logs_service.list_recent_logs(
                 db, current_user,
-                limit=int(args.get("limit") or 50),
+                limit=max(1, min(int(args.get("limit") or 50), 200)),
                 start_date=_parse_dt(args.get("start_date"), "start_date") if args.get("start_date") else None,
                 end_date=_parse_dt(args.get("end_date"), "end_date") if args.get("end_date") else None)
         ]}

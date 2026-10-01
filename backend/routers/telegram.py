@@ -6,6 +6,7 @@ replies happen in the background task with its own DB session, so Telegram
 never waits on (or retries) slow model calls.
 """
 
+import asyncio
 import re
 import secrets as secrets_lib
 
@@ -22,7 +23,6 @@ from dependencies import (
     get_current_active_user,
     get_db,
     get_user_by_telegram_chat_id,
-    limiter,
 )
 from services import alfred_agent, alfred_memory_reviewer, provider_config_service, setup_wizard, telegram_service
 
@@ -67,8 +67,10 @@ def unlink_telegram(
     return None
 
 
+# No per-IP rate limit here: every update comes from Telegram's own servers,
+# so an IP budget throttles all users together. The secret header is the gate,
+# and per-user model spend is bounded by Alfred's daily quota.
 @router.post("/api/telegram/webhook")
-@limiter.limit("20/minute")
 async def telegram_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -97,8 +99,22 @@ async def handle_telegram_webhook(request: Request, background_tasks, db: Sessio
     if update_id is not None and not _claim_update(db, update_id):
         return {"ok": True}  # duplicate delivery — no-op
 
-    background_tasks.add_task(process_telegram_update, payload, background_tasks)
+    if not isinstance(payload, dict):
+        return {"ok": True}
+
+    background_tasks.add_task(_process_update_in_thread, payload, background_tasks)
     return {"ok": True}
+
+
+def _process_update_in_thread(payload: dict, background_tasks) -> None:
+    """Run update processing in a worker thread with its own event loop.
+
+    Processing does synchronous DB queries and synchronous Telegram HTTP
+    sends (10s timeouts). Run as an async task on the server's loop, every
+    one of those stalled all other requests on the (single) worker. As a
+    sync background task Starlette runs this in its threadpool instead.
+    """
+    asyncio.run(process_telegram_update(payload, background_tasks))
 
 
 def _claim_update(db: Session, update_id: int) -> bool:
@@ -241,7 +257,7 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
         _reply(chat_id, reply)
         # Memory review runs after the reply is already sent — never on
         # quota/setup short-circuits, which need no review and no extra spend.
-        if reply not in (alfred_agent.CAPPED_REPLY, alfred_agent.SETUP_REPLY):
+        if reply not in alfred_agent.NO_REVIEW_REPLIES:
             alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, text, reply)
     except Exception as exc:
         logger.error("telegram_process_failed", error_type=type(exc).__name__, error=str(exc))

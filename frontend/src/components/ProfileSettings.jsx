@@ -38,8 +38,8 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
       setPwError('Passwords do not match');
       return;
     }
-    if (newPassword.length < 4) {
-      setPwError('Password must be at least 4 characters');
+    if (newPassword.length < 8) {
+      setPwError('Password must be at least 8 characters');
       return;
     }
     try {

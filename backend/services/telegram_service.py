@@ -5,9 +5,10 @@ Phase 2B will reuse send_telegram_message for Alfred's actual responses.
 """
 
 import hashlib
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 import structlog
@@ -87,6 +88,18 @@ def exchange_link_code(
         db.commit()
         return None
 
+    # One active link per chat: a chat that is already linked (to this or
+    # another account) used to hit the unique telegram_chat_id constraint
+    # and crash the exchange. Re-linking moves the chat to the new account.
+    for previous in (
+        db.query(models.BatPersonalAccessToken)
+        .filter(models.BatPersonalAccessToken.telegram_chat_id == telegram_chat_id)
+        .all()
+    ):
+        previous.revoked = True
+        previous.telegram_chat_id = None
+    db.flush()
+
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     # The raw token is deliberately NOT returned, logged, or stored —
@@ -143,13 +156,45 @@ def is_telegram_linked(
     )
 
 
+TELEGRAM_MAX_MESSAGE_CHARS = 4096
+
+
+def _split_message(text: str, limit: int = TELEGRAM_MAX_MESSAGE_CHARS) -> List[str]:
+    """Split text into Telegram-sized chunks, preferring line/word boundaries."""
+    text = text or ""
+    chunks = []
+    while len(text) > limit:
+        cut = text.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind(" ", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        chunks.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    chunks.append(text)
+    return [c for c in chunks if c] or [""]
+
+
 def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: float = 10.0, reply_markup: dict = None) -> bool:
-    """POST a sendMessage to Telegram's Bot API. Returns True on success."""
+    """POST a sendMessage to Telegram's Bot API. Returns True on success.
+
+    Text over Telegram's 4096-character limit is sent as several messages
+    (it used to be rejected with a 400 and the reply silently lost); the
+    reply markup goes on the last one.
+    """
+    chunks = _split_message(text)
+    ok = True
+    for i, chunk in enumerate(chunks):
+        markup = reply_markup if i == len(chunks) - 1 else None
+        ok = _send_one(bot_token, chat_id, chunk, timeout, markup) and ok
+    return ok
+
+
+def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_markup: Optional[dict]) -> bool:
     try:
         payload = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
-            import json as _json
-            payload["reply_markup"] = _json.dumps(reply_markup)
+            payload["reply_markup"] = json.dumps(reply_markup)
         resp = httpx.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
             json=payload,

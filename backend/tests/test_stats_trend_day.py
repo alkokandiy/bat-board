@@ -65,7 +65,9 @@ def test_trend_aggregates_into_correct_buckets(client, headers):
     assert points[-2]["minutes"] == 0
 
     month = client.get("/api/stats/focus/trend?granularity=month", headers=headers).json()
-    assert month["points"][-1]["sessions"] == 2
+    # On the 1st/2nd of a month "two days ago" falls in the previous month.
+    same_month = (two_days_ago.year, two_days_ago.month) == (now.year, now.month)
+    assert month["points"][-1]["sessions"] == (2 if same_month else 1)
 
 
 def test_day_empty_date(client, headers):

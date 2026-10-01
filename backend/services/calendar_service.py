@@ -71,7 +71,10 @@ def update_event(
     color: Optional[str] = None,
     mission_id: Optional[int] = None,
 ) -> Optional[models.CalendarEvent]:
-    """Update an existing event. Returns None if not found."""
+    """Update an existing event. Returns None if not found.
+
+    Raises ValueError when mission_id is not one of the user's missions.
+    """
     event = db.query(models.CalendarEvent).filter(
         models.CalendarEvent.id == event_id,
         models.CalendarEvent.owner_id == current_user.id,
@@ -90,6 +93,12 @@ def update_event(
     if color is not None:
         event.color = color
     if mission_id is not None:
+        mission = db.query(models.BatMission).filter(
+            models.BatMission.id == mission_id,
+            models.BatMission.owner_id == current_user.id,
+        ).first()
+        if mission is None:
+            raise ValueError("Mission not found")
         event.mission_id = mission_id
 
     db.commit()

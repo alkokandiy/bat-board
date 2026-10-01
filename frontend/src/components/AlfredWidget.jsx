@@ -34,6 +34,10 @@ export default function AlfredWidget() {
   const [provBusy, setProvBusy] = useState(false);
   const bottomRef = useRef(null);
   const loadedRef = useRef(false);
+  // Which conversation is on screen right now; a reply that arrives after the
+  // user switched conversations must not be appended to the other one.
+  const activeSessionRef = useRef(null);
+  useEffect(() => { activeSessionRef.current = activeSessionId; }, [activeSessionId]);
 
   // Load sessions on mount
   useEffect(() => {
@@ -139,17 +143,22 @@ export default function AlfredWidget() {
   const send = async () => {
     const text = input.trim();
     if (!text || sending || !activeSessionId) return;
+    const sessionId = activeSessionId;
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text }]);
     setSending(true);
     try {
-      const res = await api.sendAlfredMessage(text, activeSessionId);
-      setMessages(prev => [...prev, { role: 'alfred', text: res.reply }]);
+      const res = await api.sendAlfredMessage(text, sessionId);
+      if (activeSessionRef.current === sessionId) {
+        setMessages(prev => [...prev, { role: 'alfred', text: res.reply }]);
+      }
       // Refresh session list (title may have been auto-set)
       const s = await api.getAlfredSessions();
       setSessions(s);
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'alfred', text: `The line went dead: ${err.message}` }]);
+      if (activeSessionRef.current === sessionId) {
+        setMessages(prev => [...prev, { role: 'alfred', text: `The line went dead: ${err.message}` }]);
+      }
     } finally {
       setSending(false);
     }

@@ -56,9 +56,9 @@ async def alfred_chat(
     except Exception as exc:
         logger.error("alfred_chat_failed", error_type=type(exc).__name__, error=str(exc))
         reply = alfred_agent.SNAG_REPLY
-    # Memory review runs after the reply is sent — never on quota/setup
+    # Memory review runs after the reply is sent — never on quota/setup/failure
     # short-circuits, which need no review and no extra spend.
-    if reply not in (alfred_agent.CAPPED_REPLY, alfred_agent.SETUP_REPLY):
+    if reply not in alfred_agent.NO_REVIEW_REPLIES:
         alfred_memory_reviewer.schedule_memory_review(
             background_tasks, current_user.id, payload.message, reply
         )
@@ -105,7 +105,7 @@ def get_session_messages(
     messages = (
         db.query(models.BatAlfredMessage)
         .filter_by(session_id=session_id)
-        .order_by(models.BatAlfredMessage.created_at.asc())
+        .order_by(models.BatAlfredMessage.created_at.asc(), models.BatAlfredMessage.id.asc())
         .all()
     )
     return [{"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()} for m in messages]

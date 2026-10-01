@@ -11,13 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 import models
 from database import engine, get_db, create_db_tables
@@ -25,7 +24,8 @@ from config import get_settings
 from auth import (
     get_current_active_user, authenticate_user, create_access_token,
     create_refresh_token, decode_refresh_token, get_password_hash,
-    UserCreate, UserResponse, Token,
+    get_user_for_token, token_claims, validate_new_password, validate_username,
+    verify_password, UserCreate, UserResponse, Token,
 )
 from dependencies import limiter
 from routers.countdown import router as countdown_router
@@ -149,8 +149,14 @@ class BatAccountSchema(BaseModel):
     created_at: datetime
 
 class BatAccountUpdate(BaseModel):
+    # Points are earned only through missions, habits and focus sessions;
+    # the old client-supplied points_delta let any user mint points.
     username: Optional[str] = None
-    points_delta: Optional[int] = None
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, v: Optional[str]) -> Optional[str]:
+        return validate_username(v) if v is not None else v
 
 class BatMissionBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -404,8 +410,11 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(data={"sub": user.username})
-    refresh_token = create_refresh_token(data={"sub": user.username})
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+
+    access_token = create_access_token(data=token_claims(user))
+    refresh_token = create_refresh_token(data=token_claims(user))
 
     auto_log_event(db, user.id, "login", {"message": "User logged in"})
     db.commit()
@@ -420,12 +429,12 @@ def refresh_token(request: Request, refresh_token: str = Body(...), db: Session 
     if token_data is None:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user = db.query(models.BatAccount).filter(models.BatAccount.username == token_data.username).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    user = get_user_for_token(db, token_data)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    access_token = create_access_token(data={"sub": user.username})
-    new_refresh_token = create_refresh_token(data={"sub": user.username})
+    access_token = create_access_token(data=token_claims(user))
+    new_refresh_token = create_refresh_token(data=token_claims(user))
 
     return Token(access_token=access_token, refresh_token=new_refresh_token)
 
@@ -463,30 +472,22 @@ def update_account(
         current_user.username = payload.username
         auto_log_event(db, current_user.id, "account_update", {"field": "username", "old": old_username, "new": payload.username})
 
-    if payload.points_delta is not None:
-        old_points = current_user.points
-        current_user.points += payload.points_delta
-        if current_user.points < 0:
-            current_user.points = 0
-
-        old_level = current_user.bat_level
-        current_user.bat_level = calculate_bat_level(current_user.points)
-
-        auto_log_event(db, current_user.id, "points_modified", {
-            "points_delta": payload.points_delta,
-            "old_points": old_points,
-            "new_points": current_user.points,
-            "old_level": old_level,
-            "new_level": current_user.bat_level
-        })
-
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Username already taken")
     db.refresh(current_user)
     return current_user
 
 class ChangePassword(BaseModel):
     current_password: str
     new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_new_password(cls, v: str) -> str:
+        return validate_new_password(v)
 
 @app.put("/api/account/password", response_model=dict)
 @limiter.limit("30/minute")
@@ -496,7 +497,6 @@ def change_password(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    from auth import verify_password, get_password_hash
     if not verify_password(payload.current_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     current_user.hashed_password = get_password_hash(payload.new_password)
@@ -557,6 +557,9 @@ def create_mission(
         subtasks=mission_data.subtasks,
     )
 
+_NON_NULLABLE_MISSION_FIELDS = {"title", "priority", "is_pinned", "is_dismissed"}
+
+
 @app.put("/api/missions/{mission_id}", response_model=BatMissionSchema)
 @limiter.limit("30/minute")
 def update_mission(
@@ -575,23 +578,22 @@ def update_mission(
         raise HTTPException(status_code=404, detail="Mission not found")
 
     old_status = mission.status
-    old_points = current_user.points
-    old_level = current_user.bat_level
 
     for field in payload.model_fields_set:
         if field == 'status':
             continue
-        setattr(mission, field, getattr(payload, field))
+        value = getattr(payload, field)
+        if value is None and field in _NON_NULLABLE_MISSION_FIELDS:
+            continue  # explicit null on a NOT NULL column used to 500
+        setattr(mission, field, value)
 
-    if 'status' in payload.model_fields_set:
+    if 'status' in payload.model_fields_set and payload.status is not None:
         if payload.status == "completed" and old_status != "completed":
             mission = mission_service.complete_mission(db, current_user, mission_id)
+        elif payload.status != "completed" and old_status == "completed":
+            mission_service.reopen_mission(db, current_user, mission, payload.status)
         else:
             mission.status = payload.status
-            if payload.status != "completed" and old_status == "completed":
-                mission.completed_at = None
-                current_user.points = old_points
-                current_user.bat_level = calculate_bat_level(current_user.points)
 
     db.flush()
     db.refresh(mission)
@@ -756,7 +758,10 @@ def update_habit(
         raise HTTPException(status_code=404, detail="Habit not found")
 
     for field in payload.model_fields_set:
-        setattr(habit, field, getattr(payload, field))
+        value = getattr(payload, field)
+        if value is None and field in ("name", "frequency", "streak"):
+            continue  # explicit null on a NOT NULL column used to 500
+        setattr(habit, field, value)
 
     db.flush()
     db.refresh(habit)
@@ -1166,14 +1171,20 @@ for d in _possible_static_dirs:
 if static_dir:
     app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
 
-    _spa_static_dir = static_dir
+    _spa_static_dir = os.path.realpath(static_dir)
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
-        file_path = os.path.join(_spa_static_dir, full_path)
-        if os.path.isfile(file_path):
+        # The path param arrives percent-decoded, so "..%2f" becomes "../".
+        # Resolve and require the result to stay inside the dist directory,
+        # otherwise any file on disk (e.g. /proc/self/environ) is servable.
+        file_path = os.path.realpath(os.path.join(_spa_static_dir, full_path))
+        if (
+            file_path.startswith(_spa_static_dir + os.sep)
+            and os.path.isfile(file_path)
+        ):
             return FileResponse(file_path)
         index_path = os.path.join(_spa_static_dir, "index.html")
         if os.path.isfile(index_path):

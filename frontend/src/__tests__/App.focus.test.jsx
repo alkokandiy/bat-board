@@ -108,4 +108,30 @@ describe('App focus session state machine', () => {
     expect(api.endFocusSession).toHaveBeenCalledTimes(1);
     expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 5 });
   });
+
+  it('does not credit time spent paused', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await clickEnterFocus();
+
+    await act(async () => {
+      vi.advanceTimersByTime(10 * 60 * 1000);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('PAUSE'));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(60 * 60 * 1000); // an hour away from the desk
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('RESUME'));
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(15 * 60 * 1000);
+    });
+
+    expect(api.endFocusSession).toHaveBeenCalledTimes(1);
+    expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 25 });
+  });
 });

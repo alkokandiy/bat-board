@@ -139,6 +139,7 @@ def _build_system_prompt() -> str:
     return IDENTITY_CORE.format(current_time=_format_tashkent(_tashkent_now()))
 
 MAX_TOOL_CALLS_PER_TURN = 5
+MAX_MODEL_CALLS_PER_TURN = 8
 MAX_HISTORY_TURNS = 20
 PENDING_TTL = timedelta(minutes=2)
 CONFIRM_WORDS = {"yes", "y", "confirm"}
@@ -153,6 +154,14 @@ SNAG_REPLY = "Alfred hit a snag — try again in a moment."
 RATE_LIMIT_REPLY = "Alfred's thinking engine is rate-limited right now — give it a minute and try again."
 SERVICE_DOWN_REPLY = "Alfred's thinking engine is temporarily overloaded — try again in a moment."
 CAPPED_REPLY = "Alfred's had a lot to think about today — back tomorrow."
+
+# Replies that mean no real exchange happened (quota, setup, or a failed model
+# call). The background memory review is skipped for these: there is nothing
+# to file, and after a provider failure it would just fail again at our cost.
+NO_REVIEW_REPLIES = frozenset({
+    CAPPED_REPLY, SETUP_REPLY, NOT_CONFIGURED_REPLY, SNAG_REPLY,
+    RATE_LIMIT_REPLY, SERVICE_DOWN_REPLY,
+})
 
 
 def _utcnow() -> datetime:
@@ -436,7 +445,12 @@ async def _tool_loop(
     executions = 0
     last_text = None
 
-    while executions < MAX_TOOL_CALLS_PER_TURN:
+    # Model calls are bounded separately from tool executions: unknown or
+    # missing-target calls don't execute anything, and a model that keeps
+    # emitting them used to spin this loop (and the provider bill) forever.
+    for _ in range(MAX_MODEL_CALLS_PER_TURN):
+        if executions >= MAX_TOOL_CALLS_PER_TURN:
+            break
         if adapter is None:
             response = await llm_provider.generate(messages, alfred_tools.ALL_TOOLS)
         else:
@@ -446,31 +460,52 @@ async def _tool_loop(
             last_text = response.text
         if not response.tool_calls:
             break
-        for call in response.tool_calls[: MAX_TOOL_CALLS_PER_TURN - executions]:
+
+        calls = response.tool_calls[: MAX_TOOL_CALLS_PER_TURN - executions]
+        # All calls from one model response are echoed back as ONE assistant
+        # turn followed by one result per call, in order. Splitting parallel
+        # calls into separate assistant turns made Gemini reject the replay
+        # (400 "Function call is missing a thought_signature"): it signs only
+        # the first call of a parallel batch, so every later call opened an
+        # unsigned turn. Every result also needs its call in history —
+        # unknown/not-found results were previously sent with no call at all.
+        messages.append({"role": "assistant", "content": response.text, "tool_calls": [
+            {"name": c.name, "arguments": c.arguments or {},
+             "thought_signature": c.thought_signature}
+            for c in calls
+        ]})
+        for call in calls:
             if call.name not in TOOL_NAMES:
-                messages.append({
-                    "role": "tool", "name": call.name,
-                    "result": {"error": f"Unknown tool: {call.name}"},
-                })
-                continue
-            if call.name in DESTRUCTIVE_TOOL_NAMES:
+                result = {"error": f"Unknown tool: {call.name}"}
+            elif call.name in DESTRUCTIVE_TOOL_NAMES:
                 confirmation = gate_destructive_tool(db, user, call.name, call.arguments or {})
                 if confirmation is None:
-                    messages.append({
-                        "role": "tool", "name": call.name,
-                        "result": {"error": "Item not found"},
-                    })
-                    continue
-                # Short-circuit: the turn's reply is the template, nothing improvised.
-                return confirmation
-            try:
-                result = execute_tool(db, user, call.name, call.arguments or {})
-            except (ValueError, RuntimeError) as exc:
-                result = {"error": str(exc)}
-            messages.append({"role": "assistant", "content": None, "tool_calls": [
-                {"name": call.name, "arguments": call.arguments or {},
-                 "thought_signature": call.thought_signature}]})
+                    result = {"error": "Item not found"}
+                else:
+                    # Short-circuit: the turn's reply is the template, nothing improvised.
+                    return confirmation
+            else:
+                result = _execute_tool_safely(db, user, call.name, call.arguments or {})
+                executions += 1
             messages.append({"role": "tool", "name": call.name, "result": result})
-            executions += 1
 
     return last_text or "Done — anything else, sir?"
+
+
+def _execute_tool_safely(db: Session, user: models.BatAccount, name: str, args: dict) -> dict:
+    """Run one tool; any failure becomes an error result for the model.
+
+    Bad model arguments (missing keys, wrong types) and DB errors used to
+    escape as KeyError/TypeError/IntegrityError and abort the whole turn —
+    after earlier tools in the same turn had already committed.
+    """
+    try:
+        return execute_tool(db, user, name, args)
+    except Exception as exc:  # noqa: BLE001 — reported back to the model
+        db.rollback()
+        logger.warning("alfred_tool_failed", tool=name, error_type=type(exc).__name__, error=str(exc)[:200])
+        if isinstance(exc, (ValueError, RuntimeError)):
+            return {"error": str(exc)}
+        if isinstance(exc, (KeyError, TypeError)):
+            return {"error": f"Invalid or missing arguments for {name}: {exc}"}
+        return {"error": f"{name} failed ({type(exc).__name__})."}
