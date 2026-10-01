@@ -46,6 +46,24 @@ def validate_new_password(v: str) -> str:
     return v
 
 
+ALFRED_ADDRESS_MAX = 60
+
+
+def validate_alfred_address(v: str) -> Optional[str]:
+    """Form of address for Alfred; empty means "use my username".
+
+    Single line, printable, short: it is inserted into Alfred's system prompt.
+    """
+    v = " ".join(v.split())
+    if not v:
+        return None
+    if len(v) > ALFRED_ADDRESS_MAX:
+        raise ValueError(f"Form of address must be at most {ALFRED_ADDRESS_MAX} characters")
+    if not v.isprintable():
+        raise ValueError("Form of address may not contain control characters")
+    return v
+
+
 def validate_username(v: str) -> str:
     import re
 
@@ -90,6 +108,7 @@ class UserResponse(BaseModel):
     bat_level: str
     is_active: bool
     timezone: Optional[str] = None
+    alfred_address: Optional[str] = None
     created_at: datetime
 
 

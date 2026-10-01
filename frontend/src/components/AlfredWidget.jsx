@@ -16,7 +16,14 @@ const MODEL_HINTS = {
  * Multi-session chat: session list sidebar, new chat, load messages.
  * Conversation state persists across tab switches while mounted.
  */
-export default function AlfredWidget() {
+function greeting(account) {
+  const hour = new Date().getHours();
+  const part = hour < 5 ? 'evening' : hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  const address = account?.alfred_address?.trim() || account?.username;
+  return `Good ${part}${address ? `, ${address}` : ''}. The books are open — what shall we log?`;
+}
+
+export default function AlfredWidget({ account }) {
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [sessions, setSessions] = useState([]);
@@ -53,10 +60,10 @@ export default function AlfredWidget() {
           const created = await api.createAlfredSession('New conversation');
           setSessions([{ id: created.id, title: created.title, updated_at: new Date().toISOString() }]);
           setActiveSessionId(created.id);
-          setMessages([{ role: 'alfred', text: 'Good evening, Master Al-Kokandiy. The books are open — what shall we log?' }]);
+          setMessages([{ role: 'alfred', text: greeting(account) }]);
         }
       } catch {
-        setMessages([{ role: 'alfred', text: 'Good evening, Master Al-Kokandiy. The books are open — what shall we log?' }]);
+        setMessages([{ role: 'alfred', text: greeting(account) }]);
       }
     })();
   }, [open]);

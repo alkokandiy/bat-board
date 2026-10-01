@@ -42,6 +42,8 @@ class BatAccount(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     # IANA zone name (e.g. "Asia/Tashkent"); day boundaries are computed in it.
     timezone = Column(String, nullable=True)
+    # How Alfred addresses this user (e.g. "Master Al-Kokandiy"); None = username.
+    alfred_address = Column(String, nullable=True)
     # Embedded in every JWT ("tv"); bumping it revokes all issued tokens.
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

@@ -41,6 +41,24 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   const [showLogs, setShowLogs] = useState(false);
   const [ledger, setLedger] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [addressDraft, setAddressDraft] = useState(account?.alfred_address || '');
+  const [addressMsg, setAddressMsg] = useState(null);
+  const [addressError, setAddressError] = useState(null);
+  useEffect(() => { setAddressDraft(account?.alfred_address || ''); }, [account?.alfred_address]);
+
+  const saveAddress = async (e) => {
+    e.preventDefault();
+    setAddressMsg(null);
+    setAddressError(null);
+    try {
+      await api.updateAccount({ alfred_address: addressDraft.trim() });
+      await onRefreshAccount();
+      setAddressMsg('Saved');
+    } catch (err) {
+      setAddressError(err.message);
+    }
+  };
+
   const [tzBusy, setTzBusy] = useState(false);
   const [tzError, setTzError] = useState(null);
   const deviceTz = browserTimezone();
@@ -263,6 +281,35 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
                 UPDATE PASSWORD
               </button>
             </form>
+          </div>
+
+          {/* Alfred form of address */}
+          <div className="bg-dark-slate rounded border border-slate-800 p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+              What Alfred Calls You
+            </h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Used in Telegram and the in-app chat. Leave empty to be addressed by your username ({account?.username}).
+            </p>
+            <form onSubmit={saveAddress} className="flex gap-2">
+              <input
+                type="text"
+                value={addressDraft}
+                onChange={e => { setAddressDraft(e.target.value); setAddressMsg(null); }}
+                maxLength={60}
+                placeholder={account?.username || 'e.g. Master Wayne'}
+                className="flex-1 min-w-0 bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+              />
+              <button
+                type="submit"
+                disabled={addressDraft.trim() === (account?.alfred_address || '')}
+                className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded text-xs font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+              >
+                SAVE
+              </button>
+            </form>
+            {addressMsg && <div className="text-xs text-green-400 mt-2">{addressMsg}</div>}
+            {addressError && <div className="text-xs text-red-400 mt-2">{addressError}</div>}
           </div>
 
           {/* Timezone */}

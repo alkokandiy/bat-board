@@ -516,7 +516,7 @@ export default function App() {
         onTrackChange={handleTrackChange}
         hideUI={focusMode}
       />
-      {!focusMode && <AlfredWidget />}
+      {!focusMode && <AlfredWidget account={account} />}
     </DashboardLayout>
   );
 }

@@ -26,7 +26,8 @@ from config import get_settings
 from auth import (
     get_current_active_user, authenticate_user, create_access_token,
     create_refresh_token, decode_refresh_token, get_password_hash,
-    get_user_for_token, revoke_all_tokens, token_claims, validate_new_password, validate_username,
+    get_user_for_token, revoke_all_tokens, token_claims, validate_alfred_address,
+    validate_new_password, validate_username,
     verify_password, UserCreate, UserResponse, Token,
 )
 from dependencies import limiter
@@ -165,6 +166,7 @@ class BatAccountSchema(BaseModel):
     points: int
     bat_level: str
     timezone: Optional[str] = None
+    alfred_address: Optional[str] = None
     created_at: datetime
 
 class BatAccountUpdate(BaseModel):
@@ -172,6 +174,13 @@ class BatAccountUpdate(BaseModel):
     # the old client-supplied points_delta let any user mint points.
     username: Optional[str] = None
     timezone: Optional[str] = None
+    # "" clears it (Alfred falls back to the username).
+    alfred_address: Optional[str] = None
+
+    @field_validator("alfred_address")
+    @classmethod
+    def _validate_alfred_address(cls, v: Optional[str]) -> Optional[str]:
+        return v if v is None else (validate_alfred_address(v) or "")
 
     @field_validator("username")
     @classmethod
@@ -497,6 +506,9 @@ def update_account(
         old_username = current_user.username
         current_user.username = payload.username
         auto_log_event(db, current_user.id, "account_update", {"field": "username", "old": old_username, "new": payload.username})
+
+    if payload.alfred_address is not None:
+        current_user.alfred_address = payload.alfred_address or None
 
     if payload.timezone is not None and payload.timezone != current_user.timezone:
         auto_log_event(db, current_user.id, "account_update", {

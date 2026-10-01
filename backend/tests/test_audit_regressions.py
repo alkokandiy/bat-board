@@ -442,3 +442,38 @@ def test_placeholder_secrets_are_rejected_outside_development(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "set-this-to-a-random-64-char-string-in-railway")
     with pytest.raises(Exception, match="SECRET_KEY"):
         Settings()
+
+
+# --- Alfred form of address (migration 012) -----------------------------------------
+
+def _system_prompt_for(client, h, monkeypatch):
+    calls = _mock_llm(monkeypatch, [LLMResponse(text="At your service.")])
+    _chat(client, h, "hello")
+    return calls[0][0]["content"]
+
+
+def test_alfred_addresses_each_user_by_their_own_name(client, auth_headers, monkeypatch):
+    a = auth_headers("audit_addr_bruce")
+    b = auth_headers("audit_addr_selina")
+    assert client.put("/api/account", headers=a, json={"alfred_address": "Master Wayne"}).status_code == 200
+
+    prompt_a = _system_prompt_for(client, a, monkeypatch)
+    prompt_b = _system_prompt_for(client, b, monkeypatch)
+    assert '"Master Wayne"' in prompt_a
+    assert '"audit_addr_selina"' in prompt_b  # default: username
+    for prompt in (prompt_a, prompt_b):
+        assert "Al-Kokandiy" not in prompt
+        assert " his " not in prompt and "himself" not in prompt
+
+
+def test_alfred_address_validation_and_reset(client, auth_headers):
+    h = auth_headers("audit_addr_rules")
+    assert client.put("/api/account", headers=h, json={"alfred_address": "x" * 61}).status_code == 422
+    # Line breaks can't reach the prompt: whitespace is collapsed to single spaces.
+    r = client.put("/api/account", headers=h, json={"alfred_address": "Master\nWayne\tsir"})
+    assert r.json()["alfred_address"] == "Master Wayne sir"
+    assert client.put("/api/account", headers=h, json={"alfred_address": "a\x00b"}).status_code == 422
+    r = client.put("/api/account", headers=h, json={"alfred_address": "  Miss   Kyle "})
+    assert r.json()["alfred_address"] == "Miss Kyle"
+    r = client.put("/api/account", headers=h, json={"alfred_address": ""})
+    assert r.json()["alfred_address"] is None

@@ -46,7 +46,9 @@ def _ensure_columns():
             conn.execute(text(
                 "ALTER TABLE bat_account ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
             ))
-        if not {"timezone", "token_version"} <= account_columns:
+        if "alfred_address" not in account_columns:
+            conn.execute(text("ALTER TABLE bat_account ADD COLUMN alfred_address VARCHAR"))
+        if not {"timezone", "token_version", "alfred_address"} <= account_columns:
             conn.commit()
 
     # BatMission columns
