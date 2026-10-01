@@ -24,18 +24,79 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+    # Account id ("uid" claim). Tokens are resolved by id when present so a
+    # token can't outlive a rename and then authenticate whoever registers
+    # the old username. Older tokens without it fall back to the username.
+    user_id: Optional[int] = None
+    # "tv" claim; must equal the account's token_version. Tokens minted
+    # before versioning carry none and count as version 0.
+    token_version: int = 0
+
+
+USERNAME_PATTERN = r"^[A-Za-z0-9_.\- ]+$"
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_BYTES = 72  # bcrypt ignores everything past 72 bytes
+
+
+def validate_new_password(v: str) -> str:
+    if len(v) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
+    if len(v.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise ValueError(f"Password must be at most {MAX_PASSWORD_BYTES} bytes long")
+    return v
+
+
+ALFRED_ADDRESS_MAX = 60
+
+
+def validate_alfred_address(v: str) -> Optional[str]:
+    """Form of address for Alfred; empty means "use my username".
+
+    Single line, printable, short: it is inserted into Alfred's system prompt.
+    """
+    v = " ".join(v.split())
+    if not v:
+        return None
+    if len(v) > ALFRED_ADDRESS_MAX:
+        raise ValueError(f"Form of address must be at most {ALFRED_ADDRESS_MAX} characters")
+    if not v.isprintable():
+        raise ValueError("Form of address may not contain control characters")
+    return v
+
+
+def validate_username(v: str) -> str:
+    import re
+
+    v = v.strip()
+    if not 3 <= len(v) <= 32:
+        raise ValueError("Username must be 3-32 characters long")
+    if not re.match(USERNAME_PATTERN, v):
+        raise ValueError("Username may only contain letters, digits, spaces, '.', '_' and '-'")
+    return v
 
 
 class UserCreate(BaseModel):
     username: str
     password: str
+    # Browser-detected IANA zone; optional (falls back to UTC).
+    timezone: Optional[str] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: Optional[str]) -> Optional[str]:
+        from services.timezones import validate_timezone
+
+        return validate_timezone(v) if v else None
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, v: str) -> str:
+        return validate_username(v)
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        if len(v) < 6:
-            raise ValueError("Password must be at least 6 characters long")
-        return v
+        return validate_new_password(v)
 
 
 class UserResponse(BaseModel):
@@ -46,6 +107,8 @@ class UserResponse(BaseModel):
     points: int
     bat_level: str
     is_active: bool
+    timezone: Optional[str] = None
+    alfred_address: Optional[str] = None
     created_at: datetime
 
 
@@ -85,42 +148,69 @@ def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) 
     return encoded_jwt
 
 
-def decode_token(token: str) -> Optional[TokenData]:
+def token_claims(user: models.BatAccount) -> dict:
+    return {"sub": user.username, "uid": user.id, "tv": user.token_version or 0}
+
+
+def _decode(token: str, expected_type: str) -> Optional[TokenData]:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        if payload.get("type") != "access":
-            return None
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-        return TokenData(username=username)
     except jwt.PyJWTError:
         return None
+    if payload.get("type") != expected_type:
+        return None
+    username = payload.get("sub")
+    if username is None:
+        return None
+    uid = payload.get("uid")
+    tv = payload.get("tv", 0)
+    return TokenData(
+        username=username,
+        user_id=uid if isinstance(uid, int) else None,
+        token_version=tv if isinstance(tv, int) else -1,
+    )
+
+
+def decode_token(token: str) -> Optional[TokenData]:
+    return _decode(token, "access")
 
 
 def decode_refresh_token(token: str) -> Optional[TokenData]:
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        if payload.get("type") != "refresh":
-            return None
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-        return TokenData(username=username)
-    except jwt.PyJWTError:
-        return None
+    return _decode(token, "refresh")
 
 
 def get_user(db: Session, username: str) -> Optional[models.BatAccount]:
     return db.query(models.BatAccount).filter(models.BatAccount.username == username).first()
 
 
+def get_user_for_token(db: Session, token_data: TokenData) -> Optional[models.BatAccount]:
+    """Resolve a decoded token to its account; None if revoked or unknown."""
+    if token_data.user_id is not None:
+        user = db.query(models.BatAccount).filter(models.BatAccount.id == token_data.user_id).first()
+    else:
+        user = get_user(db, token_data.username)
+    if user is None or token_data.token_version != (user.token_version or 0):
+        return None
+    return user
+
+
+def revoke_all_tokens(user: models.BatAccount) -> None:
+    """Invalidate every access/refresh token issued so far (caller commits)."""
+    user.token_version = (user.token_version or 0) + 1
+
+
+# Verified against when the username is unknown, so a login attempt takes
+# the same bcrypt time whether or not the account exists.
+_DUMMY_HASH = bcrypt.hashpw(b"timing-equalizer", bcrypt.gensalt()).decode("utf-8")
+
+
 def authenticate_user(db: Session, username: str, password: str) -> Optional[models.BatAccount]:
     user = get_user(db, username)
     if not user:
-        return False
+        verify_password(password, _DUMMY_HASH)
+        return None
     if not verify_password(password, user.hashed_password):
-        return False
+        return None
     return user
 
 
@@ -136,7 +226,7 @@ def get_current_user(
     token_data = decode_token(token)
     if token_data is None:
         raise credentials_exception
-    user = get_user(db, token_data.username)
+    user = get_user_for_token(db, token_data)
     if user is None:
         raise credentials_exception
     return user
@@ -146,5 +236,5 @@ def get_current_active_user(
     current_user: models.BatAccount = Depends(get_current_user),
 ) -> models.BatAccount:
     if not current_user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
     return current_user

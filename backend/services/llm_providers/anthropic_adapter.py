@@ -90,14 +90,22 @@ def _to_anthropic_messages(messages: List[dict]) -> List[dict]:
         role = msg.get("role")
         if role == "tool":
             tool_use_id = pending_ids.pop(0) if pending_ids else _next_id(msg.get("name", "tool"))
-            out.append({
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": json.dumps(msg.get("result", {}), default=str),
-                }],
-            })
+            block = {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": json.dumps(msg.get("result", {}), default=str),
+            }
+            # Results for one assistant turn's parallel tool_use blocks all go
+            # in a single user message, as the Messages API expects.
+            prev = out[-1] if out else None
+            if (
+                prev is not None and prev["role"] == "user"
+                and isinstance(prev["content"], list)
+                and all(b.get("type") == "tool_result" for b in prev["content"])
+            ):
+                prev["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block]})
             continue
         if role == "assistant" and msg.get("tool_calls"):
             blocks = []

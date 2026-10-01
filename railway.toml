@@ -10,27 +10,11 @@ restartPolicyMaxRetries = 10
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 
-[[service.variables]]
-key = "ENVIRONMENT"
-value = "production"
-
-[[service.variables]]
-key = "LOG_FORMAT"
-value = "json"
-
-[[service.variables]]
-key = "CORS_ORIGINS"
-value = '["*"]'
-
-[[service.variables]]
-key = "SECRET_KEY"
-value = "set-this-to-a-random-64-char-string-in-railway"
-
-[[service.variables]]
-key = "PROVIDER_KEY_ENCRYPTION_SECRET"
-value = "set-this-to-a-random-64-char-string-in-railway"
-
-# Single-user: 1 worker (was 4). Does not touch the database.
-[[service.variables]]
-key = "WEB_CONCURRENCY"
-value = "1"
+# Environment variables are NOT configured here: Railway's config-as-code
+# does not apply variable blocks, so values that used to live in this file
+# (including placeholder secrets) never reached the service. Set them in the
+# Railway dashboard → Variables. Required: SECRET_KEY,
+# PROVIDER_KEY_ENCRYPTION_SECRET, DATABASE_URL, TELEGRAM_BOT_TOKEN,
+# TELEGRAM_WEBHOOK_SECRET. Optional: LOG_FORMAT=json (structured logs),
+# WEB_CONCURRENCY (gunicorn workers, default 1), CORS_ORIGINS (only for a
+# frontend served from another origin; the bundled SPA needs none).

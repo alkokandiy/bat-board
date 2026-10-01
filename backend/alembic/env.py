@@ -12,8 +12,13 @@ from config import get_settings
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# The CLI (`alembic upgrade`, Railway's preDeployCommand) configures logging
+# from alembic.ini. When the app runs migrations at startup it passes
+# configure_logger=False: alembic.ini's root level (WARN) would otherwise
+# override the app's LOG_LEVEL and drop all of its info logs.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
+    # disable_existing_loggers=False: don't silence loggers that already exist.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)

@@ -7,8 +7,8 @@ reaching into auth.py / database.py directly.
 
 from datetime import datetime, timezone
 
+from fastapi import Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 import models
@@ -18,7 +18,24 @@ from database import get_db  # noqa: F401
 # Single shared Limiter instance. main.py wires this exact object into
 # app.state.limiter — slowapi enforces limits via request.app.state.limiter,
 # so routers MUST use this instance (not their own) or limits silently no-op.
-limiter = Limiter(key_func=get_remote_address)
+def client_ip(request: Request) -> str:
+    """Rate-limit key: the real client IP.
+
+    In production every request arrives via Railway's edge proxy, so
+    request.client.host is the proxy and per-IP limits became one global
+    budget shared by all users. The proxy appends the address it saw as the
+    LAST X-Forwarded-For entry; earlier entries are client-controlled, so
+    only the last one is trusted.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
+    return request.client.host if request.client else "unknown"
+
+
+limiter = Limiter(key_func=client_ip)
 
 
 def get_user_by_telegram_chat_id(chat_id: str, db: Session) -> models.BatAccount | None:

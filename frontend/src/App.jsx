@@ -25,10 +25,13 @@ function LoginScreen({ onLogin }) {
     setLoading(true);
     setError(null);
     try {
+      // The server trims usernames on registration; trim here too so
+      // " batman" can still log in as "batman".
+      const name = username.trim();
       if (isRegister) {
-        await api.register(username, password);
+        await api.register(name, password);
       }
-      await api.login(username, password);
+      await api.login(name, password);
       onLogin();
     } catch (err) {
       setError(err.message);
@@ -115,6 +118,9 @@ export default function App() {
   const focusSessionIdRef = useRef(null);
   const focusStartTimeRef = useRef(null);
   const focusSessionStartRef = useRef(null);
+  // Milliseconds the timer actually ran for the current session. Pauses are
+  // excluded: crediting wall-clock time since start counted paused time too.
+  const focusActiveMsRef = useRef(0);
   const focusTimerRef = useRef(null);
 
   const fetchAllData = useCallback(async () => {
@@ -216,6 +222,7 @@ export default function App() {
       const ticks = Math.floor(elapsed / expectedInterval);
       if (ticks >= 1) {
         focusStartTimeRef.current += ticks * expectedInterval;
+        focusActiveMsRef.current += ticks * expectedInterval;
         setFocusTimeLeft((prev) => {
           const next = prev - ticks;
           return next > 0 ? next : 0;
@@ -225,21 +232,16 @@ export default function App() {
     return () => clearInterval(focusTimerRef.current);
   }, [focusRunning]);
 
-  const focusSessionLengthRef = useRef(focusSessionLength);
-  focusSessionLengthRef.current = focusSessionLength;
-
   const endFocusSession = useCallback(async () => {
     const sid = focusSessionIdRef.current;
     if (!sid) return;
     focusSessionIdRef.current = null;
-    const startedAt = focusSessionStartRef.current;
     focusSessionStartRef.current = null;
-    // Actual elapsed wall-clock time, accurate even when the tab is
-    // backgrounded/throttled. Falls back to the configured length only if no
-    // start timestamp was recorded (legacy path).
-    const durationMin = startedAt
-      ? Math.max(0, Math.round((Date.now() - startedAt) / 60000))
-      : focusSessionLengthRef.current;
+    // Time the timer actually ran (Date.now()-based ticks, so accurate even
+    // when the tab is backgrounded/throttled), excluding pauses. The server
+    // additionally caps this at the session's wall-clock span.
+    const durationMin = Math.max(0, Math.round(focusActiveMsRef.current / 60000));
+    focusActiveMsRef.current = 0;
     try {
       await api.endFocusSession(sid, { duration_minutes: durationMin });
       handleRefreshMissions();
@@ -261,6 +263,7 @@ export default function App() {
   }, [focusRunning, focusTimeLeft, endFocusSession]);
 
   const startFocusSession = useCallback(async (missionId, habitId) => {
+    focusActiveMsRef.current = 0;
     try {
       const data = {};
       if (missionId) data.mission_id = parseInt(missionId);
@@ -513,7 +516,7 @@ export default function App() {
         onTrackChange={handleTrackChange}
         hideUI={focusMode}
       />
-      {!focusMode && <AlfredWidget />}
+      {!focusMode && <AlfredWidget account={account} />}
     </DashboardLayout>
   );
 }

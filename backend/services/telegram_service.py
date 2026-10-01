@@ -5,9 +5,10 @@ Phase 2B will reuse send_telegram_message for Alfred's actual responses.
 """
 
 import hashlib
+import json
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 import structlog
@@ -18,6 +19,9 @@ import models
 logger = structlog.get_logger()
 
 LINK_CODE_TTL = timedelta(minutes=5)
+# Brute-force guard for 6-digit codes: failed attempts per chat per window.
+LINK_MAX_FAILURES = 5
+LINK_FAILURE_WINDOW = timedelta(minutes=10)
 
 
 def _utcnow() -> datetime:
@@ -87,6 +91,18 @@ def exchange_link_code(
         db.commit()
         return None
 
+    # One active link per chat: a chat that is already linked (to this or
+    # another account) used to hit the unique telegram_chat_id constraint
+    # and crash the exchange. Re-linking moves the chat to the new account.
+    for previous in (
+        db.query(models.BatPersonalAccessToken)
+        .filter(models.BatPersonalAccessToken.telegram_chat_id == telegram_chat_id)
+        .all()
+    ):
+        previous.revoked = True
+        previous.telegram_chat_id = None
+    db.flush()
+
     raw_token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     # The raw token is deliberately NOT returned, logged, or stored —
@@ -103,6 +119,34 @@ def exchange_link_code(
     db.delete(row)
     db.commit()
     return user
+
+
+def link_attempts_blocked(db: Session, telegram_chat_id: str) -> bool:
+    """True while this chat has used up its failed-attempt budget."""
+    row = db.get(models.BatTelegramLinkAttempt, telegram_chat_id)
+    if row is None or _as_aware(row.window_started_at) + LINK_FAILURE_WINDOW <= _utcnow():
+        return False
+    return row.failures >= LINK_MAX_FAILURES
+
+
+def record_link_failure(db: Session, telegram_chat_id: str) -> None:
+    row = db.get(models.BatTelegramLinkAttempt, telegram_chat_id)
+    now = _utcnow()
+    if row is None:
+        db.add(models.BatTelegramLinkAttempt(chat_id=telegram_chat_id, failures=1, window_started_at=now))
+    elif _as_aware(row.window_started_at) + LINK_FAILURE_WINDOW <= now:
+        row.failures = 1
+        row.window_started_at = now
+    else:
+        row.failures += 1
+    db.commit()
+
+
+def clear_link_failures(db: Session, telegram_chat_id: str) -> None:
+    row = db.get(models.BatTelegramLinkAttempt, telegram_chat_id)
+    if row is not None:
+        db.delete(row)
+        db.commit()
 
 
 def unlink_telegram(
@@ -143,13 +187,45 @@ def is_telegram_linked(
     )
 
 
+TELEGRAM_MAX_MESSAGE_CHARS = 4096
+
+
+def _split_message(text: str, limit: int = TELEGRAM_MAX_MESSAGE_CHARS) -> List[str]:
+    """Split text into Telegram-sized chunks, preferring line/word boundaries."""
+    text = text or ""
+    chunks = []
+    while len(text) > limit:
+        cut = text.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = text.rfind(" ", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        chunks.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    chunks.append(text)
+    return [c for c in chunks if c] or [""]
+
+
 def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: float = 10.0, reply_markup: dict = None) -> bool:
-    """POST a sendMessage to Telegram's Bot API. Returns True on success."""
+    """POST a sendMessage to Telegram's Bot API. Returns True on success.
+
+    Text over Telegram's 4096-character limit is sent as several messages
+    (it used to be rejected with a 400 and the reply silently lost); the
+    reply markup goes on the last one.
+    """
+    chunks = _split_message(text)
+    ok = True
+    for i, chunk in enumerate(chunks):
+        markup = reply_markup if i == len(chunks) - 1 else None
+        ok = _send_one(bot_token, chat_id, chunk, timeout, markup) and ok
+    return ok
+
+
+def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_markup: Optional[dict]) -> bool:
     try:
         payload = {"chat_id": chat_id, "text": text}
         if reply_markup is not None:
-            import json as _json
-            payload["reply_markup"] = _json.dumps(reply_markup)
+            payload["reply_markup"] = json.dumps(reply_markup)
         resp = httpx.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
             json=payload,

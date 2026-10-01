@@ -1,5 +1,7 @@
 import json
+import logging
 import os
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone, date
@@ -11,13 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordRequestForm
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 import models
 from database import engine, get_db, create_db_tables
@@ -25,7 +26,9 @@ from config import get_settings
 from auth import (
     get_current_active_user, authenticate_user, create_access_token,
     create_refresh_token, decode_refresh_token, get_password_hash,
-    UserCreate, UserResponse, Token,
+    get_user_for_token, revoke_all_tokens, token_claims, validate_alfred_address,
+    validate_new_password, validate_username,
+    verify_password, UserCreate, UserResponse, Token,
 )
 from dependencies import limiter
 from routers.countdown import router as countdown_router
@@ -42,11 +45,22 @@ from services import (
     stats_service,
 )
 from services.common import auto_log_event, calculate_bat_level
+from services.timezones import (
+    day_bounds_utc, local_date, local_today, user_tz, validate_timezone,
+)
 from services.stats_service import _completed_sessions_query, _compute_focus_stats
 
 settings = get_settings()
 
 # --- Structured Logging ---
+# structlog renders; stdlib routes. LOG_LEVEL must be applied to the stdlib
+# root logger — it never was, so filter_by_level dropped every info log
+# (requests, logins, Telegram links) at Python's default WARNING level.
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format="%(message)s",
+    stream=sys.stdout,
+)
 structlog.configure(
     processors=[
         structlog.stdlib.filter_by_level,
@@ -88,10 +102,15 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # --- CORS ---
+# The SPA is served from this same origin, so production needs no CORS
+# entries; CORS_ORIGINS is for the Vite dev server or a separate frontend.
+# A "*" wildcard is never combined with credentials: Starlette would then
+# echo back any requesting origin as allowed-with-credentials.
+_allow_any_origin = "*" in settings.cors_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=not _allow_any_origin,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -146,11 +165,32 @@ class BatAccountSchema(BaseModel):
     username: str
     points: int
     bat_level: str
+    timezone: Optional[str] = None
+    alfred_address: Optional[str] = None
     created_at: datetime
 
 class BatAccountUpdate(BaseModel):
+    # Points are earned only through missions, habits and focus sessions;
+    # the old client-supplied points_delta let any user mint points.
     username: Optional[str] = None
-    points_delta: Optional[int] = None
+    timezone: Optional[str] = None
+    # "" clears it (Alfred falls back to the username).
+    alfred_address: Optional[str] = None
+
+    @field_validator("alfred_address")
+    @classmethod
+    def _validate_alfred_address(cls, v: Optional[str]) -> Optional[str]:
+        return v if v is None else (validate_alfred_address(v) or "")
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, v: Optional[str]) -> Optional[str]:
+        return validate_username(v) if v is not None else v
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, v: Optional[str]) -> Optional[str]:
+        return validate_timezone(v) if v is not None else v
 
 class BatMissionBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -376,6 +416,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
         hashed_password=hashed,
         points=0,
         bat_level="The Orphan",
+        timezone=user_data.timezone,
     )
     db.add(account)
     try:
@@ -404,8 +445,11 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(data={"sub": user.username})
-    refresh_token = create_refresh_token(data={"sub": user.username})
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+
+    access_token = create_access_token(data=token_claims(user))
+    refresh_token = create_refresh_token(data=token_claims(user))
 
     auto_log_event(db, user.id, "login", {"message": "User logged in"})
     db.commit()
@@ -420,12 +464,12 @@ def refresh_token(request: Request, refresh_token: str = Body(...), db: Session 
     if token_data is None:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user = db.query(models.BatAccount).filter(models.BatAccount.username == token_data.username).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    user = get_user_for_token(db, token_data)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    access_token = create_access_token(data={"sub": user.username})
-    new_refresh_token = create_refresh_token(data={"sub": user.username})
+    access_token = create_access_token(data=token_claims(user))
+    new_refresh_token = create_refresh_token(data=token_claims(user))
 
     return Token(access_token=access_token, refresh_token=new_refresh_token)
 
@@ -463,24 +507,20 @@ def update_account(
         current_user.username = payload.username
         auto_log_event(db, current_user.id, "account_update", {"field": "username", "old": old_username, "new": payload.username})
 
-    if payload.points_delta is not None:
-        old_points = current_user.points
-        current_user.points += payload.points_delta
-        if current_user.points < 0:
-            current_user.points = 0
+    if payload.alfred_address is not None:
+        current_user.alfred_address = payload.alfred_address or None
 
-        old_level = current_user.bat_level
-        current_user.bat_level = calculate_bat_level(current_user.points)
-
-        auto_log_event(db, current_user.id, "points_modified", {
-            "points_delta": payload.points_delta,
-            "old_points": old_points,
-            "new_points": current_user.points,
-            "old_level": old_level,
-            "new_level": current_user.bat_level
+    if payload.timezone is not None and payload.timezone != current_user.timezone:
+        auto_log_event(db, current_user.id, "account_update", {
+            "field": "timezone", "old": current_user.timezone, "new": payload.timezone,
         })
+        current_user.timezone = payload.timezone
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Username already taken")
     db.refresh(current_user)
     return current_user
 
@@ -488,7 +528,19 @@ class ChangePassword(BaseModel):
     current_password: str
     new_password: str
 
-@app.put("/api/account/password", response_model=dict)
+    @field_validator("new_password")
+    @classmethod
+    def _validate_new_password(cls, v: str) -> str:
+        return validate_new_password(v)
+
+class PasswordChangedResponse(BaseModel):
+    detail: str
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+@app.put("/api/account/password", response_model=PasswordChangedResponse)
 @limiter.limit("30/minute")
 def change_password(
     request: Request,
@@ -496,13 +548,19 @@ def change_password(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    from auth import verify_password, get_password_hash
     if not verify_password(payload.current_password, current_user.hashed_password):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     current_user.hashed_password = get_password_hash(payload.new_password)
+    # Sign out every other session; this device continues with fresh tokens.
+    revoke_all_tokens(current_user)
     auto_log_event(db, current_user.id, "password_changed", {"message": "Password changed"})
     db.commit()
-    return {"detail": "Password updated successfully"}
+    db.refresh(current_user)
+    return {
+        "detail": "Password updated successfully",
+        "access_token": create_access_token(data=token_claims(current_user)),
+        "refresh_token": create_refresh_token(data=token_claims(current_user)),
+    }
 
 @app.post("/api/account/reset-points", response_model=BatAccountSchema)
 @limiter.limit("30/minute")
@@ -557,6 +615,9 @@ def create_mission(
         subtasks=mission_data.subtasks,
     )
 
+_NON_NULLABLE_MISSION_FIELDS = {"title", "priority", "is_pinned", "is_dismissed"}
+
+
 @app.put("/api/missions/{mission_id}", response_model=BatMissionSchema)
 @limiter.limit("30/minute")
 def update_mission(
@@ -575,23 +636,22 @@ def update_mission(
         raise HTTPException(status_code=404, detail="Mission not found")
 
     old_status = mission.status
-    old_points = current_user.points
-    old_level = current_user.bat_level
 
     for field in payload.model_fields_set:
         if field == 'status':
             continue
-        setattr(mission, field, getattr(payload, field))
+        value = getattr(payload, field)
+        if value is None and field in _NON_NULLABLE_MISSION_FIELDS:
+            continue  # explicit null on a NOT NULL column used to 500
+        setattr(mission, field, value)
 
-    if 'status' in payload.model_fields_set:
+    if 'status' in payload.model_fields_set and payload.status is not None:
         if payload.status == "completed" and old_status != "completed":
             mission = mission_service.complete_mission(db, current_user, mission_id)
+        elif payload.status != "completed" and old_status == "completed":
+            mission_service.reopen_mission(db, current_user, mission, payload.status)
         else:
             mission.status = payload.status
-            if payload.status != "completed" and old_status == "completed":
-                mission.completed_at = None
-                current_user.points = old_points
-                current_user.bat_level = calculate_bat_level(current_user.points)
 
     db.flush()
     db.refresh(mission)
@@ -756,7 +816,10 @@ def update_habit(
         raise HTTPException(status_code=404, detail="Habit not found")
 
     for field in payload.model_fields_set:
-        setattr(habit, field, getattr(payload, field))
+        value = getattr(payload, field)
+        if value is None and field in ("name", "frequency", "streak"):
+            continue  # explicit null on a NOT NULL column used to 500
+        setattr(habit, field, value)
 
     db.flush()
     db.refresh(habit)
@@ -954,9 +1017,8 @@ def focus_session_log(
     return {"total": total, "limit": limit, "offset": offset, "items": items}
 
 
-def _trend_buckets(granularity: str) -> list:
+def _trend_buckets(granularity: str, today: date) -> list:
     """Return oldest→newest buckets as {date, label, start, end}."""
-    today = datetime.now(timezone.utc).date()
     buckets = []
 
     if granularity == "day":
@@ -1002,7 +1064,8 @@ def focus_trend(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    buckets = _trend_buckets(granularity)
+    tz = user_tz(current_user)
+    buckets = _trend_buckets(granularity, local_today(current_user))
     points = [
         {"label": b["label"], "date": b["date"], "minutes": 0, "sessions": 0}
         for b in buckets
@@ -1010,7 +1073,7 @@ def focus_trend(
 
     sessions = _completed_sessions_query(db, current_user).all()
     for s in sessions:
-        d = s.end_time.date()
+        d = local_date(s.end_time, tz)
         for i, b in enumerate(buckets):
             if b["start"] <= d < b["end"]:
                 points[i]["minutes"] += s.duration_minutes
@@ -1020,12 +1083,12 @@ def focus_trend(
     return {"granularity": granularity, "points": points}
 
 
-def _habit_scheduled_day(habit: models.BatHabit, day: date) -> bool:
-    """Decide whether a habit is 'due' on a given day, from its frequency field."""
-    if habit.created_at.date() > day:
+def _habit_scheduled_day(habit: models.BatHabit, day: date, tz) -> bool:
+    """Decide whether a habit is 'due' on a given local day, from its frequency field."""
+    if local_date(habit.created_at, tz) > day:
         return False
     anchor = habit.last_completed or habit.created_at
-    anchor_date = anchor.date()
+    anchor_date = local_date(anchor, tz)
     if habit.frequency == "daily":
         return True
     if habit.frequency == "weekly":
@@ -1041,18 +1104,20 @@ def day_stats(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    selected = day or datetime.now(timezone.utc).date()
-    # Bounds are UTC-aware: all stored timestamps (completed_at, HabitCompletionLog)
-    # are written in UTC. A naive local-midnight bound would silently exclude
-    # same-day completions whenever local date != UTC date (any non-UTC TZ).
-    day_start = datetime(selected.year, selected.month, selected.day, tzinfo=timezone.utc)
-    day_end = day_start + timedelta(days=1)
-    today = datetime.now(timezone.utc).date()
+    tz = user_tz(current_user)
+    today = local_today(current_user)
+    selected = day or today
+    # Completions (completed_at, HabitCompletionLog) are instants: bucket them
+    # by the user's local day. Due dates are calendar dates stored as UTC
+    # midnight, so they are matched on their UTC date.
+    day_start, day_end = day_bounds_utc(selected, tz)
+    due_start = datetime(selected.year, selected.month, selected.day, tzinfo=timezone.utc)
+    due_end = due_start + timedelta(days=1)
 
     due_missions = db.query(models.BatMission).filter(
         models.BatMission.owner_id == current_user.id,
-        models.BatMission.due_date >= day_start,
-        models.BatMission.due_date < day_end,
+        models.BatMission.due_date >= due_start,
+        models.BatMission.due_date < due_end,
     ).all()
 
     completed_missions = db.query(models.BatMission).filter(
@@ -1066,9 +1131,9 @@ def day_stats(
     overdue = 0
     uncompleted = 0
     for m in due_missions:
-        due = m.due_date.date()
+        due = local_date(m.due_date, timezone.utc)
         completed = m.status == "completed" and m.completed_at is not None
-        completed_on_time = completed and m.completed_at.date() <= due
+        completed_on_time = completed and local_date(m.completed_at, tz) <= due
         if completed_on_time:
             on_time += 1
         elif completed:
@@ -1102,7 +1167,7 @@ def day_stats(
         habits = db.query(models.BatHabit).filter(
             models.BatHabit.id.in_(user_habit_ids)
         ).all()
-        scheduled_habit_ids = {h.id for h in habits if _habit_scheduled_day(h, selected)}
+        scheduled_habit_ids = {h.id for h in habits if _habit_scheduled_day(h, selected, tz)}
     total_count = len(due_missions) + len(scheduled_habit_ids)
 
     # completed_count is a strict subset of total_count: only items that are
@@ -1166,14 +1231,20 @@ for d in _possible_static_dirs:
 if static_dir:
     app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
 
-    _spa_static_dir = static_dir
+    _spa_static_dir = os.path.realpath(static_dir)
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
-        file_path = os.path.join(_spa_static_dir, full_path)
-        if os.path.isfile(file_path):
+        # The path param arrives percent-decoded, so "..%2f" becomes "../".
+        # Resolve and require the result to stay inside the dist directory,
+        # otherwise any file on disk (e.g. /proc/self/environ) is servable.
+        file_path = os.path.realpath(os.path.join(_spa_static_dir, full_path))
+        if (
+            file_path.startswith(_spa_static_dir + os.sep)
+            and os.path.isfile(file_path)
+        ):
             return FileResponse(file_path)
         index_path = os.path.join(_spa_static_dir, "index.html")
         if os.path.isfile(index_path):

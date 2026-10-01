@@ -3,6 +3,33 @@ import { api } from '../utils/api';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
+// Due dates are calendar dates stored as UTC midnight; read the date part
+// directly so they never shift a day in timezones behind UTC.
+function dueDateKey(due) {
+  return due ? String(due).slice(0, 10) : '';
+}
+
+function formatDueDate(due) {
+  const [y, m, d] = dueDateKey(due).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString();
+}
+
+function localDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Full class names so Tailwind's build keeps them (interpolated names like
+// `border-${color}-900/30` are purged and rendered colourless).
+const QUADRANT_STYLES = {
+  red: { box: 'border-red-900/30', head: 'text-red-400 border-red-900/20' },
+  amber: { box: 'border-amber-900/30', head: 'text-amber-400 border-amber-900/20' },
+  blue: { box: 'border-blue-900/30', head: 'text-blue-400 border-blue-900/20' },
+  slate: { box: 'border-slate-900/30', head: 'text-slate-400 border-slate-900/20' },
+};
+
 function parseSubtasks(val) {
   try { return val ? JSON.parse(val) : []; } catch { return []; }
 }
@@ -31,8 +58,8 @@ function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDupl
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
       {labels.map(({ label, color, missions: ms }) => (
-        <div key={color} className={`bg-dark-slate rounded border border-${color}-900/30 p-3 space-y-2`}>
-          <div className={`text-[10px] font-mono uppercase tracking-widest text-${color}-400 border-b border-${color}-900/20 pb-1`}>
+        <div key={color} className={`bg-dark-slate rounded border ${QUADRANT_STYLES[color].box} p-3 space-y-2`}>
+          <div className={`text-[10px] font-mono uppercase tracking-widest ${QUADRANT_STYLES[color].head} border-b pb-1`}>
             {label} <span className="text-slate-500">({ms.length})</span>
           </div>
           {ms.length === 0 ? (
@@ -88,7 +115,7 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
               </p>
             )}
             <div className="flex items-center gap-3 text-[10px] text-slate-500 font-mono mt-1">
-              {mission.due_date && <span>🎯 {new Date(mission.due_date).toLocaleDateString()}</span>}
+              {mission.due_date && <span>🎯 {formatDueDate(mission.due_date)}</span>}
               {mission.location && <span>📍 {mission.location}</span>}
               {subtasks.length > 0 && <span>✓ {doneSubtasks}/{subtasks.length}</span>}
               {mission.focus_minutes > 0 && <span>⏱ {mission.focus_minutes}m</span>}
@@ -133,11 +160,12 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
 
   const [dateFilter, setDateFilter] = useState('all');
 
-  const todayStr = new Date().toDateString();
+  const todayKey = localDateKey(new Date());
+  const weekEndKey = localDateKey(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
   const inNext7Days = (d) => {
     if (!d) return false;
-    const ms = new Date(d).getTime() - new Date().getTime();
-    return ms >= 0 && ms <= 7 * 24 * 60 * 60 * 1000;
+    const key = dueDateKey(d);
+    return key >= todayKey && key <= weekEndKey;
   };
 
   const activeMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
@@ -145,7 +173,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const dismissedMissions = missions.filter(m => m.is_dismissed);
 
   const filterByDate = (list) => {
-    if (dateFilter === 'today') return list.filter(m => m.due_date && new Date(m.due_date).toDateString() === todayStr);
+    if (dateFilter === 'today') return list.filter(m => dueDateKey(m.due_date) === todayKey);
     if (dateFilter === 'week') return list.filter(m => inNext7Days(m.due_date));
     return list;
   };
@@ -167,7 +195,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       title: mission.title,
       description: mission.description || '',
       priority: mission.priority,
-      due_date: mission.due_date ? mission.due_date.slice(0, 10) : '',
+      due_date: dueDateKey(mission.due_date),
       tags: mission.tags || '',
       location: mission.location || '',
       notes: mission.notes || '',
@@ -186,13 +214,15 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         title: form.title,
         description: form.description.trim() || null,
         priority: form.priority,
-        due_date: form.due_date ? new Date(form.due_date).toISOString() : null,
+        due_date: form.due_date ? `${form.due_date}T00:00:00Z` : null,
         tags: form.tags.trim() || null,
         location: form.location.trim() || null,
         notes: form.notes.trim() || null,
         subtasks: form.subtasks.trim() || null,
-        status: 'pending',
       };
+      // Status is only set on create: editing a completed mission used to
+      // send status 'pending' and silently reopen it.
+      if (!editMission) payload.status = 'pending';
       if (editMission) {
         await api.updateMission(editMission.id, payload);
       } else {

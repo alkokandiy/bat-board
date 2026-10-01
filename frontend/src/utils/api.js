@@ -22,6 +22,27 @@ function clearTokens() {
   localStorage.removeItem('bat_refresh_token');
 }
 
+// FastAPI validation errors (422) carry a list of {loc, msg} objects;
+// rendering that list directly showed "[object Object]".
+function formatErrorDetail(detail) {
+  if (!detail) return null;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map(d => (d && d.msg ? d.msg.replace(/^Value error, /, '') : String(d)))
+      .join('; ');
+  }
+  return String(detail);
+}
+
+export function browserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 let isRefreshing = false;
 let refreshQueue = [];
 
@@ -37,6 +58,7 @@ async function refreshAccessToken() {
 
   if (!res.ok) {
     clearTokens();
+    window.dispatchEvent(new CustomEvent('auth:logout'));
     throw new Error('Session expired');
   }
 
@@ -70,37 +92,44 @@ async function request(endpoint, options = {}) {
     throw new Error('Unable to connect to backend server. Ensure it is running.');
   }
 
-  if (response.status === 401 && access) {
+  // Auth endpoints report bad credentials as 401 themselves; refreshing
+  // there would turn "wrong password" into "session expired".
+  const isAuthEndpoint = endpoint.startsWith('/auth/');
+
+  if (response.status === 401 && access && !isAuthEndpoint) {
+    let newToken;
     if (!isRefreshing) {
       isRefreshing = true;
       try {
-        const newToken = await refreshAccessToken();
-        isRefreshing = false;
-        refreshQueue.forEach(cb => cb(newToken));
-        refreshQueue = [];
-        headers['Authorization'] = `Bearer ${newToken}`;
-        config.headers = headers;
-        response = await fetch(url, config);
+        newToken = await refreshAccessToken();
+        refreshQueue.forEach(({ resolve }) => resolve(newToken));
       } catch {
-        isRefreshing = false;
-        refreshQueue = [];
+        // Waiters must be released too — they used to hang forever here.
+        refreshQueue.forEach(({ reject }) => reject(new Error('Session expired. Please log in again.')));
         clearTokens();
         window.dispatchEvent(new CustomEvent('auth:logout'));
         throw new Error('Session expired. Please log in again.');
+      } finally {
+        isRefreshing = false;
+        refreshQueue = [];
       }
     } else {
-      const newToken = await new Promise(resolve => {
-        refreshQueue.push(resolve);
+      newToken = await new Promise((resolve, reject) => {
+        refreshQueue.push({ resolve, reject });
       });
-      headers['Authorization'] = `Bearer ${newToken}`;
-      config.headers = headers;
+    }
+    headers['Authorization'] = `Bearer ${newToken}`;
+    config.headers = headers;
+    try {
       response = await fetch(url, config);
+    } catch {
+      throw new Error('Unable to connect to backend server. Ensure it is running.');
     }
   }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Request failed (${response.status})`);
+    throw new Error(formatErrorDetail(errorData.detail) || `Request failed (${response.status})`);
   }
 
   if (response.status === 204) return null;
@@ -122,7 +151,8 @@ export const api = {
   register: (username, password) =>
     request('/auth/register', {
       method: 'POST',
-      body: { username, password },
+      // The account's day boundaries (habits, stats, Alfred) follow this zone.
+      body: { username, password, timezone: browserTimezone() },
     }),
 
   getMe: () => request('/auth/me'),
@@ -174,8 +204,14 @@ export const api = {
     request(`/stats/focus/sessions?limit=${limit}&offset=${offset}`),
 
   // Account
+  // A password change revokes every session; the server hands this device
+  // fresh tokens so it stays signed in.
   changePassword: (current_password, new_password) =>
-    request('/account/password', { method: 'PUT', body: { current_password, new_password } }),
+    request('/account/password', { method: 'PUT', body: { current_password, new_password } })
+      .then(data => {
+        if (data?.access_token) setTokens(data.access_token, data.refresh_token);
+        return data;
+      }),
   resetPoints: () => request('/account/reset-points', { method: 'POST' }),
 
   // Calendar Events
@@ -214,6 +250,10 @@ export const api = {
   getAlfredSessions: () => request('/alfred/sessions'),
   createAlfredSession: (title) => request('/alfred/sessions', { method: 'POST', body: { title } }),
   getAlfredSessionMessages: (id) => request(`/alfred/sessions/${id}/messages`),
+  renameAlfredSession: (id, title) => request(`/alfred/sessions/${id}`, { method: 'PATCH', body: { title } }),
+  deleteAlfredSession: (id) => request(`/alfred/sessions/${id}`, { method: 'DELETE' }),
+  // Deletes all conversations (and Alfred's memory notes when eraseMemory).
+  resetAlfred: (eraseMemory) => request('/alfred/reset', { method: 'POST', body: { erase_memory: !!eraseMemory } }),
 
   // Alfred provider (BYOK — key never returned by any of these)
   getAlfredProvider: () => request('/alfred/provider'),

@@ -9,6 +9,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"
 os.environ.setdefault("TELEGRAM_WEBHOOK_SECRET", "test-webhook-secret-12345")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-bot-token")
 os.environ.setdefault("PROVIDER_KEY_ENCRYPTION_SECRET", "test-provider-secret-1234567890")
+os.environ.setdefault("SECRET_KEY", "test-jwt-secret-key-not-for-production")
 
 import pytest
 from fastapi.testclient import TestClient

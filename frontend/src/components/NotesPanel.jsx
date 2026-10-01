@@ -17,11 +17,13 @@ function fromServer(n) {
   };
 }
 
+// Empty strings, not null: the API treats null as "leave unchanged", so
+// clearing a note's body or category was never saved.
 function toPayload(note) {
   return {
     title: note.title || '',
-    body: note.body || null,
-    category: note.category || null,
+    body: note.body || '',
+    category: note.category || '',
     is_pinned: !!note.pinned,
   };
 }
@@ -82,6 +84,20 @@ export default function NotesPanel() {
     }
   }, []);
 
+  // Flush every debounced save on unmount (e.g. switching tabs right after
+  // typing); pending edits were silently discarded.
+  useEffect(() => () => {
+    const timers = pendingRef.current;
+    Object.keys(timers).forEach((key) => {
+      clearTimeout(timers[key]);
+      const id = Number(key);
+      const note = notesRef.current.find(n => n.id === id);
+      if (note) api.updateNote(id, toPayload(note)).catch(() => {});
+    });
+    pendingRef.current = {};
+    if (sfRef.current) clearTimeout(sfRef.current);
+  }, []);
+
   const selectedNote = useMemo(() => notes.find(n => n.id === selectedId) || null, [notes, selectedId]);
 
   const allTags = useMemo(() => {
@@ -118,7 +134,9 @@ export default function NotesPanel() {
       setSaving(true);
       try {
         const saved = await api.updateNote(id, toPayload(updated));
-        setNotes(prev => prev.map(n => (n.id === id ? fromServer(saved) : n)));
+        // Take only server metadata: replacing the content with the response
+        // dropped anything typed while the request was in flight.
+        setNotes(prev => prev.map(n => (n.id === id ? { ...n, updatedAt: saved.updated_at } : n)));
       } catch {
         // Keep optimistic local state on failure; next edit retries.
       } finally {

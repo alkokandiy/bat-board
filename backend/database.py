@@ -37,6 +37,20 @@ def get_db():
 def _ensure_columns():
     inspector = inspect(engine)
 
+    # BatAccount columns (011; the alembic migration also backfills timezone)
+    account_columns = {c["name"] for c in inspector.get_columns("bat_account")}
+    with engine.connect() as conn:
+        if "timezone" not in account_columns:
+            conn.execute(text("ALTER TABLE bat_account ADD COLUMN timezone VARCHAR"))
+        if "token_version" not in account_columns:
+            conn.execute(text(
+                "ALTER TABLE bat_account ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
+            ))
+        if "alfred_address" not in account_columns:
+            conn.execute(text("ALTER TABLE bat_account ADD COLUMN alfred_address VARCHAR"))
+        if not {"timezone", "token_version", "alfred_address"} <= account_columns:
+            conn.commit()
+
     # BatMission columns
     mission_columns = {c["name"] for c in inspector.get_columns("bat_missions")}
     expected_mission = {"tags", "is_pinned", "is_dismissed", "location", "notes", "subtasks", "focus_minutes", "completed_focus_sessions"}
@@ -106,26 +120,27 @@ def create_db_tables():
 
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    alembic_cfg.attributes["configure_logger"] = False  # keep the app's logging
 
     inspector = inspect(engine)
     has_version_table = inspector.has_table("alembic_version")
 
-    # Postgres advisory lock prevents multiple gunicorn workers from racing
-    # through migrations simultaneously. Only the lock-holder runs alembic
-    # upgrade; others skip it and fall back to create_all (safe to run
-    # concurrently). For SQLite (tests), skip the lock — single-threaded.
-    is_postgres = settings.database_url.startswith("postgresql")
-    lock_acquired = False
-    if is_postgres:
-        try:
-            with engine.connect() as conn:
-                result = conn.execute(text("SELECT pg_try_advisory_lock(8529461)"))
-                lock_acquired = result.scalar()
-        except Exception:
-            pass  # If lock acquisition fails, proceed without it (best effort)
+    if not settings.database_url.startswith("postgresql"):
+        # SQLite (tests / local dev): single process, schema from models.
+        Base.metadata.create_all(bind=engine)
+        _ensure_columns()
+        return
 
-    if lock_acquired:
-        # This worker holds the lock — run the migration, then release.
+    # Serialize migrations across gunicorn workers with a session-level
+    # advisory lock held on ONE dedicated connection for the whole upgrade.
+    # (Previously the lock was taken on a pooled connection that went straight
+    # back to the pool and was "released" from a different one, so it could
+    # stay held forever, and workers that lost the race ran create_all
+    # concurrently with the migration.) Later workers block until the first
+    # finishes, then their upgrade is a no-op.
+    with engine.connect() as lock_conn:
+        lock_conn.execute(text("SELECT pg_advisory_lock(8529461)"))
+        lock_conn.commit()
         try:
             command.upgrade(alembic_cfg, "head")
         except Exception as exc:
@@ -142,16 +157,7 @@ def create_db_tables():
                 except Exception as exc2:
                     logger.warning("alembic_stamp_failed", error=str(exc2))
         finally:
-            try:
-                with engine.connect() as conn:
-                    conn.execute(text("SELECT pg_advisory_unlock(8529461)"))
-                    conn.commit()
-            except Exception:
-                pass
-    else:
-        # Another worker holds the lock and is running the migration.
-        # Skip alembic upgrade entirely — create_all is safe to run
-        # concurrently and keeps the runtime schema usable while we wait.
-        Base.metadata.create_all(bind=engine)
+            lock_conn.execute(text("SELECT pg_advisory_unlock(8529461)"))
+            lock_conn.commit()
 
     _ensure_columns()

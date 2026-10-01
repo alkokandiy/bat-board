@@ -4,13 +4,14 @@ Plain importable functions — no FastAPI request/response objects.
 Alfred's tool layer will call these directly later.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 import models
 from services.common import auto_log_event, calculate_bat_level
+from services.timezones import local_date, user_tz
 
 
 def list_habits(
@@ -48,6 +49,15 @@ def create_habit(
     return habit
 
 
+def _period_index(frequency: str, day: date) -> int:
+    """Monotonic period number, so consecutive periods differ by exactly 1."""
+    if frequency == "weekly":
+        return (day.toordinal() - 1) // 7  # ordinal 1 is a Monday: buckets are Mon–Sun
+    if frequency == "monthly":
+        return day.year * 12 + day.month
+    return day.toordinal()
+
+
 def check_in_habit(
     db: Session,
     current_user: models.BatAccount,
@@ -55,8 +65,11 @@ def check_in_habit(
 ) -> Optional[models.BatHabit]:
     """Check in to a habit: streak rollover, points, and log fan-out.
 
-    Idempotent per day — a same-day repeat logs history without
-    re-applying streak/reward. Returns None for unknown/foreign habits.
+    Idempotent per period (day / ISO week / month by frequency, in the
+    user's timezone) — a repeat within the same period logs history
+    without re-applying streak/reward.
+    The streak continues when the previous check-in was in the immediately
+    preceding period. Returns None for unknown/foreign habits.
     """
     habit = db.query(models.BatHabit).filter(
         models.BatHabit.id == habit_id,
@@ -66,23 +79,23 @@ def check_in_habit(
     if not habit:
         return None
 
+    # Periods are the user's local days/weeks/months, not UTC ones: in
+    # Tashkent a 01:00 check-in used to count toward the previous day.
     now = datetime.now(timezone.utc)
-
-    is_new_completion = True
-    if habit.last_completed:
-        if habit.last_completed.date() == now.date():
-            is_new_completion = False
+    tz = user_tz(current_user)
+    current_period = _period_index(habit.frequency, local_date(now, tz))
+    last_period = (
+        _period_index(habit.frequency, local_date(habit.last_completed, tz))
+        if habit.last_completed else None
+    )
+    is_new_completion = last_period != current_period
 
     completion = models.HabitCompletionLog(habit_id=habit.id, completed_at=now)
     db.add(completion)
 
     if is_new_completion:
-        if habit.last_completed:
-            delta = now.date() - habit.last_completed.date()
-            if delta.days <= 1:
-                habit.streak += 1
-            else:
-                habit.streak = 1
+        if last_period is not None and current_period - last_period == 1:
+            habit.streak += 1
         else:
             habit.streak = 1
 
@@ -114,7 +127,7 @@ def check_in_habit(
         auto_log_event(db, current_user.id, "habit_completion_history_logged", {
             "habit_id": habit.id,
             "name": habit.name,
-            "note": "Logged completion but streak/reward not re-applied for today"
+            "note": "Logged completion but streak/reward not re-applied for this period"
         })
 
     db.commit()

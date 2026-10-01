@@ -90,4 +90,32 @@ describe('migrateOnce', () => {
     expect(upload).not.toHaveBeenCalled();
     expect(localStorage.getItem('bat_notes_migrated')).toBe('1');
   });
+
+  it('resumes after a partial failure without re-uploading migrated items', async () => {
+    localStorage.setItem('bat_notes', JSON.stringify([{ title: 'A' }, { title: 'B' }, { title: 'C' }]));
+    const uploaded = [];
+    let failOn = 'B';
+    const upload = vi.fn(async (p) => {
+      if (p.title === failOn) throw new Error('network down');
+      uploaded.push(p.title);
+    });
+    const opts = { legacyKey: 'bat_notes', flagKey: 'bat_notes_migrated', toPayload: (n) => n, upload };
+
+    await expect(migrateOnce(opts)).rejects.toThrow('network down');
+    failOn = null;
+    await migrateOnce(opts);
+
+    expect(uploaded).toEqual(['A', 'B', 'C']);
+    expect(localStorage.getItem('bat_notes_migrated')).toBe('1');
+  });
+
+  it('shares one run between concurrent callers', async () => {
+    localStorage.setItem('bat_notes', JSON.stringify([{ title: 'A' }]));
+    const upload = vi.fn(async () => {});
+    const opts = { legacyKey: 'bat_notes', flagKey: 'bat_notes_migrated', toPayload: (n) => n, upload };
+
+    await Promise.all([migrateOnce(opts), migrateOnce(opts)]);
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
 });
+

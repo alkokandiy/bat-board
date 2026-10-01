@@ -133,7 +133,7 @@ def _model_keyboard(provider: str):
 def start(db: Session, user: models.BatAccount, chat_id: str) -> None:
     """Begin (or restart) the wizard. Caller clears other pendings first."""
     _save_row(db, user, STAGE_KEY)
-    _send(chat_id, "Paste your API key, sir. It will be encrypted immediately and your message deleted.")
+    _send(chat_id, "Paste your API key. It will be encrypted immediately and your message deleted.")
 
 
 async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
@@ -173,7 +173,7 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
                       key_encrypted=args.get("key_encrypted"), provider=choice)
             _send_keyboard(chat_id, f"Provider: {choice}. Choose a model:", _model_keyboard(choice))
         else:
-            _send_keyboard(chat_id, "Tap your provider below, sir.", _provider_keyboard())
+            _send_keyboard(chat_id, "Tap your provider below.", _provider_keyboard())
         return True
 
     if stage == STAGE_MODEL:
@@ -190,7 +190,7 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
     if stage == STAGE_MODEL_TEXT:
         model = (text or "").strip()
         if not model:
-            _send(chat_id, "Send the model name, sir (e.g. gpt-5.6).")
+            _send(chat_id, "Send the model name (e.g. gpt-5.6).")
             return True
         await _finalize(db, user, chat_id, row, args.get("provider"),
                         model[:128], args.get("key_encrypted"))
@@ -247,7 +247,7 @@ async def handle_callback(db: Session, user: models.BatAccount, callback: dict) 
     if choice == "other":
         _save_row(db, user, STAGE_MODEL_TEXT,
                   key_encrypted=args.get("key_encrypted"), provider=args.get("provider"))
-        _send(chat_id, "Send the model name, sir.")
+        _send(chat_id, "Send the model name.")
         return True
     await _finalize(db, user, chat_id, row, args.get("provider"),
                     choice[:128], args.get("key_encrypted"))

@@ -51,7 +51,10 @@ export default function CalendarPanel() {
     const map = {};
     missions.forEach(m => {
       if (m.due_date && m.status !== 'completed') {
-        const key = new Date(m.due_date).toDateString();
+        // Due dates are UTC-midnight calendar dates: key on the date part so
+        // they land on the right day in every timezone.
+        const [y, mo, d] = String(m.due_date).slice(0, 10).split('-').map(Number);
+        const key = new Date(y, mo - 1, d).toDateString();
         if (!map[key]) map[key] = [];
         map[key].push(m);
       }

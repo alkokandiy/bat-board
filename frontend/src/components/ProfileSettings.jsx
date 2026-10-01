@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../utils/api';
+import { api, browserTimezone } from '../utils/api';
+
+function timezoneOptions(current) {
+  let zones = [];
+  try {
+    zones = Intl.supportedValuesOf('timeZone');
+  } catch {
+    zones = [];
+  }
+  const all = new Set(['UTC', ...zones]);
+  if (current) all.add(current);
+  return [...all].sort();
+}
 
 const LEVELS = [
   { min: 0, max: 1999, title: 'The Orphan' },
@@ -29,6 +41,79 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   const [showLogs, setShowLogs] = useState(false);
   const [ledger, setLedger] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [addressDraft, setAddressDraft] = useState(account?.alfred_address || '');
+  const [addressMsg, setAddressMsg] = useState(null);
+  const [addressError, setAddressError] = useState(null);
+  useEffect(() => { setAddressDraft(account?.alfred_address || ''); }, [account?.alfred_address]);
+
+  const saveAddress = async (e) => {
+    e.preventDefault();
+    setAddressMsg(null);
+    setAddressError(null);
+    try {
+      await api.updateAccount({ alfred_address: addressDraft.trim() });
+      await onRefreshAccount();
+      setAddressMsg('Saved');
+    } catch (err) {
+      setAddressError(err.message);
+    }
+  };
+
+  const [eraseMemory, setEraseMemory] = useState(false);
+  const [alfredResetting, setAlfredResetting] = useState(false);
+  const [alfredResetMsg, setAlfredResetMsg] = useState(null);
+  const [confirmingAlfredReset, setConfirmingAlfredReset] = useState(false);
+
+  const alfredResetDeletes = [
+    'All Alfred conversations and their messages — in the app and on Telegram',
+    'Any pending delete confirmation or unfinished /setkey setup',
+    ...(eraseMemory ? ["Everything Alfred remembers about you (its memory notes)"] : []),
+  ];
+  const alfredResetKeeps = [
+    ...(eraseMemory ? [] : ["Alfred's memory notes about you"]),
+    'Your AI model key and settings',
+    'Your Telegram link',
+    'Your own notes, missions, habits, calendar and Bat Points',
+    "Today's Alfred message count",
+  ];
+
+  const handleResetAlfred = async () => {
+    setConfirmingAlfredReset(false);
+    setAlfredResetting(true);
+    setAlfredResetMsg(null);
+    try {
+      const res = await api.resetAlfred(eraseMemory);
+      window.dispatchEvent(new CustomEvent('alfred:reset'));
+      setAlfredResetMsg(
+        `Deleted ${res.sessions} conversation${res.sessions === 1 ? '' : 's'}` +
+        (eraseMemory ? ` and ${res.memory_notes} memory note${res.memory_notes === 1 ? '' : 's'}.` : '.')
+      );
+      setEraseMemory(false);
+    } catch (err) {
+      setAlfredResetMsg(err.message);
+    } finally {
+      setAlfredResetting(false);
+    }
+  };
+
+  const [tzBusy, setTzBusy] = useState(false);
+  const [tzError, setTzError] = useState(null);
+  const deviceTz = browserTimezone();
+  const accountTz = account?.timezone || 'UTC';
+
+  const saveTimezone = async (tz) => {
+    if (!tz || tz === account?.timezone) return;
+    setTzBusy(true);
+    setTzError(null);
+    try {
+      await api.updateAccount({ timezone: tz });
+      await onRefreshAccount();
+    } catch (err) {
+      setTzError(err.message);
+    } finally {
+      setTzBusy(false);
+    }
+  };
 
   const handlePasswordChange = async (e) => {
     e.preventDefault();
@@ -38,8 +123,8 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
       setPwError('Passwords do not match');
       return;
     }
-    if (newPassword.length < 4) {
-      setPwError('Password must be at least 4 characters');
+    if (newPassword.length < 8) {
+      setPwError('Password must be at least 8 characters');
       return;
     }
     try {
@@ -210,7 +295,7 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   required
-                  minLength={4}
+                  minLength={8}
                   className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow"
                 />
               </div>
@@ -235,6 +320,64 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
             </form>
           </div>
 
+          {/* Alfred form of address */}
+          <div className="bg-dark-slate rounded border border-slate-800 p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+              What Alfred Calls You
+            </h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Used in Telegram and the in-app chat. Leave empty to be addressed by your username ({account?.username}).
+            </p>
+            <form onSubmit={saveAddress} className="flex gap-2">
+              <input
+                type="text"
+                value={addressDraft}
+                onChange={e => { setAddressDraft(e.target.value); setAddressMsg(null); }}
+                maxLength={60}
+                placeholder={account?.username || 'e.g. Master Wayne'}
+                className="flex-1 min-w-0 bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+              />
+              <button
+                type="submit"
+                disabled={addressDraft.trim() === (account?.alfred_address || '')}
+                className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded text-xs font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+              >
+                SAVE
+              </button>
+            </form>
+            {addressMsg && <div className="text-xs text-green-400 mt-2">{addressMsg}</div>}
+            {addressError && <div className="text-xs text-red-400 mt-2">{addressError}</div>}
+          </div>
+
+          {/* Timezone */}
+          <div className="bg-dark-slate rounded border border-slate-800 p-6">
+            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+              Timezone
+            </h2>
+            <p className="text-xs text-slate-400 mb-3">
+              Days for habits, daily stats, and Alfred's clock and daily limit start at midnight in this zone.
+            </p>
+            <select
+              value={accountTz}
+              disabled={tzBusy}
+              onChange={e => saveTimezone(e.target.value)}
+              className="w-full bg-matte-obsidian border border-slate-800 rounded px-2.5 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
+            >
+              {timezoneOptions(accountTz).map(tz => <option key={tz} value={tz}>{tz}</option>)}
+            </select>
+            {deviceTz && deviceTz !== accountTz && (
+              <button
+                type="button"
+                onClick={() => saveTimezone(deviceTz)}
+                disabled={tzBusy}
+                className="mt-3 text-[10px] font-mono tracking-widest text-slate-400 hover:text-electric-bat-yellow border border-slate-800 hover:border-electric-bat-yellow/50 rounded px-2 py-1 transition disabled:opacity-50"
+              >
+                USE THIS DEVICE'S ZONE ({deviceTz})
+              </button>
+            )}
+            {tzError && <div className="text-xs text-red-400 mt-2">{tzError}</div>}
+          </div>
+
           {/* Reset Points */}
           <div className="bg-dark-slate rounded border border-red-900/30 p-6">
             <h2 className="text-sm font-mono uppercase tracking-widest text-red-400 border-b border-red-900/30 pb-2 mb-4">
@@ -250,6 +393,64 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
             >
               {resetting ? 'RESETTING...' : 'RESET BAT POINTS'}
             </button>
+
+            <div className="mt-6 pt-4 border-t border-red-900/30">
+              <p className="text-xs text-slate-400 mb-3">
+                Start fresh with Alfred by permanently deleting your conversations.
+              </p>
+              <label className="flex items-center gap-2 text-xs text-slate-400 mb-4 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={eraseMemory}
+                  onChange={e => setEraseMemory(e.target.checked)}
+                  className="accent-red-500"
+                />
+                Also erase everything Alfred remembers about me (its memory notes)
+              </label>
+              {confirmingAlfredReset ? (
+                <div role="alertdialog" aria-label="Confirm Alfred reset" className="rounded border border-red-900/60 bg-red-950/20 p-4 space-y-3">
+                  <div className="text-xs font-bold text-red-400">This cannot be undone.</div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-red-400 mb-1">Will be deleted</div>
+                    <ul className="text-xs text-slate-300 space-y-0.5 list-disc pl-4">
+                      {alfredResetDeletes.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-green-400 mb-1">Will be kept</div>
+                    <ul className="text-xs text-slate-400 space-y-0.5 list-disc pl-4">
+                      {alfredResetKeeps.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    The Telegram chat window itself isn't cleared — use "Clear history" in Telegram for that.
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleResetAlfred}
+                      className="px-4 py-2 bg-red-700 text-white font-bold rounded text-xs font-mono tracking-widest hover:bg-red-600 transition"
+                    >
+                      DELETE PERMANENTLY
+                    </button>
+                    <button
+                      onClick={() => setConfirmingAlfredReset(false)}
+                      className="px-4 py-2 bg-slate-800 text-slate-300 rounded text-xs font-mono tracking-widest hover:bg-slate-700 transition"
+                    >
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setAlfredResetMsg(null); setConfirmingAlfredReset(true); }}
+                  disabled={alfredResetting}
+                  className="px-5 py-2 bg-red-900/30 border border-red-900/50 text-red-400 font-bold rounded text-xs font-mono tracking-widest hover:bg-red-900/50 transition disabled:opacity-50"
+                >
+                  {alfredResetting ? 'RESETTING...' : 'RESET ALFRED'}
+                </button>
+              )}
+              {alfredResetMsg && <div className="text-xs text-slate-400 mt-2">{alfredResetMsg}</div>}
+            </div>
           </div>
 
           {/* Link Telegram */}

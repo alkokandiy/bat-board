@@ -400,10 +400,11 @@ def test_executor_refuses_destructive_tools(auth_headers):
         db.close()
 
 
-def test_system_prompt_injects_current_tashkent_date(client, auth_headers, monkeypatch):
+def test_system_prompt_injects_current_local_date(client, auth_headers, monkeypatch):
     """Alfred must know the real date. The system prompt is built fresh every turn
-    with the current Tashkent time — verify it appears and matches."""
+    with the current time in the user's own timezone — verify it appears and matches."""
     h = auth_headers("alfred_date")
+    assert client.put("/api/account", headers=h, json={"timezone": "Asia/Tashkent"}).status_code == 200
     sent = _mock_send(monkeypatch)
     _link_chat(client, h, "date-chat")
 
@@ -421,13 +422,13 @@ def test_system_prompt_injects_current_tashkent_date(client, auth_headers, monke
     system_msg = captured[0][0]
     assert system_msg["role"] == "system"
     content = system_msg["content"]
-    # Must contain a Tashkent timestamp
-    assert "Tashkent time" in content
-    # Must contain the actual current year (guards against stale/missing date)
-    from datetime import datetime, timezone, timedelta
+    # Must name the user's zone and offset
+    assert "(Asia/Tashkent, UTC+05:00)" in content
+    # Must contain the actual current local date (guards against stale/missing date)
+    from zoneinfo import ZoneInfo
 
-    now_tashkent = datetime.now(timezone(timedelta(hours=5)))
-    assert str(now_tashkent.year) in content
+    now_local = datetime.now(ZoneInfo("Asia/Tashkent"))
+    assert now_local.strftime("%B %Y") in content
 
 
 # ──────────────────────────────────────────────────────────────

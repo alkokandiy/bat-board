@@ -150,6 +150,45 @@ def create_mission(
     return mission
 
 
+MISSION_REWARDS = {"low": 5, "medium": 10, "high": 20, "critical": 50}
+
+
+def mission_reward(priority: Optional[str]) -> int:
+    return MISSION_REWARDS.get(priority, 10)
+
+
+def reopen_mission(
+    db: Session,
+    current_user: models.BatAccount,
+    mission: models.BatMission,
+    new_status: str,
+) -> None:
+    """Move a completed mission back to a non-completed status.
+
+    Takes back the completion reward (floored at 0). Without this, toggling
+    complete → pending → complete awarded the points again on every cycle.
+    Flushes only; the caller commits.
+    """
+    if mission.status != "completed":
+        mission.status = new_status
+        return
+    reward = mission_reward(mission.priority)
+    old_points = current_user.points
+    old_level = current_user.bat_level
+    mission.status = new_status
+    mission.completed_at = None
+    current_user.points = max(0, current_user.points - reward)
+    current_user.bat_level = calculate_bat_level(current_user.points)
+    auto_log_event(db, current_user.id, "points_modified", {
+        "reason": f"Reopened mission '{mission.title}'",
+        "points_delta": current_user.points - old_points,
+        "old_points": old_points,
+        "new_points": current_user.points,
+        "old_level": old_level,
+        "new_level": current_user.bat_level,
+    })
+
+
 def complete_mission(
     db: Session,
     current_user: models.BatAccount,
@@ -178,13 +217,7 @@ def complete_mission(
     mission.status = "completed"
     if old_status != "completed":
         mission.completed_at = datetime.now(timezone.utc)
-        reward = 10
-        if mission.priority == "high":
-            reward = 20
-        elif mission.priority == "critical":
-            reward = 50
-        elif mission.priority == "low":
-            reward = 5
+        reward = mission_reward(mission.priority)
 
         current_user.points += reward
         current_user.bat_level = calculate_bat_level(current_user.points)

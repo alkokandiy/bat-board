@@ -34,6 +34,14 @@ class CreateSessionRequest(BaseModel):
     title: str = "New conversation"
 
 
+class RenameSessionRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=alfred_agent.SESSION_TITLE_MAX)
+
+
+class ResetAlfredRequest(BaseModel):
+    erase_memory: bool = False
+
+
 @router.post("/api/alfred/chat")
 @limiter.limit("20/minute")
 async def alfred_chat(
@@ -56,9 +64,9 @@ async def alfred_chat(
     except Exception as exc:
         logger.error("alfred_chat_failed", error_type=type(exc).__name__, error=str(exc))
         reply = alfred_agent.SNAG_REPLY
-    # Memory review runs after the reply is sent — never on quota/setup
+    # Memory review runs after the reply is sent — never on quota/setup/failure
     # short-circuits, which need no review and no extra spend.
-    if reply not in (alfred_agent.CAPPED_REPLY, alfred_agent.SETUP_REPLY):
+    if reply not in alfred_agent.NO_REVIEW_REPLIES:
         alfred_memory_reviewer.schedule_memory_review(
             background_tasks, current_user.id, payload.message, reply
         )
@@ -89,6 +97,44 @@ def create_session(
     return {"id": session.id, "title": session.title}
 
 
+@router.patch("/api/alfred/sessions/{session_id}")
+def rename_session(
+    session_id: int,
+    payload: RenameSessionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    if not payload.title.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Title can't be empty")
+    session = alfred_agent.rename_session(db, current_user, session_id, payload.title)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return {"id": session.id, "title": session.title, "updated_at": session.updated_at.isoformat()}
+
+
+@router.delete("/api/alfred/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    if not alfred_agent.delete_session(db, current_user, session_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    return None
+
+
+@router.post("/api/alfred/reset")
+@limiter.limit("5/minute")
+def reset_alfred(
+    request: Request,
+    payload: ResetAlfredRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Delete all of the caller's Alfred conversations (and optionally memory)."""
+    return alfred_agent.reset_alfred(db, current_user, erase_memory=payload.erase_memory)
+
+
 @router.get("/api/alfred/sessions/{session_id}/messages")
 def get_session_messages(
     session_id: int,
@@ -105,7 +151,7 @@ def get_session_messages(
     messages = (
         db.query(models.BatAlfredMessage)
         .filter_by(session_id=session_id)
-        .order_by(models.BatAlfredMessage.created_at.asc())
+        .order_by(models.BatAlfredMessage.created_at.asc(), models.BatAlfredMessage.id.asc())
         .all()
     )
     return [{"role": m.role, "content": m.content, "created_at": m.created_at.isoformat()} for m in messages]

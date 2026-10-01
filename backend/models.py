@@ -1,7 +1,34 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, UniqueConstraint
+from sqlalchemy import DateTime as _SQLDateTime
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import TypeDecorator
 from datetime import datetime, timezone
 from database import Base
+
+
+class DateTime(TypeDecorator):
+    """Timestamp stored as naive UTC, always returned timezone-aware (UTC).
+
+    Columns are TIMESTAMP WITHOUT TIME ZONE. Without this, values came back
+    naive and were serialized without an offset, so browsers parsed UTC
+    times as local time (events/countdowns shifted by the user's offset and
+    drifted on every edit), and naive-vs-aware arithmetic crashed. Aware
+    inputs in any offset are converted to UTC; naive inputs are taken as UTC.
+    """
+
+    impl = _SQLDateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
+
 
 
 class BatAccount(Base):
@@ -13,6 +40,12 @@ class BatAccount(Base):
     points = Column(Integer, default=0, nullable=False)
     bat_level = Column(String, default="The Orphan", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    # IANA zone name (e.g. "Asia/Tashkent"); day boundaries are computed in it.
+    timezone = Column(String, nullable=True)
+    # How Alfred addresses this user (e.g. "Master Al-Kokandiy"); None = username.
+    alfred_address = Column(String, nullable=True)
+    # Embedded in every JWT ("tv"); bumping it revokes all issued tokens.
+    token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -262,13 +295,26 @@ class BatTelegramSeenUpdate(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
+class BatTelegramLinkAttempt(Base):
+    """Failed link-code attempts per Telegram chat (brute-force guard).
+
+    Table-backed so the limit holds across gunicorn workers."""
+
+    __tablename__ = "bat_telegram_link_attempts"
+
+    chat_id = Column(String, primary_key=True)
+    failures = Column(Integer, default=0, nullable=False)
+    window_started_at = Column(DateTime, nullable=False)
+
+
 class BatAlfredUsage(Base):
-    """Per-user daily message counter (quota guard)."""
+    """Per-user daily message counter (quota guard). One row per (user, day)."""
 
     __tablename__ = "bat_alfred_usage"
+    __table_args__ = (UniqueConstraint("owner_id", "day", name="uq_bat_alfred_usage_owner_day"),)
 
     id = Column(Integer, primary_key=True, index=True)
-    day = Column(String, nullable=False)  # YYYY-MM-DD (UTC)
+    day = Column(String, nullable=False)  # YYYY-MM-DD in the user's timezone
     count = Column(Integer, default=0, nullable=False)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
