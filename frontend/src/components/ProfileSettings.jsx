@@ -62,12 +62,23 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   const [eraseMemory, setEraseMemory] = useState(false);
   const [alfredResetting, setAlfredResetting] = useState(false);
   const [alfredResetMsg, setAlfredResetMsg] = useState(null);
+  const [confirmingAlfredReset, setConfirmingAlfredReset] = useState(false);
+
+  const alfredResetDeletes = [
+    'All Alfred conversations and their messages — in the app and on Telegram',
+    'Any pending delete confirmation or unfinished /setkey setup',
+    ...(eraseMemory ? ["Everything Alfred remembers about you (its memory notes)"] : []),
+  ];
+  const alfredResetKeeps = [
+    ...(eraseMemory ? [] : ["Alfred's memory notes about you"]),
+    'Your AI model key and settings',
+    'Your Telegram link',
+    'Your own notes, missions, habits, calendar and Bat Points',
+    "Today's Alfred message count",
+  ];
 
   const handleResetAlfred = async () => {
-    const what = eraseMemory
-      ? "every Alfred conversation AND everything Alfred remembers about you"
-      : 'every Alfred conversation (Alfred keeps its memory notes)';
-    if (!window.confirm(`Permanently delete ${what}? This cannot be undone.`)) return;
+    setConfirmingAlfredReset(false);
     setAlfredResetting(true);
     setAlfredResetMsg(null);
     try {
@@ -385,8 +396,7 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
 
             <div className="mt-6 pt-4 border-t border-red-900/30">
               <p className="text-xs text-slate-400 mb-3">
-                Start fresh with Alfred: permanently delete all your conversations (web and Telegram).
-                Your model key, Telegram link and your own notes are kept.
+                Start fresh with Alfred by permanently deleting your conversations.
               </p>
               <label className="flex items-center gap-2 text-xs text-slate-400 mb-4 cursor-pointer select-none">
                 <input
@@ -397,13 +407,48 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
                 />
                 Also erase everything Alfred remembers about me (its memory notes)
               </label>
-              <button
-                onClick={handleResetAlfred}
-                disabled={alfredResetting}
-                className="px-5 py-2 bg-red-900/30 border border-red-900/50 text-red-400 font-bold rounded text-xs font-mono tracking-widest hover:bg-red-900/50 transition disabled:opacity-50"
-              >
-                {alfredResetting ? 'RESETTING...' : 'RESET ALFRED'}
-              </button>
+              {confirmingAlfredReset ? (
+                <div role="alertdialog" aria-label="Confirm Alfred reset" className="rounded border border-red-900/60 bg-red-950/20 p-4 space-y-3">
+                  <div className="text-xs font-bold text-red-400">This cannot be undone.</div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-red-400 mb-1">Will be deleted</div>
+                    <ul className="text-xs text-slate-300 space-y-0.5 list-disc pl-4">
+                      {alfredResetDeletes.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-green-400 mb-1">Will be kept</div>
+                    <ul className="text-xs text-slate-400 space-y-0.5 list-disc pl-4">
+                      {alfredResetKeeps.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    The Telegram chat window itself isn't cleared — use "Clear history" in Telegram for that.
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={handleResetAlfred}
+                      className="px-4 py-2 bg-red-700 text-white font-bold rounded text-xs font-mono tracking-widest hover:bg-red-600 transition"
+                    >
+                      DELETE PERMANENTLY
+                    </button>
+                    <button
+                      onClick={() => setConfirmingAlfredReset(false)}
+                      className="px-4 py-2 bg-slate-800 text-slate-300 rounded text-xs font-mono tracking-widest hover:bg-slate-700 transition"
+                    >
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setAlfredResetMsg(null); setConfirmingAlfredReset(true); }}
+                  disabled={alfredResetting}
+                  className="px-5 py-2 bg-red-900/30 border border-red-900/50 text-red-400 font-bold rounded text-xs font-mono tracking-widest hover:bg-red-900/50 transition disabled:opacity-50"
+                >
+                  {alfredResetting ? 'RESETTING...' : 'RESET ALFRED'}
+                </button>
+              )}
               {alfredResetMsg && <div className="text-xs text-slate-400 mt-2">{alfredResetMsg}</div>}
             </div>
           </div>

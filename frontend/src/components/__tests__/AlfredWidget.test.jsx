@@ -47,14 +47,27 @@ describe('AlfredWidget conversations', () => {
     expect(screen.getByText(/Master Wayne\. The books are open/)).toBeInTheDocument();
   });
 
-  it('deletes a conversation and moves to the next one', async () => {
+  it('deleting the open conversation starts a new chat', async () => {
+    api.createAlfredSession.mockResolvedValue({ id: 3, title: 'New conversation' });
     await openConversations();
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Delete Gotham plans'));
     });
     expect(api.deleteAlfredSession).toHaveBeenCalledWith(1);
     expect(screen.queryByText('Gotham plans')).not.toBeInTheDocument();
-    expect(api.getAlfredSessionMessages).toHaveBeenLastCalledWith(2);
+    expect(api.createAlfredSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Master Wayne\. The books are open/)).toBeInTheDocument();
+  });
+
+  it('deleting another conversation keeps the open one', async () => {
+    await openConversations();
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Delete Arkham notes'));
+    });
+    expect(api.deleteAlfredSession).toHaveBeenCalledWith(2);
+    expect(api.createAlfredSession).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Delete Gotham plans')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Delete Arkham notes')).not.toBeInTheDocument();
   });
 
   it('does nothing when the delete is not confirmed', async () => {

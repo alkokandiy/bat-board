@@ -137,16 +137,9 @@ export default function AlfredWidget({ account }) {
     } catch {
       return;
     }
-    const remaining = sessions.filter(x => x.id !== s.id);
-    setSessions(remaining);
-    if (s.id === activeSessionId) {
-      if (remaining.length > 0) {
-        await selectSession(remaining[0].id);
-        setShowSidebar(true);
-      } else {
-        await newChat();
-      }
-    }
+    setSessions(prev => prev.filter(x => x.id !== s.id));
+    // Deleting the open conversation starts a fresh one.
+    if (s.id === activeSessionId) await newChat();
   };
 
   const loadProviderStatus = async () => {
