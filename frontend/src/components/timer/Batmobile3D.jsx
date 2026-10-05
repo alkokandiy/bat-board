@@ -105,135 +105,179 @@ const box = (w, h, d, mat, x, y, z) => {
   return mesh;
 };
 
-// Tumbler-style armoured car, proportioned from a photo of the film vehicle:
-// four huge tyres, a tall flat-roofed cabin with two slanted windscreens,
-// faceted armour flanks, a low wedge nose and a rack on the rear deck.
+// Loft a faceted hull from cross-section rings. Each ring is { x, pts:[[z,y]...] }
+// with the same number of points, ordered as a closed loop; this builds the
+// side quads and triangle-fan end caps. Lets the body taper to a pointed prow.
+function buildLoft(rings, mat) {
+  const n = rings[0].pts.length;
+  const verts = [];
+  const idx = [];
+  const start = [];
+  for (const r of rings) {
+    start.push(verts.length / 3);
+    for (const [z, y] of r.pts) verts.push(r.x, y, z);
+  }
+  for (let s = 0; s < rings.length - 1; s++) {
+    const a = start[s];
+    const b = start[s + 1];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      idx.push(a + i, b + j, a + j, a + i, b + i, b + j);
+    }
+  }
+  // Nose cap (fan), then tail cap (reverse winding).
+  const caps = [[rings[rings.length - 1], start[rings.length - 1], false], [rings[0], start[0], true]];
+  for (const [ring, st, flip] of caps) {
+    const c = verts.length / 3;
+    let cy = 0, cz = 0;
+    for (const [z, y] of ring.pts) { cy += y; cz += z; }
+    verts.push(ring.x, cy / n, cz / n);
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      if (flip) idx.push(c, st + i, st + j);
+      else idx.push(c, st + j, st + i);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = new THREE.Mesh(g, mat);
+  return mesh;
+}
+
+// A 10-point faceted cross-section (half-width zw; floor yb, lower yl, upper yu,
+// roof yt), ordered clockwise as a closed loop.
+function ring(x, zw, yb, yl, yu, yt) {
+  return {
+    x,
+    pts: [
+      [0, yt], [zw * 0.55, yt - 0.03], [zw, yu], [zw, yl], [zw * 0.6, yb],
+      [0, yb - 0.02], [-zw * 0.6, yb], [-zw, yl], [-zw, yu], [-zw * 0.55, yt - 0.03],
+    ],
+  };
+}
+
+// Tumbler: low faceted tub tapering to a pointed prow, a low canopy set back,
+// huge rear wheels under angular shrouds, big exposed canted front wheels, and
+// a tubular roll-cage on the rear deck. Car faces +X; units are rough metres.
 function buildBatmobile(mats) {
   const car = new THREE.Group();
   const spinners = [];
 
-  const hull = new THREE.Mesh(
-    extrudeProfile(
-      [[-2.2, 0.38], [2.0, 0.34], [2.4, 0.46], [2.45, 0.62], [1.7, 0.82], [-0.7, 0.86], [-2.25, 0.84], [-2.35, 0.6]],
-      2.0,
-      0.04,
-    ),
-    mats.body,
-  );
-  addEdges(hull);
+  // --- main hull (lofted, tail at -X to a near-point prow at +X) ---
+  const hull = buildLoft([
+    ring(-2.35, 0.96, 0.50, 0.80, 1.10, 1.22),
+    ring(-1.60, 1.14, 0.40, 0.74, 1.16, 1.34),
+    ring(-0.80, 1.20, 0.36, 0.70, 1.16, 1.38),
+    ring(0.00, 1.20, 0.36, 0.68, 1.12, 1.34),
+    ring(0.80, 1.06, 0.38, 0.64, 1.00, 1.18),
+    ring(1.60, 0.88, 0.40, 0.58, 0.84, 0.98),
+    ring(2.35, 0.52, 0.42, 0.50, 0.62, 0.70),
+    ring(3.05, 0.12, 0.40, 0.42, 0.46, 0.48),
+  ], mats.body);
+  addEdges(hull, 0x5a6376, 0.3);
   car.add(hull);
 
-  // Tall, flat-roofed cabin with a strongly raked front.
-  const cabin = new THREE.Mesh(
-    extrudeProfile([[-0.95, 0.82], [1.5, 0.82], [1.45, 0.98], [0.78, 1.66], [-0.75, 1.66], [-0.98, 1.35]], 1.62, 0.03),
+  // Angular belly plate under the prow (the Tumbler's keel).
+  const keel = new THREE.Mesh(
+    extrudeProfile([[0.4, 0.34], [2.7, 0.36], [3.1, 0.44], [2.7, 0.52], [0.6, 0.5]], 0.42, 0.03),
     mats.armor,
   );
-  addEdges(cabin);
-  car.add(cabin);
-  car.add(box(1.75, 0.08, 1.9, mats.body, -0.05, 1.7, 0)); // roof plate overhanging the cabin
-  // Two slanted windscreens (the glass looks light against the dark armour).
-  const slope = Math.atan2(0.68, 0.67);
-  for (const z of [-0.4, 0.4]) {
-    const win = box(0.035, 0.74, 0.6, mats.glass, 1.12 + 0.02, 1.32 + 0.02, z);
-    // The box's thin axis (local X) follows the raked face's normal: forward and up.
-    win.rotation.z = slope;
-    car.add(win);
-  }
-  // Side windows
-  for (const z of [-0.83, 0.83]) car.add(box(0.8, 0.34, 0.03, mats.glass, 0.2, 1.38, z));
+  addEdges(keel);
+  car.add(keel);
 
-  // Faceted side armour: big angular plates tilted slightly outward.
+  // --- low faceted canopy, set back, with a gold-tinted windscreen ---
+  const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(0.66, 1), mats.canopy);
+  canopy.scale.set(1.5, 0.5, 0.88);
+  canopy.position.set(0.0, 1.42, 0);
+  addEdges(canopy, 0x47516b, 0.35);
+  car.add(canopy);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.42), mats.goldGlass);
+  screen.position.set(0.74, 1.46, 0);
+  screen.rotation.y = -Math.PI / 2;
+  screen.rotation.z = -0.7;
+  car.add(screen);
+
+  // --- faceted side armour panels + rear shrouds over the big wheels ---
   for (const side of [-1, 1]) {
     const flank = new THREE.Mesh(
-      extrudeProfile([[-2.05, 0.5], [1.85, 0.44], [1.4, 0.9], [0.6, 1.26], [-0.85, 1.3], [-2.1, 1.0]], 0.1, 0.02),
+      extrudeProfile([[-2.0, 0.46], [1.9, 0.44], [1.5, 0.78], [0.6, 1.08], [-0.4, 1.22], [-1.6, 1.12], [-2.05, 0.82]], 0.09, 0.02),
       mats.armor,
     );
-    flank.position.z = side * 1.04;
-    flank.rotation.x = side * -0.14;
+    flank.position.z = side * 1.08;
+    flank.rotation.x = side * -0.12;
     addEdges(flank);
     car.add(flank);
 
-    const lower = new THREE.Mesh(
-      extrudeProfile([[-1.6, 0.36], [1.5, 0.34], [1.9, 0.5], [-1.0, 0.62]], 0.14, 0.02),
+    const chine = new THREE.Mesh(
+      extrudeProfile([[-1.5, 0.4], [1.8, 0.4], [2.3, 0.56], [1.4, 0.64], [-1.2, 0.6]], 0.1, 0.02),
       mats.steel,
     );
-    lower.position.z = side * 1.12;
-    car.add(lower);
+    chine.position.z = side * 1.12;
+    car.add(chine);
 
-    // Front pods and rear fenders
-    const pod = new THREE.Mesh(
-      extrudeProfile([[0.9, 0.55], [2.2, 0.42], [2.4, 0.6], [1.2, 1.05]], 0.12, 0.02),
+    // Rear wheel shroud: an angular plate wrapping the top/outside of the tyre.
+    const shroud = new THREE.Mesh(
+      extrudeProfile([[-2.5, 0.55], [-2.55, 1.5], [-1.95, 1.72], [-1.05, 1.56], [-0.9, 1.05], [-1.6, 0.55]], 0.14, 0.03),
       mats.armor,
     );
-    pod.position.z = side * 1.14;
-    addEdges(pod);
-    car.add(pod);
+    shroud.position.z = side * 1.46;
+    addEdges(shroud);
+    car.add(shroud);
 
-    const fender = new THREE.Mesh(
-      extrudeProfile([[-2.25, 1.34], [-2.2, 1.5], [-0.65, 1.56], [-0.45, 1.34]], 0.95, 0.03),
-      mats.armor,
-    );
-    fender.position.z = side * 1.42;
-    addEdges(fender);
-    car.add(fender);
-
-    const frontFender = new THREE.Mesh(
-      extrudeProfile([[0.95, 1.3], [1.05, 1.44], [2.2, 1.3], [2.3, 1.14]], 0.72, 0.03),
-      mats.armor,
-    );
-    frontFender.position.z = side * 1.5;
-    addEdges(frontFender);
-    car.add(frontFender);
-
-    // Suspension arms to the wheels
-    for (const [x, y, wz] of [[1.5, 0.45, 1.12], [1.5, 0.85, 1.12], [-1.45, 0.45, 1.12], [-1.45, 0.9, 1.12]]) {
-      car.add(box(0.12, 0.1, 0.5, mats.steel, x, y, side * wz));
+    // Suspension A-arms out to the exposed front wheels.
+    for (const dy of [-0.12, 0.12]) {
+      const arm = box(0.5, 0.1, 0.12, mats.steel, 2.05, 0.66 + dy, side * 1.12);
+      arm.rotation.y = side * 0.3;
+      car.add(arm);
     }
   }
 
-  // Rear deck and the rack/antenna frame on top.
-  car.add(box(1.7, 0.5, 2.1, mats.body, -1.55, 1.1, 0));
-  car.add(box(1.55, 0.12, 2.2, mats.armor, -1.55, 1.4, 0));
-  const rackY = 1.9;
-  const rack = new THREE.Group();
-  rack.add(box(1.3, 0.04, 0.04, mats.steel, -1.5, rackY, 0.7));
-  rack.add(box(1.3, 0.04, 0.04, mats.steel, -1.5, rackY, -0.7));
-  rack.add(box(0.04, 0.04, 1.44, mats.steel, -0.88, rackY, 0));
-  rack.add(box(0.04, 0.04, 1.44, mats.steel, -2.12, rackY, 0));
-  for (const [x, z] of [[-0.88, 0.7], [-0.88, -0.7], [-2.12, 0.7], [-2.12, -0.7]]) rack.add(box(0.04, 0.4, 0.04, mats.steel, x, 1.68, z));
-  for (const z of [-0.7, 0.7]) {
-    const rod = box(0.02, 0.9, 0.02, mats.steel, -2.1, 2.3, z);
-    rod.rotation.z = 0.35;
-    rack.add(rod);
+  // --- tubular roll-cage on the rear deck, swept up and back ---
+  car.add(box(1.5, 0.12, 2.0, mats.armor, -1.7, 1.42, 0));
+  const cage = new THREE.Group();
+  const tube = (len, x, y, z, rz = 0, ry = 0) => {
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 10), mats.steel);
+    t.position.set(x, y, z);
+    t.rotation.z = rz;
+    t.rotation.y = ry;
+    return t;
+  };
+  for (const z of [-0.78, 0.78]) {
+    cage.add(tube(1.4, -1.6, 1.74, z, Math.PI / 2 - 0.42)); // swept side rail
+    cage.add(tube(0.42, -1.05, 1.58, z, 0.5)); // front leg
+    cage.add(tube(0.5, -2.28, 1.6, z, -0.2)); // rear leg
   }
-  car.add(rack);
+  cage.add(tube(1.58, -1.6, 2.0, 0, 0, Math.PI / 2)); // top cross-tube (front)
+  cage.add(tube(1.58, -2.28, 1.78, 0, 0, Math.PI / 2)); // top cross-tube (rear)
+  car.add(cage);
 
-  // Low wedge nose and bumper bar.
-  const nose = new THREE.Mesh(extrudeProfile([[1.9, 0.4], [2.7, 0.42], [2.76, 0.58], [2.0, 0.82]], 1.8, 0.03), mats.body);
-  addEdges(nose);
-  car.add(nose);
-  car.add(box(0.14, 0.14, 2.7, mats.steel, 2.82, 0.5, 0));
-  for (const z of [-0.5, 0.5]) car.add(box(0.07, 0.09, 0.3, mats.lamp, 2.8, 0.66, z));
+  // --- head/tail lamps ---
+  for (const z of [-0.42, 0.42]) car.add(box(0.06, 0.08, 0.26, mats.lamp, 2.78, 0.62, z));
+  for (const z of [-1.0, 1.0]) car.add(box(0.05, 0.12, 0.3, mats.tail, -2.4, 0.78, z));
 
-  // Wheels: four huge tyres.
+  // --- wheels: huge rear, big exposed canted front ---
   for (const side of [-1, 1]) {
-    const rear = makeWheel(0.64, 0.8, mats);
-    rear.group.position.set(-1.45, 0.64, side * 1.42);
+    const rear = makeWheel(0.82, 0.82, mats);
+    rear.group.position.set(-1.75, 0.82, side * 1.5);
     car.add(rear.group);
-    spinners.push({ spin: rear.spin, r: 0.64 });
-    const front = makeWheel(0.6, 0.68, mats);
-    front.group.position.set(1.5, 0.6, side * 1.5);
+    spinners.push({ spin: rear.spin, r: 0.82 });
+
+    const front = makeWheel(0.72, 0.62, mats);
+    front.group.position.set(2.2, 0.72, side * 1.44);
+    front.group.rotation.x = side * 0.1; // camber: tops lean inward
     car.add(front.group);
-    spinners.push({ spin: front.spin, r: 0.6 });
+    spinners.push({ spin: front.spin, r: 0.72 });
   }
 
-  // Rear exhaust nozzle with an animated flame.
+  // --- rear exhaust nozzle with an animated flame ---
   const turbine = new THREE.Group();
-  turbine.position.set(-2.5, 0.78, 0);
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.38, 0.5, 28, 1, true), mats.steel);
+  turbine.position.set(-2.5, 0.72, 0);
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.5, 28, 1, true), mats.steel);
   shell.rotation.z = Math.PI / 2;
   turbine.add(shell);
-  const core = new THREE.Mesh(new THREE.CircleGeometry(0.29, 28), mats.flameCore);
+  const core = new THREE.Mesh(new THREE.CircleGeometry(0.27, 28), mats.flameCore);
   core.rotation.y = -Math.PI / 2;
   core.position.x = -0.26;
   turbine.add(core);
@@ -243,11 +287,11 @@ function buildBatmobile(mats) {
     );
     return new THREE.LatheGeometry(prof, 24);
   };
-  const flame = new THREE.Mesh(teardrop(0.3, 3.0), mats.flame);
+  const flame = new THREE.Mesh(teardrop(0.28, 3.0), mats.flame);
   flame.rotation.z = Math.PI / 2;
   flame.position.x = -0.26;
   turbine.add(flame);
-  const flameInner = new THREE.Mesh(teardrop(0.17, 1.8), mats.flameInner);
+  const flameInner = new THREE.Mesh(teardrop(0.16, 1.8), mats.flameInner);
   flameInner.rotation.z = Math.PI / 2;
   flameInner.position.x = -0.26;
   turbine.add(flameInner);
@@ -266,7 +310,7 @@ function buildBatmobile(mats) {
 
 // --- component ---------------------------------------------------------------
 
-export default function Batmobile3D({ progress = 0, running = false, onUnsupported, initialAzimuth = 0.75 }) {
+export default function Batmobile3D({ progress = 0, running = false, onUnsupported, initialAzimuth = 5.5 }) {
   const mountRef = useRef(null);
   const live = useRef({ running, progress });
   live.current = { running, progress };
@@ -288,7 +332,7 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.95;
+    renderer.toneMappingExposure = 0.92;
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.style.cssText = 'display:block;width:100%;height:100%;';
     mount.appendChild(renderer.domElement);
@@ -298,9 +342,9 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
-    scene.environmentIntensity = 0.6;
+    scene.environmentIntensity = 0.7;
 
-    const key = new THREE.DirectionalLight(0xe8ecff, 1.25);
+    const key = new THREE.DirectionalLight(0xe8ecff, 1.5);
     key.position.set(-4, 8, 6);
     scene.add(key);
     const rimBack = new THREE.DirectionalLight(0xffd24a, 0.8);
@@ -313,16 +357,19 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const disposables = [envTex, pmrem];
     const mat = (m) => { disposables.push(m); return m; };
     const mats = {
-      body: mat(new THREE.MeshStandardMaterial({ color: 0x0f1114, metalness: 0.35, roughness: 0.6 })),
-      armor: mat(new THREE.MeshStandardMaterial({ color: 0x181b21, metalness: 0.45, roughness: 0.52 })),
-      steel: mat(new THREE.MeshStandardMaterial({ color: 0x2b2f38, metalness: 0.85, roughness: 0.42 })),
+      body: mat(new THREE.MeshStandardMaterial({ color: 0x14171e, metalness: 0.28, roughness: 0.62, side: THREE.DoubleSide, flatShading: true })),
+      armor: mat(new THREE.MeshStandardMaterial({ color: 0x1c212b, metalness: 0.35, roughness: 0.55, flatShading: true })),
+      steel: mat(new THREE.MeshStandardMaterial({ color: 0x22262e, metalness: 0.7, roughness: 0.5 })),
       glass: mat(new THREE.MeshStandardMaterial({
         color: 0x7d879a, metalness: 0.2, roughness: 0.12, transparent: true, opacity: 0.62, emissive: 0x1e2533, emissiveIntensity: 0.5,
       })),
       rubber: mat(new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.92, metalness: 0, side: THREE.DoubleSide })),
       rubberDark: mat(new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 1, metalness: 0 })),
       rim: mat(new THREE.MeshStandardMaterial({ color: 0x1c1f26, metalness: 0.9, roughness: 0.4 })),
+      canopy: mat(new THREE.MeshStandardMaterial({ color: 0x0e1016, metalness: 0.5, roughness: 0.35, emissive: 0x05070b, emissiveIntensity: 0.4, flatShading: true })),
+      goldGlass: mat(new THREE.MeshStandardMaterial({ color: 0x8a6a2a, metalness: 0.6, roughness: 0.2, transparent: true, opacity: 0.72, emissive: 0x3a2c10, emissiveIntensity: 0.5, side: THREE.DoubleSide })),
       lamp: mat(new THREE.MeshBasicMaterial({ color: 0xfff1b8 })),
+      tail: mat(new THREE.MeshBasicMaterial({ color: 0xcc1a1a })),
       flameCore: mat(new THREE.MeshBasicMaterial({ color: 0xffb54a, side: THREE.DoubleSide })),
       flame: mat(new THREE.MeshBasicMaterial({
         color: 0xff6a12, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
@@ -380,8 +427,8 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
 
     // Orbit camera (auto-orbit, drag to look around).
     const camera = new THREE.PerspectiveCamera(32, 2, 0.1, 120);
-    const cam = { az: initialAzimuth, el: 0.22, radius: 7.8, drag: false, lastX: 0, lastY: 0, idleUntil: 0 };
-    const target = new THREE.Vector3(0.0, 0.7, 0);
+    const cam = { az: initialAzimuth, el: 0.2, radius: 8.2, drag: false, lastX: 0, lastY: 0, idleUntil: 0 };
+    const target = new THREE.Vector3(0.0, 0.72, 0);
     const placeCamera = () => {
       camera.position.set(
         target.x + cam.radius * Math.cos(cam.el) * Math.cos(cam.az),
