@@ -187,18 +187,14 @@ function buildBatmobile(mats) {
   addEdges(keel);
   car.add(keel);
 
-  // Faceted greenhouse canopy (centre-rear) with a raked gold windscreen.
+  // Faceted greenhouse canopy (centre-rear). The cockpit's dark glass reads as
+  // the windscreen on the raked front face — no separate floating pane.
   const canopy = new THREE.Mesh(
     extrudeProfile([[-1.35, 1.02], [-0.25, 1.02], [-0.5, 1.5], [-1.12, 1.5]], 1.26, 0.04),
     mats.canopy,
   );
   addEdges(canopy, 0x47516b, 0.4);
   car.add(canopy);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 0.56), mats.goldGlass);
-  screen.position.set(-0.37, 1.27, 0);
-  screen.rotation.y = -Math.PI / 2;
-  screen.rotation.z = Math.atan2(0.48, 0.25); // match the canopy's front rake
-  car.add(screen);
   for (const side of [-1, 1]) {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.32), mats.glass);
     win.position.set(-0.82, 1.25, side * 0.64);
@@ -218,10 +214,10 @@ function buildBatmobile(mats) {
     car.add(flank);
 
     const shroud = new THREE.Mesh(
-      extrudeProfile([[-2.3, 0.48], [-2.35, 1.28], [-1.72, 1.52], [-0.98, 1.32], [-0.88, 0.9], [-1.5, 0.48]], 0.16, 0.03),
+      extrudeProfile([[-2.28, 0.46], [-2.32, 1.16], [-1.72, 1.4], [-0.98, 1.2], [-0.88, 0.85], [-1.5, 0.46]], 0.16, 0.03),
       mats.armor,
     );
-    shroud.position.z = side * 1.52;
+    shroud.position.z = side * 1.5;
     addEdges(shroud);
     car.add(shroud);
 
@@ -259,10 +255,10 @@ function buildBatmobile(mats) {
 
   // Wheels: small narrow front, huge wide rear.
   for (const side of [-1, 1]) {
-    const rear = makeWheel(0.78, 0.86, mats);
-    rear.group.position.set(-1.7, 0.78, side * 1.52);
+    const rear = makeWheel(0.7, 0.8, mats);
+    rear.group.position.set(-1.7, 0.7, side * 1.5);
     car.add(rear.group);
-    spinners.push({ spin: rear.spin, r: 0.78 });
+    spinners.push({ spin: rear.spin, r: 0.7 });
 
     const front = makeWheel(0.58, 0.54, mats);
     front.group.position.set(1.62, 0.58, side * 0.84);
@@ -366,8 +362,7 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
       rubber: mat(new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.92, metalness: 0, side: THREE.DoubleSide })),
       rubberDark: mat(new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 1, metalness: 0 })),
       rim: mat(new THREE.MeshStandardMaterial({ color: 0x1c1f26, metalness: 0.9, roughness: 0.4 })),
-      canopy: mat(new THREE.MeshStandardMaterial({ color: 0x0e1016, metalness: 0.5, roughness: 0.35, emissive: 0x05070b, emissiveIntensity: 0.4, flatShading: true })),
-      goldGlass: mat(new THREE.MeshStandardMaterial({ color: 0x8a6a2a, metalness: 0.6, roughness: 0.2, transparent: true, opacity: 0.72, emissive: 0x3a2c10, emissiveIntensity: 0.5, side: THREE.DoubleSide })),
+      canopy: mat(new THREE.MeshStandardMaterial({ color: 0x0b0e15, metalness: 0.15, roughness: 0.72, flatShading: true })),
       lamp: mat(new THREE.MeshBasicMaterial({ color: 0xfff1b8 })),
       tail: mat(new THREE.MeshBasicMaterial({ color: 0xcc1a1a })),
       flameCore: mat(new THREE.MeshBasicMaterial({ color: 0xffb54a, side: THREE.DoubleSide })),
