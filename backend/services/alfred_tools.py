@@ -158,6 +158,10 @@ READ_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "Substring to match in memory title or body."},
      }, "required": ["query"]}},
+    {"name": "show_focus_chart", "description": "Send the user an image chart of their focus time over the last 7 days (bars per day, total, streak). Use when they ask to see/visualise their focus or a weekly focus summary.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "show_daily_brief", "description": "Send the user a daily brief card (image): missions due today, habits still to do, next calendar event and countdown, points and level. Use for 'my day', 'daily brief', 'what's on today', 'morning summary'.",
+     "parameters": {"type": "object", "properties": {}}},
 ]
 
 WRITE_TOOLS = [
@@ -321,7 +325,8 @@ def _describe_tool_target(
 
 
 def execute_tool(
-    db: Session, current_user: models.BatAccount, name: str, args: Dict[str, Any]
+    db: Session, current_user: models.BatAccount, name: str, args: Dict[str, Any],
+    media_sink: Optional[list] = None,
 ) -> Dict[str, Any]:
     """Execute a non-destructive tool with the authenticated user injected.
 
@@ -359,6 +364,18 @@ def execute_tool(
     if name == "get_profile":
         u = profile_service.get_profile(db, current_user)
         return {"username": u.username, "points": u.points, "bat_level": u.bat_level}
+    if name in ("show_focus_chart", "show_daily_brief"):
+        # Image deliverables: rendered to PNG and queued for Telegram delivery.
+        # The web chat can't display them, so there media_sink is None.
+        if media_sink is None:
+            return {"status": "unavailable_here",
+                    "note": "I deliver charts as images on Telegram — ask me there."}
+        from services import visuals
+
+        render = visuals.render_focus_week if name == "show_focus_chart" else visuals.render_daily_brief
+        png, caption = render(db, current_user)
+        media_sink.append({"png": png, "caption": caption})
+        return {"status": "sent", "visual": name, "note": "Image sent to the user."}
     if name == "alfred_list_memory_topics":
         return {"topics": [
             {"title": n.title, "description": _memory_brief(n)}
