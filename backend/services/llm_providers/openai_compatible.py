@@ -14,6 +14,7 @@ Wire differences vs the common shape:
   as the Anthropic adapter).
 """
 
+import base64
 import json
 import structlog
 from typing import Dict, List, Optional
@@ -123,9 +124,24 @@ def _to_openai_messages(messages: List[dict], system_instruction: Optional[str])
             continue
         out.append({
             "role": "assistant" if role == "assistant" else "user",
-            "content": msg.get("content", ""),
+            "content": _openai_content(msg),
         })
     return out
+
+
+def _openai_content(msg: dict):
+    """Plain text, or text + image_url parts when the message carries images."""
+    images = msg.get("images") or []
+    text = msg.get("content", "")
+    if not images:
+        return text
+    parts = []
+    if text:
+        parts.append({"type": "text", "text": text})
+    for img in images:
+        b64 = base64.b64encode(img["data"]).decode("ascii")
+        parts.append({"type": "image_url", "image_url": {"url": f"data:{img['mime_type']};base64,{b64}"}})
+    return parts
 
 
 def _parse_response(response) -> LLMResponse:
