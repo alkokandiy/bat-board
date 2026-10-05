@@ -12,6 +12,8 @@ export default function FocusPanel({
   onRefreshHabits,
   onRefreshAccount,
   onFocusModeChange,
+  timerMode,
+  onTimerModeChange,
   focusMode,
   focusTimeLeft,
   focusTotalTime,
@@ -42,6 +44,8 @@ export default function FocusPanel({
         isPlaying={isPlaying}
         onTrackChange={onTrackChange}
         onFocusModeChange={onFocusModeChange}
+        mode={timerMode}
+        onModeChange={onTimerModeChange}
         initialFocusActive={true}
       />
     );
@@ -80,6 +84,8 @@ export default function FocusPanel({
             isPlaying={isPlaying}
             onTrackChange={onTrackChange}
             onFocusModeChange={onFocusModeChange}
+            mode={timerMode}
+            onModeChange={onTimerModeChange}
           />
         </div>
 

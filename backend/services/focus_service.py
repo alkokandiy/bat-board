@@ -17,6 +17,9 @@ from services.common import auto_log_event, calculate_bat_level
 
 _UNSET = object()
 
+# Timer visual modes: Normal, Flip Clock, Bat-Signal, Batmobile.
+FOCUS_MODES = ("normal", "flip", "signal", "batmobile")
+
 
 def _owns(db: Session, model, row_id, current_user: models.BatAccount) -> bool:
     if not row_id:
@@ -31,9 +34,15 @@ def start_focus_session(
     current_user: models.BatAccount,
     mission_id: Optional[int] = None,
     habit_id: Optional[int] = None,
+    mode: Optional[str] = None,
 ) -> models.BatFocus:
     """Raises ValueError("Mission not found") / ValueError("Habit not found")
-    for invalid links (route translates to 404); never returns None."""
+    for invalid links (route translates to 404); never returns None.
+
+    `mode` is recorded as given at start; switching modes mid-session does
+    not change it."""
+    if mode is not None and mode not in FOCUS_MODES:
+        raise ValueError(f"Invalid focus mode: {mode!r}")
     if mission_id:
         mission = db.query(models.BatMission).filter(
             models.BatMission.id == mission_id,
@@ -54,6 +63,7 @@ def start_focus_session(
         owner_id=current_user.id,
         mission_id=mission_id,
         habit_id=habit_id,
+        mode=mode,
     )
     db.add(session)
     db.flush()
@@ -64,6 +74,7 @@ def start_focus_session(
         "start_time": session.start_time.isoformat(),
         "mission_id": session.mission_id,
         "habit_id": session.habit_id,
+        "mode": session.mode,
     })
     db.commit()
 

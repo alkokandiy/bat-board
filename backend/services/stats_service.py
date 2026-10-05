@@ -14,6 +14,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 import models
+from services.focus_service import FOCUS_MODES
 from services.timezones import day_bounds_utc, local_date, local_today, user_tz
 
 
@@ -58,6 +59,7 @@ def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: s
     mission_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
     habit_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
     unassigned = {"minutes": 0, "sessions": 0}
+    mode_agg = defaultdict(lambda: {"minutes": 0, "sessions": 0})
     heatmap = defaultdict(int)
     days_with_sessions = set()
 
@@ -65,6 +67,10 @@ def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: s
         total_minutes += s.duration_minutes
         d = local_date(s.end_time, tz)
         heatmap[d] += s.duration_minutes
+        # Sessions recorded before modes existed have mode NULL → "unknown".
+        mode_key = s.mode if s.mode in FOCUS_MODES else "unknown"
+        mode_agg[mode_key]["minutes"] += s.duration_minutes
+        mode_agg[mode_key]["sessions"] += 1
         days_with_sessions.add(d)
         if s.mission_id is not None:
             mission_agg[s.mission_id]["minutes"] += s.duration_minutes
@@ -118,6 +124,17 @@ def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: s
         })
     breakdown.sort(key=lambda b: b["minutes"], reverse=True)
 
+    mode_breakdown = [
+        {
+            "mode": mode,
+            "minutes": agg["minutes"],
+            "sessions": agg["sessions"],
+            "percent": round(agg["minutes"] / total_minutes * 100, 1) if total_minutes else 0.0,
+        }
+        for mode, agg in mode_agg.items()
+    ]
+    mode_breakdown.sort(key=lambda m: (m["mode"] == "unknown", -m["minutes"]))
+
     streak = 0
     d = today
     while d in days_with_sessions:
@@ -137,6 +154,7 @@ def _compute_focus_stats(db: Session, current_user: models.BatAccount, period: s
         "total_sessions": total_sessions,
         "current_streak_days": streak,
         "breakdown": breakdown,
+        "mode_breakdown": mode_breakdown,
         "daily_heatmap": daily_heatmap,
     }
 

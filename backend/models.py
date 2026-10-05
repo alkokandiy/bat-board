@@ -140,6 +140,9 @@ class BatFocus(Base):
     end_time = Column(DateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
     soundtrack_metadata = Column(String, nullable=True)
+    # Timer visual mode when the session started (see FOCUS_MODES); NULL for
+    # sessions recorded before this column existed.
+    mode = Column(String, nullable=True)
 
     mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
     mission = relationship("BatMission")

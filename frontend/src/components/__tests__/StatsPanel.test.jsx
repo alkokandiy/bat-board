@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import StatsPanel from '../StatsPanel';
 import { api } from '../../utils/api';
 
@@ -221,4 +221,32 @@ describe('StatsPanel', () => {
     expect(screen.getAllByText('Unassigned').length).toBeGreaterThan(0);
     expect(screen.getByText('Showing 2 of 12 sessions')).toBeInTheDocument();
   });
+
+  it('shows minutes per timer mode, with sessions that have no mode as Unknown', async () => {
+    api.getFocusStats.mockResolvedValue({
+      ...statsPayload,
+      mode_breakdown: [
+        { mode: 'flip', minutes: 90, sessions: 3, percent: 60 },
+        { mode: 'batmobile', minutes: 30, sessions: 1, percent: 20 },
+        { mode: 'unknown', minutes: 30, sessions: 2, percent: 20 },
+      ],
+    });
+    render(<StatsPanel />);
+
+    const card = await screen.findByTestId('mode-breakdown');
+    expect(within(card).getByText('BY TIMER MODE')).toBeInTheDocument();
+    expect(within(card).getByText('Flip Clock')).toBeInTheDocument();
+    expect(within(card).getByText('1h 30m')).toBeInTheDocument();
+    expect(within(card).getByText('Batmobile')).toBeInTheDocument();
+    expect(within(card).getByText('Unknown')).toBeInTheDocument();
+    expect(within(card).getByText('2 sessions')).toBeInTheDocument();
+  });
+
+  it('hides the timer-mode card when there are no sessions', async () => {
+    api.getFocusStats.mockResolvedValue({ ...statsPayload, mode_breakdown: [] });
+    render(<StatsPanel />);
+    await screen.findByText('FOCUS STATS');
+    expect(screen.queryByTestId('mode-breakdown')).not.toBeInTheDocument();
+  });
 });
+

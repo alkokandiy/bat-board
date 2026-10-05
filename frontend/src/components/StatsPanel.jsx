@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api';
+import { FOCUS_MODE_LABELS } from '../utils/focusModes';
 
 const TABS = [
   { key: 'overview', label: 'OVERVIEW' },
@@ -502,6 +503,37 @@ export default function StatsPanel() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* Minutes per timer mode (same bars as above; old sessions are "Unknown") */}
+      {stats && stats.mode_breakdown?.length > 0 && (
+        <div data-testid="mode-breakdown" className="bg-dark-slate rounded border border-slate-800 p-6 space-y-4">
+          <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">BY TIMER MODE</span>
+          {stats.mode_breakdown.map((item) => {
+            const isUnknown = item.mode === 'unknown';
+            return (
+              <div key={item.mode} className={isUnknown ? 'opacity-60' : ''}>
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`text-sm truncate ${isUnknown ? 'text-slate-500' : 'text-slate-200'}`}>
+                      {FOCUS_MODE_LABELS[item.mode] || item.mode}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-600 shrink-0">
+                      {item.sessions} session{item.sessions !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono text-slate-400 shrink-0">{fmtDuration(item.minutes)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${isUnknown ? 'bg-slate-600' : 'bg-electric-bat-yellow'}`}
+                    style={{ width: `${Math.max(0, Math.min(100, item.percent))}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

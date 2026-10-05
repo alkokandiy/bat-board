@@ -11,6 +11,7 @@ import StatsPanel from './components/StatsPanel';
 import AlfredWidget from './components/AlfredWidget';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
+import { FOCUS_MODE_TO_API } from './utils/focusModes';
 
 function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -115,6 +116,12 @@ export default function App() {
   const [focusRunning, setFocusRunning] = useState(false);
   const [focusSelectedMissionId, setFocusSelectedMissionId] = useState('');
   const [focusSelectedHabitId, setFocusSelectedHabitId] = useState('');
+  // Timer visual mode ('N' | 'F' | 'B' | 'M'). Lives here, not in the timer:
+  // entering focus mode mounts a second timer, which used to reset it, and the
+  // session start below needs to record it.
+  const [focusVisualMode, setFocusVisualMode] = useState('N');
+  const focusVisualModeRef = useRef(focusVisualMode);
+  focusVisualModeRef.current = focusVisualMode;
   const focusSessionIdRef = useRef(null);
   const focusStartTimeRef = useRef(null);
   const focusSessionStartRef = useRef(null);
@@ -268,6 +275,9 @@ export default function App() {
       const data = {};
       if (missionId) data.mission_id = parseInt(missionId);
       if (habitId) data.habit_id = parseInt(habitId);
+      // Recorded at start only; switching mode mid-session doesn't change it.
+      const mode = FOCUS_MODE_TO_API[focusVisualModeRef.current];
+      if (mode) data.mode = mode;
       const session = await api.startFocusSession(data);
       focusSessionIdRef.current = session.id;
       focusSessionStartRef.current = Date.now();
@@ -412,6 +422,8 @@ export default function App() {
               onRefreshHabits={handleRefreshHabits}
               onRefreshAccount={handleRefreshAccount}
               onFocusModeChange={setFocusMode}
+              timerMode={focusVisualMode}
+              onTimerModeChange={setFocusVisualMode}
               focusMode={focusMode}
               focusTimeLeft={focusTimeLeft}
               focusTotalTime={focusSessionLength * 60}

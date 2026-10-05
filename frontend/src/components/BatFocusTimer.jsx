@@ -192,12 +192,22 @@ export default function BatFocusTimer({
   isPlaying,
   onTrackChange = () => {},
   onFocusModeChange,
+  mode: propMode,
+  onModeChange,
   initialFocusActive = false,
 }) {
   const [internalTimeLeft, setInternalTimeLeft] = useState(25 * 60);
   const [internalTotalTime, setInternalTotalTime] = useState(25 * 60);
   const [internalRunning, setInternalRunning] = useState(false);
-  const [mode, setMode] = useState('N'); // 'N' | 'F' | 'B' | 'M'
+  // 'N' | 'F' | 'B' | 'M'. Controlled when the parent passes `mode`
+  // (so the choice survives the focus-mode remount and reaches the session
+  // start); otherwise the timer keeps its own state.
+  const [internalMode, setInternalMode] = useState('N');
+  const mode = propMode ?? internalMode;
+  const setMode = (m) => {
+    setInternalMode(m);
+    onModeChange?.(m);
+  };
   const [focusActive, setFocusActive] = useState(initialFocusActive);
 
   // Car container width measurement for Mode [M]
