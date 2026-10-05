@@ -49,3 +49,19 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #FFD700;
 }
+
+/* --- Flip clock (components/timer/FlipDigit.jsx) --- */
+@keyframes flipFlap {
+  0%   { transform: rotateX(0deg); }
+  86%  { transform: rotateX(-180deg); }
+  93%  { transform: rotateX(-174deg); }
+  100% { transform: rotateX(-180deg); }
+}
+/* Lighting: faces darken as they turn away; cards get the flap's shadow. */
+@keyframes flipShadeFront  { 0% { opacity: 0; } 55% { opacity: 0.8; } 100% { opacity: 0.8; } }
+@keyframes flipShadeBack   { 0% { opacity: 0.8; } 45% { opacity: 0.8; } 100% { opacity: 0; } }
+@keyframes flipShadeTop    { 0% { opacity: 0.7; } 55% { opacity: 0; } 100% { opacity: 0; } }
+@keyframes flipShadeBottom { 0% { opacity: 0; } 45% { opacity: 0; } 80% { opacity: 0.55; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="flip-digit"] * { animation: none !important; }
+}
