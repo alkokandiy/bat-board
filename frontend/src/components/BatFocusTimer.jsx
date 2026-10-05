@@ -1,152 +1,18 @@
-import React, { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { trackPresets } from './AudioPlayer';
+import FlipDigit from './timer/FlipDigit';
+import BatEmblem from './timer/BatEmblem';
 
-// ==========================================
-// FLIP CLOCK DIGIT COMPONENT
-// ==========================================
-function FlipDigit({ digit }) {
-  const [currentDigit, setCurrentDigit] = useState(digit);
-  const [prevDigit, setPrevDigit] = useState(digit);
-  const [phase, setPhase] = useState('idle');
-  const animatingRef = useRef(false);
-  const pendingRef = useRef(null);
-  const timeoutsRef = useRef([]);
-
-  const currentDigitRef = useRef(currentDigit);
-  currentDigitRef.current = currentDigit;
-
-  const scheduleFlip = (target) => {
-    animatingRef.current = true;
-    pendingRef.current = null;
-    setPrevDigit(currentDigitRef.current);
-    setPhase('flipping');
-
-    const t1 = setTimeout(() => {
-      setCurrentDigit(target);
-      const t2 = setTimeout(() => {
-        setPhase('idle');
-        animatingRef.current = false;
-        const pending = pendingRef.current;
-        if (pending != null && pending !== target) {
-          scheduleFlip(pending);
-        }
-      }, 260);
-      timeoutsRef.current.push(t2);
-    }, 180);
-    timeoutsRef.current.push(t1);
-  };
-
-  useEffect(() => {
-    if (digit === currentDigit) return;
-    if (animatingRef.current) {
-      pendingRef.current = digit;
-      return;
-    }
-    scheduleFlip(digit);
-  }, [digit, currentDigit]);
-
-  useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach(clearTimeout);
-      timeoutsRef.current = [];
-    };
-  }, []);
-
-  return (
-    <div
-      className="relative w-[80px] h-[108px] rounded-[10px] select-none"
-      style={{
-        background: 'var(--bg-elevated)',
-        border: '1px solid var(--border-dim)',
-        boxShadow:
-          '0 20px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04), inset 0 -1px 0 rgba(0,0,0,0.4)',
-        perspective: '300px',
-      }}
-    >
-      {/* Metallic Sheen Line */}
-      <div
-        className="absolute top-[8px] left-[8px] right-[8px] h-[1px] z-20 pointer-events-none"
-        style={{ background: 'rgba(255,255,255,0.04)' }}
-      />
-
-      {/* Center Seam Divider */}
-      <div
-        className="absolute top-[53px] left-0 right-0 h-[2px] z-30 pointer-events-none"
-        style={{
-          background: '#050810',
-          boxShadow: '0 1px 0 rgba(255,255,255,0.02)',
-        }}
-      />
-
-      {/* Top Half Static */}
-      <div
-        className="absolute top-0 left-0 w-[80px] h-[54px] overflow-hidden rounded-t-[10px]"
-        style={{ background: 'linear-gradient(to bottom, var(--bg-elevated), #0c1220)' }}
-      >
-        <div
-          className="absolute top-0 left-0 w-[80px] h-[108px] flex items-center justify-center font-mono text-[80px] leading-[108px]"
-          style={{ fontFamily: "'Share Tech Mono', monospace", color: 'var(--yellow-core)' }}
-        >
-          {currentDigit}
-        </div>
-      </div>
-
-      {/* Bottom Half Static */}
-      <div
-        className="absolute top-[54px] left-0 w-[80px] h-[54px] overflow-hidden rounded-b-[10px]"
-        style={{ background: 'linear-gradient(to bottom, #0c1220, var(--bg-elevated))' }}
-      >
-        <div
-          className="absolute top-[-54px] left-0 w-[80px] h-[108px] flex items-center justify-center font-mono text-[80px] leading-[108px]"
-          style={{ fontFamily: "'Share Tech Mono', monospace", color: 'var(--yellow-core)' }}
-        >
-          {currentDigit}
-        </div>
-      </div>
-
-      {/* FLAP A — Top fold away */}
-      {phase === 'flipping' && (
-        <div
-          className="absolute top-0 left-0 w-[80px] h-[54px] overflow-hidden rounded-t-[10px] z-20"
-          style={{
-            background: 'linear-gradient(to bottom, var(--bg-elevated), #070b14)',
-            transformOrigin: 'center bottom',
-            backfaceVisibility: 'hidden',
-            animation: 'flapTopOut 260ms cubic-bezier(0.55, 0, 1, 0.45) forwards',
-          }}
-        >
-          <div
-            className="absolute top-0 left-0 w-[80px] h-[108px] flex items-center justify-center font-mono text-[80px] leading-[108px]"
-            style={{ fontFamily: "'Share Tech Mono', monospace", color: 'var(--yellow-core)' }}
-          >
-            {prevDigit}
-          </div>
-        </div>
-      )}
-
-      {/* FLAP B — Bottom unfold */}
-      {phase === 'flipping' && (
-        <div
-          className="absolute top-[54px] left-0 w-[80px] h-[54px] overflow-hidden rounded-b-[10px] z-20"
-          style={{
-            background: 'linear-gradient(to bottom, #070b14, var(--bg-elevated))',
-            transformOrigin: 'center top',
-            backfaceVisibility: 'hidden',
-            transform: 'rotateX(90deg)',
-            animation: 'flapBottomIn 260ms cubic-bezier(0, 0.55, 0.45, 1) 180ms forwards',
-          }}
-        >
-          <div
-            className="absolute top-[-54px] left-0 w-[80px] h-[108px] flex items-center justify-center font-mono text-[80px] leading-[108px]"
-            style={{ fontFamily: "'Share Tech Mono', monospace", color: 'var(--yellow-core)' }}
-          >
-            {currentDigit}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// three.js is heavy: load the 3D Batmobile only when that mode is opened. If
+// the chunk can't load, fall back to the 2D car instead of crashing the timer.
+const Batmobile3D = lazy(() =>
+  import('./timer/Batmobile3D').catch(() => ({
+    default: function Batmobile3DLoadFailed({ onUnsupported }) {
+      useEffect(() => { onUnsupported?.(); }, [onUnsupported]);
+      return null;
+    },
+  })),
+);
 
 // Colon Separator Component
 function ColonSeparator({ running }) {
@@ -171,12 +37,6 @@ function ColonSeparator({ running }) {
     </div>
   );
 }
-
-// ==========================================
-// BATMAN BEGINS / DARK KNIGHT LOGO PATH (MODE B)
-// Pre-verified against reference. Do NOT modify.
-// ==========================================
-const BAT_SIGNAL_PATH = `M 240,30 C 244,16 248,9 255,8 C 260,14 265,24 270,33 C 285,25 305,20 325,22 C 345,24 360,30 375,34 C 400,40 425,46 448,52 L 472,55 L 460,60 C 440,56 418,52 396,50 C 370,47 344,46 320,48 C 300,50 282,54 268,60 C 256,66 248,72 243,80 L 240,86 L 237,80 C 232,72 224,66 212,60 C 198,54 180,50 160,48 C 136,46 110,47 84,50 C 62,52 40,56 20,60 L 8,55 L 32,52 C 55,46 80,40 105,34 C 120,30 135,24 155,22 C 175,20 195,25 210,33 C 215,24 220,14 225,8 C 232,9 236,16 240,30 Z`;
 
 // ==========================================
 // MAIN BAT FOCUS TIMER COMPONENT
@@ -209,6 +69,8 @@ export default function BatFocusTimer({
     onModeChange?.(m);
   };
   const [focusActive, setFocusActive] = useState(initialFocusActive);
+  const [batmobile3dFailed, setBatmobile3dFailed] = useState(false);
+  const handleBatmobile3dUnsupported = useCallback(() => setBatmobile3dFailed(true), []);
 
   // Car container width measurement for Mode [M]
   const containerRef = useRef(null);
@@ -363,14 +225,6 @@ export default function BatFocusTimer({
   // Common Keyframe Styles
   const globalStyles = (
     <style>{`
-      @keyframes flapTopOut {
-        0%   { transform: rotateX(0deg); }
-        100% { transform: rotateX(-90deg); }
-      }
-      @keyframes flapBottomIn {
-        0%   { transform: rotateX(90deg); }
-        100% { transform: rotateX(0deg); }
-      }
       @keyframes colonBlink {
         0%, 100% { opacity: 0.9; }
         50%      { opacity: 0.15; }
@@ -387,196 +241,8 @@ export default function BatFocusTimer({
     `}</style>
   );
 
-  // Render Display Content according to active Mode
-  const renderModeDisplay = () => {
-    switch (mode) {
-      case 'N':
-        return (
-          <div className="flex flex-col items-center justify-center select-none text-center">
-            <div
-              style={{
-                fontSize: 'clamp(80px, 12vw, 140px)',
-                color: 'var(--yellow-core)',
-                letterSpacing: '8px',
-                fontFamily: "'Share Tech Mono', monospace",
-                textShadow: '0 0 60px rgba(255,215,0,0.15), 0 0 120px rgba(255,215,0,0.06)',
-                lineHeight: 1,
-              }}
-            >
-              {formattedTime}
-            </div>
-
-            <div
-              style={{
-                width: '320px',
-                height: '2px',
-                background: 'var(--border-dim)',
-                borderRadius: '1px',
-                marginTop: '32px',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${progress}%`,
-                  height: '100%',
-                  background: 'linear-gradient(to right, #FFD700, #FBBF24)',
-                  transition: 'width 0.5s linear',
-                  borderRadius: '1px',
-                }}
-              />
-            </div>
-
-            <div
-              style={{
-                fontSize: '11px',
-                color: 'var(--text-muted)',
-                letterSpacing: '2px',
-                marginTop: '12px',
-                fontFamily: "'Inter', sans-serif",
-                textTransform: 'uppercase',
-              }}
-            >
-              {progress}% · {formattedTime} REMAINING
-            </div>
-          </div>
-        );
-
-      case 'F':
-        return (
-          <div className="flex flex-col items-center justify-center select-none">
-            <div className="flex items-center justify-center gap-[6px]">
-              <FlipDigit digit={minTens} />
-              <FlipDigit digit={minUnits} />
-              <ColonSeparator running={running} />
-              <FlipDigit digit={secTens} />
-              <FlipDigit digit={secUnits} />
-            </div>
-
-            <div
-              style={{
-                fontSize: '10px',
-                color: 'var(--text-muted)',
-                letterSpacing: '3px',
-                marginTop: '32px',
-                fontFamily: "'Inter', sans-serif",
-                textTransform: 'uppercase',
-              }}
-            >
-              MISSION TIME REMAINING
-            </div>
-          </div>
-        );
-
-      case 'B':
-        return (
-          <div className="relative flex flex-col items-center justify-center select-none w-full max-w-[500px]">
-            {/* Ambient Radial Glow */}
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                background: `radial-gradient(ellipse at 50% 60%, rgba(255,215,0, ${0.03 + progress * 0.002}) 0%, transparent 60%)`,
-                pointerEvents: 'none',
-              }}
-            />
-
-            {/* Logo SVG — 480:110 viewBox, ~280px wide */}
-            <div className="relative w-[560px] flex items-center justify-center">
-              <svg viewBox="0 0 480 110" className="w-full h-full overflow-visible">
-                <defs>
-                  {/* Glow filter — only applied to the fill layer */}
-                  <filter id="battGlow" x="-20%" y="-40%" width="140%" height="180%">
-                    <feGaussianBlur stdDeviation="4" result="blur" />
-                    <feMerge>
-                      <feMergeNode in="blur" />
-                      <feMergeNode in="SourceGraphic" />
-                    </feMerge>
-                  </filter>
-
-                  {/* Fill gradient — rises bottom-to-top with progress */}
-                  <linearGradient id="battFillGradient" x1="0" y1="1" x2="0" y2="0">
-                    <stop offset="0%" stopColor="#FFD700" />
-                    <stop offset={`${Math.min(100, progress)}%`} stopColor="#FFD700" />
-                    <stop offset={`${Math.min(100, progress + 0.1)}%`} stopColor="transparent" />
-                    <stop offset="100%" stopColor="transparent" />
-                  </linearGradient>
-
-                  {/* Reveal Clip Path based on progress */}
-                  <clipPath id="revealClip">
-                    <rect
-                      x="0"
-                      y={110 - (progress / 100) * 110}
-                      width="480"
-                      height="110"
-                    />
-                  </clipPath>
-                </defs>
-
-                {/* LAYER 1: Permanent outline — always visible, crisp, no blur */}
-                <path
-                  d={BAT_SIGNAL_PATH}
-                  fill="none"
-                  stroke="#334155"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-
-                {/* LAYER 2: Fill revealed by progress — glow applies here only */}
-                <g clipPath="url(#revealClip)" filter="url(#battGlow)">
-                  <path
-                    d={BAT_SIGNAL_PATH}
-                    fill="url(#battFillGradient)"
-                    stroke="none"
-                  />
-                </g>
-              </svg>
-            </div>
-
-            {/* Progress Text below Logo */}
-            <div className="text-center mt-[16px]">
-              <div className="flex items-center justify-center gap-4">
-                <span
-                  style={{
-                    fontFamily: "'Share Tech Mono', monospace",
-                    fontSize: '48px',
-                    color: 'var(--yellow-core)',
-                    lineHeight: 1,
-                    display: 'block',
-                  }}
-                >
-                  {formattedTime}
-                </span>
-                <span
-                  style={{
-                    fontFamily: "'Share Tech Mono', monospace",
-                    fontSize: '24px',
-                    color: 'rgba(255,215,0,0.5)',
-                    lineHeight: 1,
-                  }}
-                >
-                  {progress}%
-                </span>
-              </div>
-              <span
-                style={{
-                  fontSize: '11px',
-                  color: 'var(--text-muted)',
-                  letterSpacing: '2px',
-                  textTransform: 'uppercase',
-                  fontFamily: "'Inter', sans-serif",
-                  marginTop: '4px',
-                  display: 'block',
-                }}
-              >
-                TIME REMAINING · {progress}% ELAPSED
-              </span>
-            </div>
-          </div>
-        );
-
-      case 'M':
-        return (
+  // The original 2D SVG Batmobile (fallback for the 3D one).
+  const renderBatmobile2D = () => (
           <div className="w-full max-w-[800px] flex flex-col items-center justify-center px-4 select-none">
             {/* Track container */}
             <div
@@ -793,6 +459,162 @@ export default function BatFocusTimer({
               </div>
             </div>
           </div>
+        );
+
+  // Render Display Content according to active Mode
+  const renderModeDisplay = () => {
+    switch (mode) {
+      case 'N':
+        return (
+          <div className="flex flex-col items-center justify-center select-none text-center">
+            <div
+              style={{
+                fontSize: 'clamp(80px, 12vw, 140px)',
+                color: 'var(--yellow-core)',
+                letterSpacing: '8px',
+                fontFamily: "'Share Tech Mono', monospace",
+                textShadow: '0 0 60px rgba(255,215,0,0.15), 0 0 120px rgba(255,215,0,0.06)',
+                lineHeight: 1,
+              }}
+            >
+              {formattedTime}
+            </div>
+
+            <div
+              style={{
+                width: '320px',
+                height: '2px',
+                background: 'var(--border-dim)',
+                borderRadius: '1px',
+                marginTop: '32px',
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  width: `${progress}%`,
+                  height: '100%',
+                  background: 'linear-gradient(to right, #FFD700, #FBBF24)',
+                  transition: 'width 0.5s linear',
+                  borderRadius: '1px',
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                fontSize: '11px',
+                color: 'var(--text-muted)',
+                letterSpacing: '2px',
+                marginTop: '12px',
+                fontFamily: "'Inter', sans-serif",
+                textTransform: 'uppercase',
+              }}
+            >
+              {progress}% · {formattedTime} REMAINING
+            </div>
+          </div>
+        );
+
+      case 'F':
+        return (
+          <div className="flex flex-col items-center justify-center select-none">
+            <div className="flex items-center justify-center gap-[6px]">
+              <FlipDigit digit={minTens} />
+              <FlipDigit digit={minUnits} />
+              <ColonSeparator running={running} />
+              <FlipDigit digit={secTens} />
+              <FlipDigit digit={secUnits} />
+            </div>
+
+            <div
+              style={{
+                fontSize: '10px',
+                color: 'var(--text-muted)',
+                letterSpacing: '3px',
+                marginTop: '32px',
+                fontFamily: "'Inter', sans-serif",
+                textTransform: 'uppercase',
+              }}
+            >
+              MISSION TIME REMAINING
+            </div>
+          </div>
+        );
+
+      case 'B':
+        return (
+          <div className="relative flex flex-col items-center justify-center select-none w-full max-w-[500px]">
+            {/* Ambient Radial Glow */}
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: `radial-gradient(ellipse at 50% 60%, rgba(255,215,0, ${0.03 + progress * 0.002}) 0%, transparent 60%)`,
+                pointerEvents: 'none',
+              }}
+            />
+
+            {/* Bat emblem: fills with light from the bottom as time passes */}
+            <div className="relative w-[560px] max-w-full flex items-center justify-center">
+              <BatEmblem progress={progress} className="w-full h-auto" />
+            </div>
+
+            {/* Progress Text below Logo */}
+            <div className="text-center mt-[16px]">
+              <div className="flex items-center justify-center gap-4">
+                <span
+                  style={{
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: '48px',
+                    color: 'var(--yellow-core)',
+                    lineHeight: 1,
+                    display: 'block',
+                  }}
+                >
+                  {formattedTime}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "'Share Tech Mono', monospace",
+                    fontSize: '24px',
+                    color: 'rgba(255,215,0,0.5)',
+                    lineHeight: 1,
+                  }}
+                >
+                  {progress}%
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: '11px',
+                  color: 'var(--text-muted)',
+                  letterSpacing: '2px',
+                  textTransform: 'uppercase',
+                  fontFamily: "'Inter', sans-serif",
+                  marginTop: '4px',
+                  display: 'block',
+                }}
+              >
+                TIME REMAINING · {progress}% ELAPSED
+              </span>
+            </div>
+          </div>
+        );
+
+      case 'M':
+        // Real-time 3D Batmobile (lazy-loaded). The 2D car below is shown while
+        // it loads and whenever WebGL isn't available.
+        return batmobile3dFailed ? (
+          renderBatmobile2D()
+        ) : (
+          <Suspense fallback={renderBatmobile2D()}>
+            <Batmobile3D
+              progress={progress}
+              running={running}
+              onUnsupported={handleBatmobile3dUnsupported}
+            />
+          </Suspense>
         );
 
       default:
