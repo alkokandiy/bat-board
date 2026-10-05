@@ -14,7 +14,8 @@ What it does:
   ...with the secret token Telegram must include in the
   X-Telegram-Bot-Api-Secret-Token header on every delivery.
 
-Usage (from the repo root, with the two env vars exported locally):
+Usage (from the repo root): run it and paste the two values when asked
+(input is hidden). Or provide them as env vars:
   TELEGRAM_BOT_TOKEN=<from BotFather> \\
   TELEGRAM_WEBHOOK_SECRET=<your generated secret> \\
   backend/.venv/bin/python backend/scripts/set_telegram_webhook.py
@@ -26,6 +27,7 @@ Re-run any time the bot token, webhook secret, or public URL changes.
 """
 
 import argparse
+import getpass
 import os
 import sys
 
@@ -39,10 +41,16 @@ def main() -> int:
     parser.add_argument("--url", default=DEFAULT_WEBHOOK_URL, help="Public webhook URL Telegram will POST to.")
     args = parser.parse_args()
 
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    webhook_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+    # Prompt (input hidden) for anything not provided via the environment, so
+    # the secrets never have to be typed into a shell command or its history.
+    bot_token = (os.environ.get("TELEGRAM_BOT_TOKEN") or getpass.getpass(
+        "Paste TELEGRAM_BOT_TOKEN (from @BotFather, same as in Railway; input hidden): "
+    )).strip()
+    webhook_secret = (os.environ.get("TELEGRAM_WEBHOOK_SECRET") or getpass.getpass(
+        "Paste TELEGRAM_WEBHOOK_SECRET (copy it from Railway; input hidden): "
+    )).strip()
     if not bot_token or not webhook_secret:
-        print("ERROR: set TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET in your environment first.", file=sys.stderr)
+        print("ERROR: both the bot token and the webhook secret are required.", file=sys.stderr)
         return 1
 
     resp = httpx.post(
