@@ -1,16 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
-// Compressed real model of The Batman (2022) Batmobile, served as a static
-// asset. Loaded on demand; the procedural model below is the fallback if the
-// file or WebGL can't load. Draco decoder is hosted alongside.
-const MODEL_URL = '/models/batmobile.glb';
-const DRACO_PATH = '/draco/';
-
-// Real 2022 Batmobile (glTF) with a procedural fallback, in WebGL.
+// A procedural Tumbler-style Batmobile in WebGL (no external asset).
 //
 // Original model built from primitives (no external asset): angular matte-black
 // armour, huge exposed rear wheels, small front wheels, a canopy slit, and a
@@ -166,84 +158,84 @@ function ring(x, zw, yb, yl, yu, yt) {
   };
 }
 
-// Tumbler: low faceted tub tapering to a pointed prow, a low canopy set back,
-// huge rear wheels under angular shrouds, big exposed canted front wheels, and
-// a tubular roll-cage on the rear deck. Car faces +X; units are rough metres.
+// Tumbler (from a 9-view reference): arrow body — widest at the rear, tapering
+// to a low pointed nose — with a narrow small front track, a wide huge rear
+// track, a faceted centre-rear greenhouse, a rear roll-cage, and a jet exhaust.
+// Car faces +X; units are rough metres.
 function buildBatmobile(mats) {
   const car = new THREE.Group();
   const spinners = [];
 
-  // --- main hull (lofted, tail at -X to a near-point prow at +X) ---
+  // Arrow hull: wide flat rear tapering to a pointed low nose at +X.
   const hull = buildLoft([
-    ring(-2.35, 0.96, 0.50, 0.80, 1.10, 1.22),
-    ring(-1.60, 1.14, 0.40, 0.74, 1.16, 1.34),
-    ring(-0.80, 1.20, 0.36, 0.70, 1.16, 1.38),
-    ring(0.00, 1.20, 0.36, 0.68, 1.12, 1.34),
-    ring(0.80, 1.06, 0.38, 0.64, 1.00, 1.18),
-    ring(1.60, 0.88, 0.40, 0.58, 0.84, 0.98),
-    ring(2.35, 0.52, 0.42, 0.50, 0.62, 0.70),
-    ring(3.05, 0.12, 0.40, 0.42, 0.46, 0.48),
+    ring(-2.25, 1.36, 0.42, 0.72, 1.02, 1.14),
+    ring(-1.45, 1.34, 0.40, 0.70, 1.06, 1.22),
+    ring(-0.60, 1.16, 0.40, 0.66, 0.98, 1.10),
+    ring(0.30, 0.94, 0.42, 0.62, 0.84, 0.94),
+    ring(1.15, 0.68, 0.44, 0.56, 0.70, 0.78),
+    ring(1.95, 0.42, 0.46, 0.52, 0.60, 0.66),
+    ring(2.60, 0.12, 0.48, 0.50, 0.54, 0.56),
   ], mats.body);
-  addEdges(hull, 0x5a6376, 0.3);
+  addEdges(hull, 0x5a6376, 0.28);
   car.add(hull);
 
-  // Angular belly plate under the prow (the Tumbler's keel).
+  // Splitter / keel under the nose.
   const keel = new THREE.Mesh(
-    extrudeProfile([[0.4, 0.34], [2.7, 0.36], [3.1, 0.44], [2.7, 0.52], [0.6, 0.5]], 0.42, 0.03),
+    extrudeProfile([[0.2, 0.34], [2.3, 0.36], [2.68, 0.44], [2.3, 0.52], [0.4, 0.5]], 0.5, 0.03),
     mats.armor,
   );
   addEdges(keel);
   car.add(keel);
 
-  // --- low faceted canopy, set back, with a gold-tinted windscreen ---
-  const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(0.66, 1), mats.canopy);
-  canopy.scale.set(1.5, 0.5, 0.88);
-  canopy.position.set(0.0, 1.42, 0);
-  addEdges(canopy, 0x47516b, 0.35);
+  // Faceted greenhouse canopy (centre-rear) with a raked gold windscreen.
+  const canopy = new THREE.Mesh(
+    extrudeProfile([[-1.35, 1.02], [-0.25, 1.02], [-0.5, 1.5], [-1.12, 1.5]], 1.26, 0.04),
+    mats.canopy,
+  );
+  addEdges(canopy, 0x47516b, 0.4);
   car.add(canopy);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.42), mats.goldGlass);
-  screen.position.set(0.74, 1.46, 0);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 0.56), mats.goldGlass);
+  screen.position.set(-0.37, 1.27, 0);
   screen.rotation.y = -Math.PI / 2;
-  screen.rotation.z = -0.7;
+  screen.rotation.z = Math.atan2(0.48, 0.25); // match the canopy's front rake
   car.add(screen);
+  for (const side of [-1, 1]) {
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.32), mats.glass);
+    win.position.set(-0.82, 1.25, side * 0.64);
+    win.rotation.y = side * Math.PI / 2;
+    car.add(win);
+  }
 
-  // --- faceted side armour panels + rear shrouds over the big wheels ---
+  // Faceted flank armour, angular rear shrouds, small front covers.
   for (const side of [-1, 1]) {
     const flank = new THREE.Mesh(
-      extrudeProfile([[-2.0, 0.46], [1.9, 0.44], [1.5, 0.78], [0.6, 1.08], [-0.4, 1.22], [-1.6, 1.12], [-2.05, 0.82]], 0.09, 0.02),
+      extrudeProfile([[-2.1, 0.44], [1.6, 0.44], [0.9, 0.78], [-0.3, 1.0], [-1.5, 1.02], [-2.15, 0.82]], 0.09, 0.02),
       mats.armor,
     );
-    flank.position.z = side * 1.08;
-    flank.rotation.x = side * -0.12;
+    flank.position.z = side * 1.2;
+    flank.rotation.x = side * -0.1;
     addEdges(flank);
     car.add(flank);
 
-    const chine = new THREE.Mesh(
-      extrudeProfile([[-1.5, 0.4], [1.8, 0.4], [2.3, 0.56], [1.4, 0.64], [-1.2, 0.6]], 0.1, 0.02),
-      mats.steel,
-    );
-    chine.position.z = side * 1.12;
-    car.add(chine);
-
-    // Rear wheel shroud: an angular plate wrapping the top/outside of the tyre.
     const shroud = new THREE.Mesh(
-      extrudeProfile([[-2.5, 0.55], [-2.55, 1.5], [-1.95, 1.72], [-1.05, 1.56], [-0.9, 1.05], [-1.6, 0.55]], 0.14, 0.03),
+      extrudeProfile([[-2.35, 0.5], [-2.4, 1.46], [-1.72, 1.74], [-0.95, 1.5], [-0.85, 0.95], [-1.5, 0.5]], 0.16, 0.03),
       mats.armor,
     );
-    shroud.position.z = side * 1.46;
+    shroud.position.z = side * 1.56;
     addEdges(shroud);
     car.add(shroud);
 
-    // Suspension A-arms out to the exposed front wheels.
-    for (const dy of [-0.12, 0.12]) {
-      const arm = box(0.5, 0.1, 0.12, mats.steel, 2.05, 0.66 + dy, side * 1.12);
-      arm.rotation.y = side * 0.3;
-      car.add(arm);
-    }
+    const frontCover = new THREE.Mesh(
+      extrudeProfile([[0.95, 0.98], [1.05, 1.16], [2.0, 1.0], [2.08, 0.84]], 0.46, 0.02),
+      mats.armor,
+    );
+    frontCover.position.z = side * 0.84;
+    addEdges(frontCover);
+    car.add(frontCover);
   }
 
-  // --- tubular roll-cage on the rear deck, swept up and back ---
-  car.add(box(1.5, 0.12, 2.0, mats.armor, -1.7, 1.42, 0));
+  // Roll-cage on the rear deck.
+  car.add(box(1.6, 0.1, 2.3, mats.armor, -1.6, 1.28, 0));
   const cage = new THREE.Group();
   const tube = (len, x, y, z, rz = 0, ry = 0) => {
     const t = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 10), mats.steel);
@@ -252,40 +244,40 @@ function buildBatmobile(mats) {
     t.rotation.y = ry;
     return t;
   };
-  for (const z of [-0.78, 0.78]) {
-    cage.add(tube(1.4, -1.6, 1.74, z, Math.PI / 2 - 0.42)); // swept side rail
-    cage.add(tube(0.42, -1.05, 1.58, z, 0.5)); // front leg
-    cage.add(tube(0.5, -2.28, 1.6, z, -0.2)); // rear leg
+  for (const z of [-0.95, 0.95]) {
+    cage.add(tube(1.5, -1.55, 1.58, z, Math.PI / 2 - 0.35));
+    cage.add(tube(0.42, -0.95, 1.44, z, 0.5));
+    cage.add(tube(0.5, -2.25, 1.48, z, -0.15));
   }
-  cage.add(tube(1.58, -1.6, 2.0, 0, 0, Math.PI / 2)); // top cross-tube (front)
-  cage.add(tube(1.58, -2.28, 1.78, 0, 0, Math.PI / 2)); // top cross-tube (rear)
+  cage.add(tube(1.96, -1.5, 1.8, 0, 0, Math.PI / 2));
+  cage.add(tube(1.96, -2.2, 1.62, 0, 0, Math.PI / 2));
   car.add(cage);
 
-  // --- head/tail lamps ---
-  for (const z of [-0.42, 0.42]) car.add(box(0.06, 0.08, 0.26, mats.lamp, 2.78, 0.62, z));
-  for (const z of [-1.0, 1.0]) car.add(box(0.05, 0.12, 0.3, mats.tail, -2.4, 0.78, z));
+  // Head / tail lamps.
+  for (const z of [-0.35, 0.35]) car.add(box(0.06, 0.08, 0.24, mats.lamp, 2.55, 0.6, z));
+  for (const z of [-1.15, 1.15]) car.add(box(0.05, 0.12, 0.3, mats.tail, -2.3, 0.78, z));
 
-  // --- wheels: huge rear, big exposed canted front ---
+  // Wheels: small narrow front, huge wide rear.
   for (const side of [-1, 1]) {
-    const rear = makeWheel(0.82, 0.82, mats);
-    rear.group.position.set(-1.75, 0.82, side * 1.5);
+    const rear = makeWheel(0.9, 0.98, mats);
+    rear.group.position.set(-1.7, 0.9, side * 1.56);
     car.add(rear.group);
-    spinners.push({ spin: rear.spin, r: 0.82 });
+    spinners.push({ spin: rear.spin, r: 0.9 });
 
-    const front = makeWheel(0.72, 0.62, mats);
-    front.group.position.set(2.2, 0.72, side * 1.44);
-    front.group.rotation.x = side * 0.1; // camber: tops lean inward
+    const front = makeWheel(0.58, 0.54, mats);
+    front.group.position.set(1.62, 0.58, side * 0.84);
+    front.group.rotation.x = side * 0.12; // camber: tops lean inward
     car.add(front.group);
-    spinners.push({ spin: front.spin, r: 0.72 });
+    spinners.push({ spin: front.spin, r: 0.58 });
   }
 
-  // --- rear exhaust nozzle with an animated flame ---
+  // --- rear exhaust nozzle with an animated flame (centre) ---
   const turbine = new THREE.Group();
-  turbine.position.set(-2.5, 0.72, 0);
-  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.36, 0.5, 28, 1, true), mats.steel);
+  turbine.position.set(-2.45, 0.74, 0);
+  const shell = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.38, 0.5, 28, 1, true), mats.steel);
   shell.rotation.z = Math.PI / 2;
   turbine.add(shell);
-  const core = new THREE.Mesh(new THREE.CircleGeometry(0.27, 28), mats.flameCore);
+  const core = new THREE.Mesh(new THREE.CircleGeometry(0.29, 28), mats.flameCore);
   core.rotation.y = -Math.PI / 2;
   core.position.x = -0.26;
   turbine.add(core);
@@ -295,11 +287,11 @@ function buildBatmobile(mats) {
     );
     return new THREE.LatheGeometry(prof, 24);
   };
-  const flame = new THREE.Mesh(teardrop(0.28, 3.0), mats.flame);
+  const flame = new THREE.Mesh(teardrop(0.3, 3.0), mats.flame);
   flame.rotation.z = Math.PI / 2;
   flame.position.x = -0.26;
   turbine.add(flame);
-  const flameInner = new THREE.Mesh(teardrop(0.16, 1.8), mats.flameInner);
+  const flameInner = new THREE.Mesh(teardrop(0.17, 1.8), mats.flameInner);
   flameInner.rotation.z = Math.PI / 2;
   flameInner.position.x = -0.26;
   turbine.add(flameInner);
@@ -318,7 +310,7 @@ function buildBatmobile(mats) {
 
 // --- component ---------------------------------------------------------------
 
-export default function Batmobile3D({ progress = 0, running = false, onUnsupported, initialAzimuth = 5.5 }) {
+export default function Batmobile3D({ progress = 0, running = false, onUnsupported, initialAzimuth = 0.75 }) {
   const mountRef = useRef(null);
   const live = useRef({ running, progress });
   live.current = { running, progress };
@@ -340,7 +332,7 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 0.9;
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.style.cssText = 'display:block;width:100%;height:100%;';
     mount.appendChild(renderer.domElement);
@@ -350,9 +342,9 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
-    scene.environmentIntensity = 0.9;
+    scene.environmentIntensity = 0.6;
 
-    const key = new THREE.DirectionalLight(0xe8ecff, 1.5);
+    const key = new THREE.DirectionalLight(0xe8ecff, 1.25);
     key.position.set(-4, 8, 6);
     scene.add(key);
     const rimBack = new THREE.DirectionalLight(0xffd24a, 0.8);
@@ -365,8 +357,8 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const disposables = [envTex, pmrem];
     const mat = (m) => { disposables.push(m); return m; };
     const mats = {
-      body: mat(new THREE.MeshStandardMaterial({ color: 0x14171e, metalness: 0.28, roughness: 0.62, side: THREE.DoubleSide, flatShading: true })),
-      armor: mat(new THREE.MeshStandardMaterial({ color: 0x1c212b, metalness: 0.35, roughness: 0.55, flatShading: true })),
+      body: mat(new THREE.MeshStandardMaterial({ color: 0x101319, metalness: 0.25, roughness: 0.66, side: THREE.DoubleSide, flatShading: true })),
+      armor: mat(new THREE.MeshStandardMaterial({ color: 0x161a23, metalness: 0.32, roughness: 0.58, flatShading: true })),
       steel: mat(new THREE.MeshStandardMaterial({ color: 0x22262e, metalness: 0.7, roughness: 0.5 })),
       glass: mat(new THREE.MeshStandardMaterial({
         color: 0x7d879a, metalness: 0.2, roughness: 0.12, transparent: true, opacity: 0.62, emissive: 0x1e2533, emissiveIntensity: 0.5,
@@ -430,57 +422,9 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
       dashes.push(d);
     }
 
-    // Car group. Start with the procedural model so something shows instantly,
-    // then swap in the real glTF model once it downloads. If the model fails,
-    // the procedural one stays.
-    const car = new THREE.Group();
+    // Build the procedural Batmobile.
+    const { car, spinners, flame, flameInner, core, flameLight } = buildBatmobile(mats);
     scene.add(car);
-    let spinners = [];
-    let flame = null, flameInner = null, core = null, flameLight = null;
-    let usingModel = false;
-
-    const useProcedural = () => {
-      const b = buildBatmobile(mats);
-      car.add(b.car);
-      ({ spinners, flame, flameInner, core, flameLight } = b);
-    };
-    useProcedural();
-
-    // Fit the real model: scale to the stage, drop onto the ground, and lay its
-    // longest horizontal axis along X (the car's length).
-    const fitModel = (obj) => {
-      let box = new THREE.Box3().setFromObject(obj);
-      const size = box.getSize(new THREE.Vector3());
-      if (size.z > size.x) obj.rotation.y = Math.PI / 2;
-      box = new THREE.Box3().setFromObject(obj);
-      const s2 = box.getSize(new THREE.Vector3());
-      const c = box.getCenter(new THREE.Vector3());
-      const scale = 5.8 / Math.max(s2.x, s2.z);
-      obj.scale.setScalar(scale);
-      obj.position.set(-c.x * scale, -box.min.y * scale, -c.z * scale);
-    };
-
-    const draco = new DRACOLoader();
-    draco.setDecoderPath(DRACO_PATH);
-    const gltfLoader = new GLTFLoader();
-    gltfLoader.setDRACOLoader(draco);
-    gltfLoader.load(
-      MODEL_URL,
-      (gltf) => {
-        // Drop the procedural stand-in and its geometries.
-        car.traverse((o) => { if (o.geometry && o !== car) o.geometry.dispose(); });
-        car.clear();
-        spinners = [];
-        flame = flameInner = core = flameLight = null;
-        gltf.scene.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
-        fitModel(gltf.scene);
-        car.add(gltf.scene);
-        usingModel = true;
-        draco.dispose();
-      },
-      undefined,
-      () => { draco.dispose(); }, // keep the procedural model on any load error
-    );
 
     // Orbit camera (auto-orbit, drag to look around).
     const camera = new THREE.PerspectiveCamera(32, 2, 0.1, 120);
@@ -614,24 +558,6 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
             filter: 'drop-shadow(0 0 6px rgba(255,215,0,0.6))', transition: 'left 0.6s linear',
           }}
         />
-      </div>
-      {/* CC BY attribution for the 3D model (required by its licence). */}
-      <div style={{ textAlign: 'center', marginTop: 6, fontSize: 9, lineHeight: 1.4, color: 'var(--text-muted, #64748b)' }}>
-        <a href="https://sketchfab.com/3d-models/the-batman-2022-batmobile-53ee4c6aa8df4315993a99f0fddb35c9"
-           target="_blank" rel="noopener noreferrer"
-           style={{ color: 'inherit', textDecoration: 'underline' }}>
-          “The Batman 2022 – Batmobile”
-        </a>{' '}by{' '}
-        <a href="https://sketchfab.com/ImADefaultCube117"
-           target="_blank" rel="noopener noreferrer"
-           style={{ color: 'inherit', textDecoration: 'underline' }}>
-          ImADefaultCube117
-        </a>{' '}·{' '}
-        <a href="https://creativecommons.org/licenses/by/4.0/"
-           target="_blank" rel="noopener noreferrer"
-           style={{ color: 'inherit', textDecoration: 'underline' }}>
-          CC BY 4.0
-        </a>{' '}· via Sketchfab
       </div>
     </div>
   );
