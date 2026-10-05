@@ -218,10 +218,10 @@ function buildBatmobile(mats) {
     car.add(flank);
 
     const shroud = new THREE.Mesh(
-      extrudeProfile([[-2.35, 0.5], [-2.4, 1.46], [-1.72, 1.74], [-0.95, 1.5], [-0.85, 0.95], [-1.5, 0.5]], 0.16, 0.03),
+      extrudeProfile([[-2.3, 0.48], [-2.35, 1.28], [-1.72, 1.52], [-0.98, 1.32], [-0.88, 0.9], [-1.5, 0.48]], 0.16, 0.03),
       mats.armor,
     );
-    shroud.position.z = side * 1.56;
+    shroud.position.z = side * 1.52;
     addEdges(shroud);
     car.add(shroud);
 
@@ -234,24 +234,24 @@ function buildBatmobile(mats) {
     car.add(frontCover);
   }
 
-  // Roll-cage on the rear deck.
-  car.add(box(1.6, 0.1, 2.3, mats.armor, -1.6, 1.28, 0));
-  const cage = new THREE.Group();
-  const tube = (len, x, y, z, rz = 0, ry = 0) => {
-    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 10), mats.steel);
-    t.position.set(x, y, z);
-    t.rotation.z = rz;
-    t.rotation.y = ry;
-    return t;
-  };
-  for (const z of [-0.95, 0.95]) {
-    cage.add(tube(1.5, -1.55, 1.58, z, Math.PI / 2 - 0.35));
-    cage.add(tube(0.42, -0.95, 1.44, z, 0.5));
-    cage.add(tube(0.5, -2.25, 1.48, z, -0.15));
+  // Rear deck (engine cover) + a race-style rear wing on two uprights.
+  car.add(box(1.6, 0.1, 2.3, mats.armor, -1.6, 1.22, 0));
+  const spoiler = new THREE.Group();
+  const wing = new THREE.Mesh(
+    // thin airfoil (chord along X, slight angle of attack), extruded across the span (Z)
+    extrudeProfile([[-0.28, 0.0], [0.28, 0.06], [0.28, 0.15], [-0.28, 0.09]], 2.1, 0.015),
+    mats.armor,
+  );
+  wing.position.set(-2.15, 1.55, 0);
+  addEdges(wing);
+  spoiler.add(wing);
+  for (const z of [-0.82, 0.82]) {
+    spoiler.add(box(0.1, 0.5, 0.1, mats.steel, -2.05, 1.3, z)); // upright
   }
-  cage.add(tube(1.96, -1.5, 1.8, 0, 0, Math.PI / 2));
-  cage.add(tube(1.96, -2.2, 1.62, 0, 0, Math.PI / 2));
-  car.add(cage);
+  for (const z of [-1.03, 1.03]) {
+    spoiler.add(box(0.46, 0.26, 0.03, mats.armor, -2.15, 1.56, z)); // end plate
+  }
+  car.add(spoiler);
 
   // Head / tail lamps.
   for (const z of [-0.35, 0.35]) car.add(box(0.06, 0.08, 0.24, mats.lamp, 2.55, 0.6, z));
@@ -259,10 +259,10 @@ function buildBatmobile(mats) {
 
   // Wheels: small narrow front, huge wide rear.
   for (const side of [-1, 1]) {
-    const rear = makeWheel(0.9, 0.98, mats);
-    rear.group.position.set(-1.7, 0.9, side * 1.56);
+    const rear = makeWheel(0.78, 0.86, mats);
+    rear.group.position.set(-1.7, 0.78, side * 1.52);
     car.add(rear.group);
-    spinners.push({ spin: rear.spin, r: 0.9 });
+    spinners.push({ spin: rear.spin, r: 0.78 });
 
     const front = makeWheel(0.58, 0.54, mats);
     front.group.position.set(1.62, 0.58, side * 0.84);
