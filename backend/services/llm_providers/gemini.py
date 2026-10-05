@@ -65,6 +65,39 @@ class GeminiAdapter:
         response = await run_with_retries(_call, provider="Gemini")
         return _parse_response(response)
 
+    async def transcribe_audio(self, audio_bytes: bytes, mime_type: str) -> str:
+        """Transcribe spoken audio (e.g. a Telegram OGG/Opus voice note) to text.
+
+        Gemini accepts audio inline as a Part; only models whose capabilities
+        report supports_audio_input should be routed here. Returns "" when no
+        speech is found. Audio bytes are never stored.
+        """
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self.api_key)
+
+        async def _call():
+            return await client.aio.models.generate_content(
+                model=self.model,
+                contents=[types.Content(role="user", parts=[
+                    types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+                    types.Part.from_text(text=TRANSCRIBE_PROMPT),
+                ])],
+                config=types.GenerateContentConfig(temperature=0.0),
+            )
+
+        response = await run_with_retries(_call, provider="Gemini")
+        return (getattr(response, "text", None) or "").strip()
+
+
+
+TRANSCRIBE_PROMPT = (
+    "Transcribe the user's spoken audio to text. Output only the words spoken, "
+    "with no commentary, labels, speaker names, or quotation marks. If there is "
+    "no intelligible speech, output nothing."
+)
+
 
 def _parse_response(response) -> LLMResponse:
     text_parts = []

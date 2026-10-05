@@ -180,6 +180,12 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             _reply(chat_id, UNLINKED_REPLY)
             return
 
+        # --- Voice note: transcribe with the user's own model, then run as text ---
+        voice = message.get("voice")
+        if voice:
+            await _handle_voice(db, user, chat_id, voice, background_tasks)
+            return
+
         # --- Slash commands (before pending-confirmation check) ---
         if text.startswith("/"):
             # Cancel any pending destructive action on /-commands
@@ -282,6 +288,63 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             pass
     finally:
         db.close()
+
+
+async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background_tasks) -> None:
+    """Transcribe a Telegram voice note and run the transcript as a normal turn.
+
+    Audio bytes are fetched, transcribed and discarded; only the transcript is
+    stored (by run_turn). The transcript still passes through the confirmation
+    gate, so a spoken "delete everything" cannot bypass it.
+    """
+    settings = get_settings()
+    token = settings.telegram_bot_token
+    if not token:
+        return
+
+    if (voice.get("duration") or 0) > alfred_agent.MAX_VOICE_SECONDS:
+        _reply(chat_id, alfred_agent.VOICE_TOO_LONG_REPLY)
+        return
+    if (voice.get("file_size") or 0) > alfred_agent.MAX_VOICE_BYTES:
+        _reply(chat_id, alfred_agent.VOICE_TOO_LARGE_REPLY)
+        return
+
+    # Fail fast before downloading if the provider can't transcribe audio.
+    precheck = alfred_agent.voice_precheck(db, user)
+    if precheck == "setup":
+        _reply(chat_id, alfred_agent.SETUP_REPLY)
+        return
+    if precheck == "unsupported":
+        _reply(chat_id, alfred_agent.VOICE_UNSUPPORTED_REPLY)
+        return
+
+    file_path = telegram_service.get_file_path(token, voice.get("file_id"))
+    audio = (
+        telegram_service.download_file(token, file_path, alfred_agent.MAX_VOICE_BYTES)
+        if file_path else None
+    )
+    if audio is None:
+        _reply(chat_id, alfred_agent.VOICE_DOWNLOAD_FAIL_REPLY)
+        return
+
+    mime = voice.get("mime_type") or "audio/ogg"
+    status, transcript = await alfred_agent.transcribe_voice(db, user, audio, mime)
+    if status != "ok":
+        _reply(chat_id, {
+            "setup": alfred_agent.SETUP_REPLY,
+            "unsupported": alfred_agent.VOICE_UNSUPPORTED_REPLY,
+            "empty": alfred_agent.VOICE_EMPTY_REPLY,
+        }.get(status, alfred_agent.SNAG_REPLY))
+        return
+
+    # Echo what was heard so a wrong transcription is visible, then run it.
+    _reply(chat_id, f"🎙 I heard: {transcript}")
+    active = alfred_agent.get_active_session(db, user)
+    session_id = active.id if active else None
+    reply = await alfred_agent.run_turn(db, user, transcript, session_id=session_id)
+    _reply(chat_id, reply)
+    if reply not in alfred_agent.NO_REVIEW_REPLIES:
+        alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, transcript, reply)
 
 
 async def _handle_callback_query(db: Session, callback: dict) -> None:
