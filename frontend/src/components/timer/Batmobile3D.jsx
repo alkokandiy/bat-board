@@ -615,6 +615,24 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
           }}
         />
       </div>
+      {/* CC BY attribution for the 3D model (required by its licence). */}
+      <div style={{ textAlign: 'center', marginTop: 6, fontSize: 9, lineHeight: 1.4, color: 'var(--text-muted, #64748b)' }}>
+        <a href="https://sketchfab.com/3d-models/the-batman-2022-batmobile"
+           target="_blank" rel="noopener noreferrer"
+           style={{ color: 'inherit', textDecoration: 'underline' }}>
+          “The Batman 2022 – Batmobile”
+        </a>{' '}by{' '}
+        <a href="https://sketchfab.com/ImADefaultCube117"
+           target="_blank" rel="noopener noreferrer"
+           style={{ color: 'inherit', textDecoration: 'underline' }}>
+          ImADefaultCube117
+        </a>{' '}·{' '}
+        <a href="https://creativecommons.org/licenses/by/4.0/"
+           target="_blank" rel="noopener noreferrer"
+           style={{ color: 'inherit', textDecoration: 'underline' }}>
+          CC BY 4.0
+        </a>{' '}· via Sketchfab
+      </div>
     </div>
   );
 }
