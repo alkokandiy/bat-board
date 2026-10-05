@@ -143,7 +143,7 @@ describe('timer visuals', () => {
     const emblem = screen.getByTestId('bat-emblem');
     expect(emblem.getAttribute('aria-label')).toContain('50%');
     const clipRect = emblem.querySelector('clipPath rect');
-    expect(Number(clipRect.getAttribute('y'))).toBeCloseTo(75, 0); // halfway up a 150-high emblem
+    expect(Number(clipRect.getAttribute('y'))).toBeCloseTo(165, 0); // halfway up a 330-high emblem
     expect(emblem.querySelectorAll('use').length).toBe(2); // unlit + lit layers share one path
   });
 

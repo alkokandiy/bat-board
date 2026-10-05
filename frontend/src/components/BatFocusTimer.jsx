@@ -556,7 +556,7 @@ export default function BatFocusTimer({
             />
 
             {/* Bat emblem: fills with light from the bottom as time passes */}
-            <div className="relative w-[560px] max-w-full flex items-center justify-center">
+            <div className="relative w-[420px] max-w-full flex items-center justify-center">
               <BatEmblem progress={progress} className="w-full h-auto" />
             </div>
 

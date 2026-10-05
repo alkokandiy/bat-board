@@ -1,13 +1,14 @@
 import React, { useId } from 'react';
 
-// Original Nolan-era-style bat emblem: sharp ears, swept wings, and a
-// claw-pointed trailing edge. One continuous, perfectly symmetric outline
-// (the right half was drawn by hand and mirrored; no seam). viewBox 480 × 150.
-export const EMBLEM_W = 480;
-export const EMBLEM_H = 150;
+// Bat emblem redrawn by eye from the owner's reference: wide sweeping wings
+// with crescent horns curling over a deep scoop, short ears, and a pointed
+// tail between rounded wing points. One continuous, perfectly symmetric
+// outline (the right half was drawn and mirrored; no seam). viewBox 600 × 330.
+export const EMBLEM_W = 600;
+export const EMBLEM_H = 330;
 
 const BAT_PATH =
-  'M 240,40 L 244.5,20 L 245.5,1.5 L 255,13 L 263,34 C 292,27 336,18 380,19 C 416,20 450,32 476,54 Q 452,56 442,100 Q 424,62 392,108 Q 376,68 340,110 Q 322,76 292,104 Q 280,84 262,96 C 254,108 247,124 240,148 C 233,124 226,108 218,96 Q 200,84 188,104 Q 158,76 140,110 Q 104,68 88,108 Q 56,62 38,100 Q 28,56 4,54 C 30,32 64,20 100,19 C 144,18 188,27 217,34 L 225,13 L 234.5,1.5 L 235.5,20 L 240,40 Z';
+  'M 300,104 L 322,72 L 332,126 C 392,129 445,116 448,80 Q 447,60 431,41 C 498,52 562,110 580,181 C 538,189 482,191 457,199 Q 449,208 447,226 Q 378,214 300,287 Q 222,214 153,226 Q 151,208 143,199 C 118,191 62,189 20,181 C 38,110 102,52 169,41 Q 153,60 152,80 C 155,116 208,129 268,126 L 278,72 L 300,104 Z';
 
 // `progress` is 0–100: the emblem fills with light from the bottom up.
 export default function BatEmblem({ progress = 0, className = '' }) {
@@ -28,8 +29,8 @@ export default function BatEmblem({ progress = 0, className = '' }) {
         <path id={`${id}-bat`} d={BAT_PATH} />
 
         {/* Soft bloom for the lit part */}
-        <filter id={`${id}-glow`} x="-15%" y="-30%" width="130%" height="170%">
-          <feGaussianBlur stdDeviation="7" result="blur" />
+        <filter id={`${id}-glow`} x="-15%" y="-20%" width="130%" height="140%">
+          <feGaussianBlur stdDeviation="9" result="blur" />
           <feMerge>
             <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
@@ -55,7 +56,7 @@ export default function BatEmblem({ progress = 0, className = '' }) {
       </defs>
 
       {/* Unlit emblem: always visible */}
-      <use href={`#${id}-bat`} fill={`url(#${id}-dark)`} stroke="#3a4766" strokeWidth="1.2" strokeLinejoin="round" />
+      <use href={`#${id}-bat`} fill={`url(#${id}-dark)`} stroke="#3a4766" strokeWidth="1.5" strokeLinejoin="round" />
 
       {/* Lit part, revealed from the bottom as time passes */}
       <g clipPath={`url(#${id}-reveal)`}>
