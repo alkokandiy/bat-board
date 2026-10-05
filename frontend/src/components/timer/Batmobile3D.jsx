@@ -1,8 +1,16 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 
-// A procedural, Tumbler-style armoured Batmobile in WebGL.
+// Compressed real model of The Batman (2022) Batmobile, served as a static
+// asset. Loaded on demand; the procedural model below is the fallback if the
+// file or WebGL can't load. Draco decoder is hosted alongside.
+const MODEL_URL = '/models/batmobile.glb';
+const DRACO_PATH = '/draco/';
+
+// Real 2022 Batmobile (glTF) with a procedural fallback, in WebGL.
 //
 // Original model built from primitives (no external asset): angular matte-black
 // armour, huge exposed rear wheels, small front wheels, a canopy slit, and a
@@ -332,7 +340,7 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.92;
+    renderer.toneMappingExposure = 1.0;
     renderer.setClearColor(0x000000, 0);
     renderer.domElement.style.cssText = 'display:block;width:100%;height:100%;';
     mount.appendChild(renderer.domElement);
@@ -342,7 +350,7 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     scene.environment = envTex;
-    scene.environmentIntensity = 0.7;
+    scene.environmentIntensity = 0.9;
 
     const key = new THREE.DirectionalLight(0xe8ecff, 1.5);
     key.position.set(-4, 8, 6);
@@ -422,13 +430,62 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
       dashes.push(d);
     }
 
-    const { car, spinners, flame, flameInner, core, flameLight } = buildBatmobile(mats);
+    // Car group. Start with the procedural model so something shows instantly,
+    // then swap in the real glTF model once it downloads. If the model fails,
+    // the procedural one stays.
+    const car = new THREE.Group();
     scene.add(car);
+    let spinners = [];
+    let flame = null, flameInner = null, core = null, flameLight = null;
+    let usingModel = false;
+
+    const useProcedural = () => {
+      const b = buildBatmobile(mats);
+      car.add(b.car);
+      ({ spinners, flame, flameInner, core, flameLight } = b);
+    };
+    useProcedural();
+
+    // Fit the real model: scale to the stage, drop onto the ground, and lay its
+    // longest horizontal axis along X (the car's length).
+    const fitModel = (obj) => {
+      let box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3());
+      if (size.z > size.x) obj.rotation.y = Math.PI / 2;
+      box = new THREE.Box3().setFromObject(obj);
+      const s2 = box.getSize(new THREE.Vector3());
+      const c = box.getCenter(new THREE.Vector3());
+      const scale = 5.8 / Math.max(s2.x, s2.z);
+      obj.scale.setScalar(scale);
+      obj.position.set(-c.x * scale, -box.min.y * scale, -c.z * scale);
+    };
+
+    const draco = new DRACOLoader();
+    draco.setDecoderPath(DRACO_PATH);
+    const gltfLoader = new GLTFLoader();
+    gltfLoader.setDRACOLoader(draco);
+    gltfLoader.load(
+      MODEL_URL,
+      (gltf) => {
+        // Drop the procedural stand-in and its geometries.
+        car.traverse((o) => { if (o.geometry && o !== car) o.geometry.dispose(); });
+        car.clear();
+        spinners = [];
+        flame = flameInner = core = flameLight = null;
+        gltf.scene.traverse((o) => { o.castShadow = false; o.receiveShadow = false; });
+        fitModel(gltf.scene);
+        car.add(gltf.scene);
+        usingModel = true;
+        draco.dispose();
+      },
+      undefined,
+      () => { draco.dispose(); }, // keep the procedural model on any load error
+    );
 
     // Orbit camera (auto-orbit, drag to look around).
     const camera = new THREE.PerspectiveCamera(32, 2, 0.1, 120);
-    const cam = { az: initialAzimuth, el: 0.2, radius: 8.2, drag: false, lastX: 0, lastY: 0, idleUntil: 0 };
-    const target = new THREE.Vector3(0.0, 0.72, 0);
+    const cam = { az: initialAzimuth, el: 0.22, radius: 8.8, drag: false, lastX: 0, lastY: 0, idleUntil: 0 };
+    const target = new THREE.Vector3(0.0, 0.8, 0);
     const placeCamera = () => {
       camera.position.set(
         target.x + cam.radius * Math.cos(cam.el) * Math.cos(cam.az),
@@ -494,15 +551,17 @@ export default function Batmobile3D({ progress = 0, running = false, onUnsupport
       car.position.y = Math.sin(t * 1.4) * 0.008 + (speedNow > 0.5 ? Math.sin(t * 38) * 0.004 : 0);
       car.rotation.z = Math.sin(t * 0.9) * 0.002;
 
-      // Flame: flicker with throttle.
+      // Flame: flicker with throttle (procedural model only).
       const f = speedNow / SPEED;
-      const flick = reduceMotion ? 1 : 0.82 + 0.18 * Math.sin(t * 45) + 0.08 * Math.sin(t * 71);
-      flame.visible = flameInner.visible = f > 0.03;
-      flame.scale.set(Math.max(0.05, f * flick), 0.4 + f * 0.7 * flick, Math.max(0.05, f * flick));
-      flameInner.scale.copy(flame.scale);
-      mats.flameCore.color.setHex(f > 0.05 ? 0xffd27a : 0x0d0a07);
-      core.scale.setScalar(0.9 + 0.1 * flick * f);
-      flameLight.intensity = f * 1.6 * flick;
+      if (flame) {
+        const flick = reduceMotion ? 1 : 0.82 + 0.18 * Math.sin(t * 45) + 0.08 * Math.sin(t * 71);
+        flame.visible = flameInner.visible = f > 0.03;
+        flame.scale.set(Math.max(0.05, f * flick), 0.4 + f * 0.7 * flick, Math.max(0.05, f * flick));
+        flameInner.scale.copy(flame.scale);
+        mats.flameCore.color.setHex(f > 0.05 ? 0xffd27a : 0x0d0a07);
+        core.scale.setScalar(0.9 + 0.1 * flick * f);
+        flameLight.intensity = f * 1.6 * flick;
+      }
 
       // Camera: slow orbit unless the user is dragging.
       if (!cam.drag && !reduceMotion && now > cam.idleUntil) {
