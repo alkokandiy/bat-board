@@ -556,3 +556,28 @@ def test_reset_alfred_keeps_key_and_user_notes(client, auth_headers, monkeypatch
     titles = [n["title"] for n in client.get("/api/notes", headers=h).json()]
     assert "Coffee" not in titles and own_note["title"] in titles
     assert client.get("/api/alfred/provider", headers=h).json()["configured"] is True
+
+
+# --- Failed turns stay out of the model's context -------------------------------
+
+def test_failed_turn_is_not_replayed_to_the_model(client, auth_headers, monkeypatch):
+    """A request that hit a snag must not be silently carried out on a later 'hey'."""
+    h = auth_headers("audit_failed_turn")
+    sid = _new_session(client, h)
+
+    class Boom:
+        async def generate(self, messages, tools, system_instruction=None):
+            raise RuntimeError("provider exploded")
+
+    monkeypatch.setattr(alfred_agent, "resolve_adapter_for_user", lambda db, user: Boom())
+    r = client.post("/api/alfred/chat", json={"message": "add two missions", "session_id": sid}, headers=h)
+    assert r.json()["reply"] == alfred_agent.SNAG_REPLY
+
+    calls = _mock_llm(monkeypatch, [LLMResponse(text="Good evening.")])
+    client.post("/api/alfred/chat", json={"message": "hey", "session_id": sid}, headers=h)
+    seen = [m["content"] for m in calls[0] if m["role"] != "system"]
+    assert seen == ["hey"]
+
+    # Still visible in the chat history.
+    shown = [m["content"] for m in client.get(f"/api/alfred/sessions/{sid}/messages", headers=h).json()]
+    assert "add two missions" in shown and alfred_agent.SNAG_REPLY in shown

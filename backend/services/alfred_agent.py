@@ -174,6 +174,14 @@ NO_REVIEW_REPLIES = frozenset({
     RATE_LIMIT_REPLY, SERVICE_DOWN_REPLY,
 })
 
+# Replies meaning the request was never carried out. These turns stay in the
+# visible chat history but are left out of the model's context: seeing an
+# unanswered request, the model would carry it out on some later, unrelated
+# message ("hey" → "the missions have been added") without being asked again.
+FAILED_TURN_REPLIES = frozenset({
+    SETUP_REPLY, NOT_CONFIGURED_REPLY, SNAG_REPLY, RATE_LIMIT_REPLY, SERVICE_DOWN_REPLY,
+})
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -188,6 +196,7 @@ def _as_aware(dt: datetime) -> datetime:
 # --- Conversation memory (Part 3) ---
 
 def get_history(db: Session, user: models.BatAccount, session_id: int, limit: int = MAX_HISTORY_TURNS) -> List[dict]:
+    """Recent messages for the model's context, minus failed turns."""
     rows = (
         db.query(models.BatAlfredMessage)
         .filter(
@@ -195,10 +204,19 @@ def get_history(db: Session, user: models.BatAccount, session_id: int, limit: in
             models.BatAlfredMessage.session_id == session_id,
         )
         .order_by(models.BatAlfredMessage.created_at.desc(), models.BatAlfredMessage.id.desc())
-        .limit(limit)
+        # Over-fetch so dropping failed turns still leaves `limit` messages.
+        .limit(limit * 2)
         .all()
     )
-    return [{"role": r.role, "content": r.content} for r in reversed(rows)]
+    history: List[dict] = []
+    for r in reversed(rows):
+        if r.role == "assistant" and r.content in FAILED_TURN_REPLIES:
+            # Drop the failed reply and the request it failed on.
+            if history and history[-1]["role"] == "user":
+                history.pop()
+            continue
+        history.append({"role": r.role, "content": r.content})
+    return history[-limit:]
 
 
 def store_turn(db: Session, user: models.BatAccount, session_id: int, user_text: str, reply_text: str) -> None:
