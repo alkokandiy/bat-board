@@ -8,7 +8,9 @@ Source: the owner's plan, recovered 2026-10-05. Phases are built in order.
 | Audit + multi-user (PRs #2, #3) | Security/points fixes, per-user timezone & form of address, chat list, Reset Alfred | Done |
 | Phase 2 | Focus session `mode` column + "by mode" stats | Done (migration 013) |
 | Phase 3 (Batch D) | Telegram voice messages | Done |
-| Phase 4 (Batch E) | Images: understanding (A), then generation (B) | Planned |
+| Phase 4A (Batch E) | Image understanding (Telegram photos) | Done |
+| Visual briefs | Focus-week chart + daily-brief card images (Telegram) | Done |
+| Phase 4B (Batch E) | Image *generation* | Deferred — chart visuals cover the stated use cases; AI-gen only via BYOK key |
 | Phase 5 (Batch F) | Daily morning / night briefings | Planned |
 
 ## Adjustments to the plan (as of 2026-10-05)

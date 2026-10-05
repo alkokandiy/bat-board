@@ -240,6 +240,24 @@ def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_mar
         return False
 
 
+def send_telegram_photo(bot_token: str, chat_id: str, png_bytes: bytes, caption: str = "", timeout: float = 20.0) -> bool:
+    """Send a PNG image via sendPhoto (multipart). Returns True on success."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/sendPhoto",
+            data={"chat_id": chat_id, "caption": caption[:1024]} if caption else {"chat_id": chat_id},
+            files={"photo": ("chart.png", png_bytes, "image/png")},
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            logger.error("telegram_sendphoto_failed", status_code=resp.status_code, body=resp.text[:200])
+            return False
+        return True
+    except Exception as exc:
+        logger.error("telegram_sendphoto_error", error_type=type(exc).__name__, error=str(exc))
+        return False
+
+
 def get_file_path(bot_token: str, file_id: str, timeout: float = 10.0) -> Optional[str]:
     """Resolve a Telegram file_id to its download path via getFile. None on failure."""
     try:

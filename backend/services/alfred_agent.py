@@ -576,14 +576,15 @@ async def run_turn(
     session_id: int = None,
     images: Optional[List[dict]] = None,
     store_text: Optional[str] = None,
+    media_sink: Optional[list] = None,
 ) -> str:
     """Process one user message. Always returns the exact reply string.
 
     If session_id is None, auto-creates a session (first-ever message case).
     `images` (each {"data": bytes, "mime_type": str}) are attached to the live
     user message for vision models; they are never stored. `store_text` is what
-    gets saved to history (defaults to user_text) — used for images so only a
-    text placeholder is kept, never the image bytes.
+    gets saved to history (defaults to user_text). `media_sink`, when given,
+    collects image outputs (charts) for the caller to deliver (Telegram).
     """
     if session_id is None:
         session = create_session(db, user)
@@ -614,7 +615,7 @@ async def run_turn(
     )
 
     try:
-        final_text = await _tool_loop(db, user, messages, adapter=adapter)
+        final_text = await _tool_loop(db, user, messages, adapter=adapter, media_sink=media_sink)
     except llm_provider.LLMNotConfiguredError:
         final_text = NOT_CONFIGURED_REPLY
     except llm_provider.LLMLimitError:
@@ -640,6 +641,7 @@ async def _tool_loop(
     user: models.BatAccount,
     messages: List[dict],
     adapter: Optional["LLMProviderAdapter"] = None,
+    media_sink: Optional[list] = None,
 ) -> str:
     executions = 0
     last_text = None
@@ -684,14 +686,14 @@ async def _tool_loop(
                     # Short-circuit: the turn's reply is the template, nothing improvised.
                     return confirmation
             else:
-                result = _execute_tool_safely(db, user, call.name, call.arguments or {})
+                result = _execute_tool_safely(db, user, call.name, call.arguments or {}, media_sink)
                 executions += 1
             messages.append({"role": "tool", "name": call.name, "result": result})
 
     return last_text or "Done — anything else?"
 
 
-def _execute_tool_safely(db: Session, user: models.BatAccount, name: str, args: dict) -> dict:
+def _execute_tool_safely(db: Session, user: models.BatAccount, name: str, args: dict, media_sink: Optional[list] = None) -> dict:
     """Run one tool; any failure becomes an error result for the model.
 
     Bad model arguments (missing keys, wrong types) and DB errors used to
@@ -699,7 +701,7 @@ def _execute_tool_safely(db: Session, user: models.BatAccount, name: str, args: 
     after earlier tools in the same turn had already committed.
     """
     try:
-        return execute_tool(db, user, name, args)
+        return execute_tool(db, user, name, args, media_sink=media_sink)
     except Exception as exc:  # noqa: BLE001 — reported back to the model
         db.rollback()
         logger.warning("alfred_tool_failed", tool=name, error_type=type(exc).__name__, error=str(exc)[:200])

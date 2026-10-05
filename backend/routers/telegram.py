@@ -279,8 +279,10 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
         # --- Normal Alfred turn (session-scoped) ---
         active = alfred_agent.get_active_session(db, user)
         session_id = active.id if active else None
-        reply = await alfred_agent.run_turn(db, user, text, session_id=session_id)
+        media = []
+        reply = await alfred_agent.run_turn(db, user, text, session_id=session_id, media_sink=media)
         _reply(chat_id, reply)
+        _deliver_media(chat_id, media)
         # Memory review runs after the reply is already sent — never on
         # quota/setup short-circuits, which need no review and no extra spend.
         if reply not in alfred_agent.NO_REVIEW_REPLIES:
@@ -356,11 +358,13 @@ async def _handle_photo(db: Session, user, chat_id: str, image: dict, message: d
     store_text = f"[image: {caption or 'no caption'}]"
     active = alfred_agent.get_active_session(db, user)
     session_id = active.id if active else None
+    media = []
     reply = await alfred_agent.run_turn(
         db, user, content, session_id=session_id,
-        images=[{"data": data, "mime_type": mime}], store_text=store_text,
+        images=[{"data": data, "mime_type": mime}], store_text=store_text, media_sink=media,
     )
     _reply(chat_id, reply)
+    _deliver_media(chat_id, media)
     if reply not in alfred_agent.NO_REVIEW_REPLIES:
         alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, store_text, reply)
 
@@ -416,8 +420,10 @@ async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background
     _reply(chat_id, f"🎙 I heard: {transcript}")
     active = alfred_agent.get_active_session(db, user)
     session_id = active.id if active else None
-    reply = await alfred_agent.run_turn(db, user, transcript, session_id=session_id)
+    media = []
+    reply = await alfred_agent.run_turn(db, user, transcript, session_id=session_id, media_sink=media)
     _reply(chat_id, reply)
+    _deliver_media(chat_id, media)
     if reply not in alfred_agent.NO_REVIEW_REPLIES:
         alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, transcript, reply)
 
@@ -480,6 +486,19 @@ async def _handle_callback_query(db: Session, callback: dict) -> None:
     chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
     if chat_id:
         _reply(chat_id, f"Switched to: {session.title}")
+
+
+def _deliver_media(chat_id: str, media: list) -> None:
+    """Send any images Alfred produced this turn (charts) via sendPhoto."""
+    if not media:
+        return
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+    for item in media:
+        telegram_service.send_telegram_photo(
+            settings.telegram_bot_token, chat_id, item["png"], item.get("caption", ""),
+        )
 
 
 def _reply(chat_id: str, text: str) -> None:
