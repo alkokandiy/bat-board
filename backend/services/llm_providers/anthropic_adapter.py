@@ -9,6 +9,7 @@ Wire differences vs the common shape:
   the next N tool messages. Both sides are translated here, so pairing holds.
 """
 
+import base64
 import json
 import structlog
 from typing import Dict, List, Optional
@@ -124,9 +125,31 @@ def _to_anthropic_messages(messages: List[dict]) -> List[dict]:
             continue
         out.append({
             "role": "assistant" if role == "assistant" else "user",
-            "content": msg.get("content", ""),
+            "content": _anthropic_content(msg),
         })
     return out
+
+
+def _anthropic_content(msg: dict):
+    """Plain text, or image blocks + text when the message carries images."""
+    images = msg.get("images") or []
+    text = msg.get("content", "")
+    if not images:
+        return text
+    blocks = [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": img["mime_type"],
+                "data": base64.b64encode(img["data"]).decode("ascii"),
+            },
+        }
+        for img in images
+    ]
+    if text:
+        blocks.append({"type": "text", "text": text})
+    return blocks
 
 
 def _parse_response(response) -> LLMResponse:

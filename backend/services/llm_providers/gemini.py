@@ -153,9 +153,11 @@ def _to_gemini_content(msg: dict):
             )
         return [types.Content(role="model", parts=parts)]
     gemini_role = "model" if role == "assistant" else "user"
-    return [
-        types.Content(
-            role=gemini_role,
-            parts=[types.Part.from_text(text=msg.get("content", ""))],
-        )
+    parts = [
+        types.Part.from_bytes(data=img["data"], mime_type=img["mime_type"])
+        for img in (msg.get("images") or [])
     ]
+    text = msg.get("content")
+    if text or not parts:
+        parts.append(types.Part.from_text(text=text or ""))
+    return [types.Content(role=gemini_role, parts=parts)]

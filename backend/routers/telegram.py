@@ -8,6 +8,7 @@ never waits on (or retries) slow model calls.
 
 import asyncio
 import re
+from typing import Optional
 import secrets as secrets_lib
 
 import structlog
@@ -186,6 +187,12 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             await _handle_voice(db, user, chat_id, voice, background_tasks)
             return
 
+        # --- Photo / image document: send it to a vision model and answer ---
+        image = _extract_image(message)
+        if image:
+            await _handle_photo(db, user, chat_id, image, message, background_tasks)
+            return
+
         # --- Slash commands (before pending-confirmation check) ---
         if text.startswith("/"):
             # Cancel any pending destructive action on /-commands
@@ -288,6 +295,74 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             pass
     finally:
         db.close()
+
+
+def _extract_image(message: dict) -> Optional[dict]:
+    """Return {file_id, file_size, mime_type} for a photo or image document, else None."""
+    photos = message.get("photo")
+    if photos:
+        largest = max(photos, key=lambda p: p.get("file_size") or (p.get("width", 0) * p.get("height", 0)))
+        return {
+            "file_id": largest.get("file_id"),
+            "file_size": largest.get("file_size") or 0,
+            "mime_type": "image/jpeg",  # Telegram re-encodes photos as JPEG
+        }
+    doc = message.get("document") or {}
+    mime = (doc.get("mime_type") or "").lower()
+    if mime.startswith("image/"):
+        return {"file_id": doc.get("file_id"), "file_size": doc.get("file_size") or 0, "mime_type": mime}
+    return None
+
+
+async def _handle_photo(db: Session, user, chat_id: str, image: dict, message: dict, background_tasks) -> None:
+    """Send a Telegram photo to the user's vision model and run the turn.
+
+    Image bytes are fetched, passed to the model and discarded; only a text
+    placeholder is stored. Any text inside the image is data to the model, not
+    instructions, and a destructive request still hits the confirmation gate.
+    """
+    settings = get_settings()
+    token = settings.telegram_bot_token
+    if not token:
+        return
+
+    mime = image.get("mime_type") or "image/jpeg"
+    if mime not in alfred_agent.ALLOWED_IMAGE_MIMES:
+        _reply(chat_id, alfred_agent.IMAGE_BAD_TYPE_REPLY)
+        return
+    if (image.get("file_size") or 0) > alfred_agent.MAX_IMAGE_BYTES:
+        _reply(chat_id, alfred_agent.IMAGE_TOO_LARGE_REPLY)
+        return
+
+    precheck = alfred_agent.vision_precheck(db, user)
+    if precheck == "setup":
+        _reply(chat_id, alfred_agent.SETUP_REPLY)
+        return
+    if precheck == "unsupported":
+        _reply(chat_id, alfred_agent.VISION_UNSUPPORTED_REPLY)
+        return
+
+    file_path = telegram_service.get_file_path(token, image.get("file_id"))
+    data = (
+        telegram_service.download_file(token, file_path, alfred_agent.MAX_IMAGE_BYTES)
+        if file_path else None
+    )
+    if data is None:
+        _reply(chat_id, alfred_agent.IMAGE_DOWNLOAD_FAIL_REPLY)
+        return
+
+    caption = (message.get("caption") or "").strip()
+    content = caption or "(The user sent a photo.)"
+    store_text = f"[image: {caption or 'no caption'}]"
+    active = alfred_agent.get_active_session(db, user)
+    session_id = active.id if active else None
+    reply = await alfred_agent.run_turn(
+        db, user, content, session_id=session_id,
+        images=[{"data": data, "mime_type": mime}], store_text=store_text,
+    )
+    _reply(chat_id, reply)
+    if reply not in alfred_agent.NO_REVIEW_REPLIES:
+        alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, store_text, reply)
 
 
 async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background_tasks) -> None:
