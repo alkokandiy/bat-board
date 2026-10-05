@@ -300,6 +300,17 @@ class BatLogSchema(BatLogBase):
     timestamp: datetime
     owner_id: int
 
+FocusMode = Literal["normal", "flip", "signal", "batmobile"]
+
+
+class BatFocusStart(BaseModel):
+    """POST /api/focus/sessions. `mode` is the timer's visual mode at start;
+    it isn't updated if the user switches modes mid-session."""
+    mission_id: Optional[int] = None
+    habit_id: Optional[int] = None
+    mode: Optional[FocusMode] = None
+
+
 class BatFocusCreate(BaseModel):
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = None
@@ -315,6 +326,7 @@ class BatFocusSchema(BaseModel):
     end_time: Optional[datetime] = None
     duration_minutes: Optional[int] = None
     soundtrack_metadata: Optional[str] = None
+    mode: Optional[str] = None
     mission_id: Optional[int] = None
     habit_id: Optional[int] = None
     owner_id: int
@@ -331,6 +343,13 @@ class StatsHeatmapCell(BaseModel):
     date: str
     minutes: int
 
+class StatsModeItem(BaseModel):
+    mode: str  # one of FocusMode, or "unknown" for sessions without a recorded mode
+    minutes: int
+    sessions: int
+    percent: float
+
+
 class FocusStatsResponse(BaseModel):
     period: str
     range_start: Optional[str] = None
@@ -339,6 +358,7 @@ class FocusStatsResponse(BaseModel):
     total_sessions: int
     current_streak_days: int
     breakdown: List[StatsBreakdownItem]
+    mode_breakdown: List[StatsModeItem] = []
     daily_heatmap: List[StatsHeatmapCell]
 
 class FocusSessionLogItem(BaseModel):
@@ -907,7 +927,7 @@ def create_log(
 @limiter.limit("30/minute")
 def start_focus_session(
     request: Request,
-    payload: Optional[BatFocusCreate] = Body(None),
+    payload: Optional[BatFocusStart] = Body(None),
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
@@ -917,6 +937,7 @@ def start_focus_session(
             current_user,
             mission_id=payload.mission_id if payload else None,
             habit_id=payload.habit_id if payload else None,
+            mode=payload.mode if payload else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

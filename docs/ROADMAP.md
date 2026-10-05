@@ -6,7 +6,7 @@ Source: the owner's plan, recovered 2026-10-05. Phases are built in order.
 |---|---|---|
 | 2A / 2B, Batches A–C | Telegram link + webhook, Alfred tool-calling, multi-provider, BYOK, self-managed memory | Done |
 | Audit + multi-user (PRs #2, #3) | Security/points fixes, per-user timezone & form of address, chat list, Reset Alfred | Done |
-| **Phase 2** | Focus session `mode` column + "by mode" stats | Next |
+| Phase 2 | Focus session `mode` column + "by mode" stats | Done (migration 013) |
 | Phase 3 (Batch D) | Telegram voice messages | Planned |
 | Phase 4 (Batch E) | Images: understanding (A), then generation (B) | Planned |
 | Phase 5 (Batch F) | Daily morning / night briefings | Planned |
@@ -29,7 +29,7 @@ current code, these apply:
   separate per-briefing timezone defaulting to Asia/Tashkent.
 - **Form of address:** briefings and voice/image replies address the user by
   `bat_account.alfred_address` (fallback: username), never a hard-coded name.
-- **Migrations:** next free revision is `013`.
+- **Migrations:** next free revision is `014` (`013` = focus `mode`).
 - **Failed turns:** transcripts / image placeholders that fail to process are
   kept out of the model's context like other failed turns (`FAILED_TURN_REPLIES`
   in `alfred_agent.py`).

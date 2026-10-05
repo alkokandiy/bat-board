@@ -134,4 +134,51 @@ describe('App focus session state machine', () => {
     expect(api.endFocusSession).toHaveBeenCalledTimes(1);
     expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 25 });
   });
+
+  it('records the selected timer mode when the session starts', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await act(async () => {
+      fireEvent.click(screen.getAllByTitle('Bat-Signal')[0]);
+    });
+    await clickEnterFocus();
+
+    expect(api.startFocusSession).toHaveBeenCalledTimes(1);
+    expect(api.startFocusSession).toHaveBeenCalledWith({ mode: 'signal' });
+  });
+
+  it('defaults to normal and keeps the mode recorded at start when switching mid-session', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await clickEnterFocus();
+    expect(api.startFocusSession).toHaveBeenCalledWith({ mode: 'normal' });
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByTitle('Batmobile')[0]);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+    });
+    // The session was started once, with the mode at start; nothing re-sends it.
+    expect(api.startFocusSession).toHaveBeenCalledTimes(1);
+    expect(api.endFocusSession).not.toHaveBeenCalledWith(101, expect.objectContaining({ mode: expect.anything() }));
+  });
+
+  it('keeps the chosen mode when entering focus mode (the timer remounts)', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await act(async () => {
+      fireEvent.click(screen.getAllByTitle('Flip Clock')[0]);
+    });
+    await clickEnterFocus();
+    // Focus mode renders a fresh timer; the mode button state must carry over.
+    await act(async () => {
+      fireEvent.click(screen.getByText('PAUSE'));
+    });
+    expect(api.startFocusSession).toHaveBeenCalledWith({ mode: 'flip' });
+  });
 });
+

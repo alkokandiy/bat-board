@@ -110,7 +110,9 @@ def _ensure_columns():
                 conn.execute(text(
                     "ALTER TABLE bat_focus ADD COLUMN habit_id INTEGER REFERENCES bat_habits(id) ON DELETE SET NULL"
                 ))
-            if "mission_id" not in focus_columns or "habit_id" not in focus_columns:
+            if "mode" not in focus_columns:
+                conn.execute(text("ALTER TABLE bat_focus ADD COLUMN mode VARCHAR"))
+            if not {"mission_id", "habit_id", "mode"} <= focus_columns:
                 conn.commit()
 
 
