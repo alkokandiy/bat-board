@@ -156,6 +156,24 @@ PENDING_TTL = timedelta(minutes=2)
 CONFIRM_WORDS = {"yes", "y", "confirm"}
 DAILY_MESSAGE_CAP = 200
 
+MAX_VOICE_SECONDS = 120
+MAX_VOICE_BYTES = 20 * 1024 * 1024  # Telegram's bot download ceiling is 20 MB
+TRANSCRIPT_MAX_CHARS = 2000
+
+VOICE_TOO_LONG_REPLY = (
+    f"That voice note runs a bit long, sir — keep it under {MAX_VOICE_SECONDS // 60} "
+    "minutes and I'll transcribe it."
+)
+VOICE_TOO_LARGE_REPLY = "That voice note is too large for me to fetch, sir."
+VOICE_UNSUPPORTED_REPLY = (
+    "Your current AI provider can't transcribe voice, sir. Switch to one that "
+    "supports audio (Gemini) in Alfred settings or with /setkey, and I'll listen."
+)
+VOICE_EMPTY_REPLY = "I couldn't make out any speech in that, sir — care to try again?"
+VOICE_DOWNLOAD_FAIL_REPLY = (
+    "I couldn't fetch that voice note from Telegram, sir — try again in a moment."
+)
+
 NOT_CONFIGURED_REPLY = "Alfred isn't configured yet — the server is missing its model key."
 SETUP_REPLY = (
     "Alfred isn't connected to a model yet. Open bat-board → Alfred settings "
@@ -486,6 +504,44 @@ def resolve_adapter_for_user(db: Session, user: models.BatAccount):
         )
     raw_key = provider_config_service.decrypt_key(row.api_key_encrypted)
     return provider_config_service.build_adapter(row.provider, row.model_name, raw_key)
+
+
+def voice_precheck(db: Session, user: models.BatAccount) -> str:
+    """Cheap check before downloading audio: 'setup' (no provider), 'unsupported'
+    (provider can't do audio), or 'ok'. Avoids fetching a file we can't use."""
+    try:
+        adapter = resolve_adapter_for_user(db, user)
+    except NoProviderConfiguredError:
+        return "setup"
+    caps = adapter.capabilities()
+    if not caps.supports_audio_input or not hasattr(adapter, "transcribe_audio"):
+        return "unsupported"
+    return "ok"
+
+
+async def transcribe_voice(
+    db: Session, user: models.BatAccount, audio_bytes: bytes, mime_type: str
+) -> Tuple[str, Optional[str]]:
+    """Transcribe a voice note with the user's own provider.
+
+    Returns (status, transcript): 'ok' with text, or 'setup' / 'unsupported' /
+    'empty' / 'error' with None. Audio bytes are never stored; only the returned
+    transcript is kept (by run_turn, as the user's message).
+    """
+    try:
+        adapter = resolve_adapter_for_user(db, user)
+    except NoProviderConfiguredError:
+        return "setup", None
+    if not adapter.capabilities().supports_audio_input or not hasattr(adapter, "transcribe_audio"):
+        return "unsupported", None
+    try:
+        transcript = (await adapter.transcribe_audio(audio_bytes, mime_type) or "").strip()
+    except Exception as exc:  # noqa: BLE001 — surfaced to the user as a friendly error
+        logger.warning("voice_transcribe_failed", error_type=type(exc).__name__, error=str(exc)[:200])
+        return "error", None
+    if not transcript:
+        return "empty", None
+    return "ok", transcript[:TRANSCRIPT_MAX_CHARS]
 
 
 async def run_turn(db: Session, user: models.BatAccount, user_text: str, session_id: int = None) -> str:

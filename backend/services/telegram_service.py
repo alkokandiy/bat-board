@@ -240,6 +240,44 @@ def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_mar
         return False
 
 
+def get_file_path(bot_token: str, file_id: str, timeout: float = 10.0) -> Optional[str]:
+    """Resolve a Telegram file_id to its download path via getFile. None on failure."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/getFile",
+            json={"file_id": file_id},
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            logger.warning("telegram_getfile_failed", status_code=resp.status_code)
+            return None
+        return (resp.json().get("result") or {}).get("file_path")
+    except Exception as exc:
+        logger.warning("telegram_getfile_error", error_type=type(exc).__name__, error=str(exc))
+        return None
+
+
+def download_file(bot_token: str, file_path: str, max_bytes: int, timeout: float = 20.0) -> Optional[bytes]:
+    """Download a Telegram file by path, streamed. None on failure or if it
+    exceeds max_bytes (so a hostile/huge file can't exhaust memory)."""
+    try:
+        url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+        with httpx.stream("GET", url, timeout=timeout) as resp:
+            if resp.status_code != 200:
+                logger.warning("telegram_download_failed", status_code=resp.status_code)
+                return None
+            buf = bytearray()
+            for chunk in resp.iter_bytes():
+                buf.extend(chunk)
+                if len(buf) > max_bytes:
+                    logger.warning("telegram_download_too_large")
+                    return None
+            return bytes(buf)
+    except Exception as exc:
+        logger.warning("telegram_download_error", error_type=type(exc).__name__, error=str(exc))
+        return None
+
+
 def answer_callback_query(bot_token: str, callback_query_id: str, text: str = "", timeout: float = 10.0) -> bool:
     """Answer a Telegram callback query to stop the button loading spinner."""
     try:
