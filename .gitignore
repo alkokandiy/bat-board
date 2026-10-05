@@ -53,5 +53,3 @@ frontend/public/tracks/*.mp3
 # Local-only training material (never commit: third-party verbatim text)
 AlfredWords.txt
 
-# Raw hi-res Batmobile model (compressed copy lives in frontend/public/models)
-/the_batman_2022_-_batmobile.glb
