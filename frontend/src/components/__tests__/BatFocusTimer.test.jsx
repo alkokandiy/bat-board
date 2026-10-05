@@ -143,8 +143,10 @@ describe('timer visuals', () => {
     const emblem = screen.getByTestId('bat-emblem');
     expect(emblem.getAttribute('aria-label')).toContain('50%');
     const clipRect = emblem.querySelector('clipPath rect');
-    expect(Number(clipRect.getAttribute('y'))).toBeCloseTo(165, 0); // halfway up a 330-high emblem
-    expect(emblem.querySelectorAll('use').length).toBe(2); // unlit + lit layers share one path
+    expect(Number(clipRect.getAttribute('y'))).toBeCloseTo(142.5, 0); // halfway up a 285-high emblem
+    // Unlit and lit layers share the same lobes, so the bat's shape is defined once.
+    expect(emblem.querySelectorAll('path[id$="-top"]').length).toBe(1);
+    expect(emblem.querySelectorAll('path[id$="-bottom"]').length).toBe(1);
   });
 
   it('batmobile: shows the 2D car while 3D loads and when WebGL is unavailable', async () => {
