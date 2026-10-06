@@ -156,6 +156,9 @@ npm run dev
 | `ENVIRONMENT` | No | `production` | `development` enables API docs |
 | `CORS_ORIGINS` | No | `["http://localhost:5173"]` | JSON array or comma-separated |
 | `LOG_FORMAT` | No | `console` | `json` for structured logging |
+| `TELEGRAM_BOT_TOKEN` | For Telegram | — | Bot token from BotFather (voice, images, briefings, reminders) |
+| `TELEGRAM_WEBHOOK_SECRET` | For Telegram | — | Shared secret for the Telegram webhook |
+| `CRON_SECRET` | For briefings | — | Shared secret for the briefings/reminders cron tick (see below). Unset → the tick endpoint returns 503 and the feature stays dormant |
 
 ---
 
@@ -287,6 +290,55 @@ bat-board/
    - `ENVIRONMENT` — `production`
    - `CORS_ORIGINS` — `["*"]` or your frontend domain
 5. Railway uses the root `Dockerfile` and sets `DATABASE_URL` automatically via the PostgreSQL plugin
+
+### Enabling Alfred's briefings & reminders (cron)
+
+Alfred's morning/night briefings and reminders are fired by a small endpoint
+that must be called about once a minute from **outside** the app
+(`POST /api/internal/cron/tick`). This avoids an in-process scheduler, so it
+stays correct no matter how many web workers run. Until you complete these
+steps the feature is dormant (the endpoint returns `503`) and nothing is sent.
+
+**1. Generate a secret** (run locally, copy the output):
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+**2. Add it to the app service** on Railway → Variables:
+
+- `CRON_SECRET` = the value you just generated
+
+Redeploy so the web service picks it up.
+
+**3. Create a pinger that calls the tick every minute.** Either option works:
+
+- **Railway Cron service** (recommended): add a new service in the same project
+  from a minimal image, set its **Cron Schedule** to `* * * * *`, and set its
+  start command to:
+
+  ```bash
+  curl -fsS -X POST https://<your-app-domain>/api/internal/cron/tick \
+    -H "X-Cron-Secret: $CRON_SECRET"
+  ```
+
+  Give that service the same `CRON_SECRET` variable.
+
+- **External uptime pinger** (e.g. cron-job.org, UptimeRobot): schedule a
+  `POST` to `https://<your-app-domain>/api/internal/cron/tick` every minute
+  with a request header `X-Cron-Secret: <your secret>`.
+
+**4. Verify.** A correct call returns `200` with a JSON summary, e.g.
+`{"ok": true, "users": 1, "briefings_sent": 0, ...}`. A missing/wrong secret
+returns `401`; an unconfigured `CRON_SECRET` returns `503`.
+
+> Briefings and reminders are delivered over **Telegram**, so a user must have
+> linked their Telegram account (Profile → Link Telegram) to receive them.
+> Each briefing/reminder fires **at most once per local day**, in the user's
+> own timezone, and a window missed by more than ~3 hours is skipped rather
+> than sent late. Users ask Alfred to set these up conversationally
+> ("set up a morning briefing at 7", "remind me to take my medicine every day
+> at 9am").
 
 ---
 
