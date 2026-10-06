@@ -21,6 +21,7 @@ export default function FocusPanel({
   focusSessionLength,
   focusSelectedMissionId,
   focusSelectedHabitId,
+  focusNotice,
   onFocusMissionChange,
   onFocusHabitChange,
   onFocusToggle,
@@ -52,9 +53,22 @@ export default function FocusPanel({
   }
 
   const handleSessionChange = (e) => {
-    const value = Math.max(1, Math.min(180, parseInt(e.target.value) || 1));
+    const value = Math.max(5, Math.min(180, parseInt(e.target.value) || 5));
     onFocusSessionChange(value);
   };
+
+  // One target only: a mission OR a habit, never both. Encode the choice as
+  // "m:<id>" / "h:<id>" and clear the other side on change.
+  const targetValue = focusSelectedMissionId
+    ? `m:${focusSelectedMissionId}`
+    : focusSelectedHabitId ? `h:${focusSelectedHabitId}` : '';
+  const handleTargetChange = (e) => {
+    const v = e.target.value;
+    if (v.startsWith('m:')) { onFocusMissionChange(v.slice(2)); onFocusHabitChange(''); }
+    else if (v.startsWith('h:')) { onFocusHabitChange(v.slice(2)); onFocusMissionChange(''); }
+    else { onFocusMissionChange(''); onFocusHabitChange(''); }
+  };
+  const openMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
 
   const handleTrackSelect = (track) => {
     if (activeTrack?.id === track.id && isPlaying) {
@@ -70,6 +84,12 @@ export default function FocusPanel({
         <h1 className="text-2xl font-bold tracking-wider">FOCUS HOURGLASS</h1>
         <p className="text-xs text-slate-400">Lock yourself into cognitive isolation. Power through deep work with zero external interruptions.</p>
       </div>
+
+      {focusNotice && (
+        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 font-mono">
+          {focusNotice}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
@@ -95,39 +115,38 @@ export default function FocusPanel({
               Parameters
             </h2>
             <div className="text-xs">
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Mission Target</label>
+              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Focus Target</label>
               <select
-                value={focusSelectedMissionId}
-                onChange={e => onFocusMissionChange(e.target.value)}
+                value={targetValue}
+                onChange={handleTargetChange}
                 disabled={focusRunning}
                 className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
               >
-                <option value="">— No Mission —</option>
-                {missions.filter(m => m.status !== 'completed' && !m.is_dismissed).map(m => (
-                  <option key={m.id} value={m.id}>{m.title}</option>
-                ))}
+                <option value="">— No target (free focus) —</option>
+                {openMissions.length > 0 && (
+                  <optgroup label="Missions">
+                    {openMissions.map(m => (
+                      <option key={`m${m.id}`} value={`m:${m.id}`}>{m.title}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {habits.length > 0 && (
+                  <optgroup label="Habits">
+                    {habits.map(h => (
+                      <option key={`h${h.id}`} value={`h:${h.id}`}>{h.name}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
-            </div>
-            <div className="text-xs">
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Habit Target</label>
-              <select
-                value={focusSelectedHabitId}
-                onChange={e => onFocusHabitChange(e.target.value)}
-                disabled={focusRunning}
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
-              >
-                <option value="">— No Habit —</option>
-                {habits.filter(h => h.streak >= 0).map(h => (
-                  <option key={h.id} value={h.id}>{h.name}</option>
-                ))}
-              </select>
+              <p className="mt-1 text-[10px] text-slate-500 font-mono">One target per session — a mission or a habit.</p>
             </div>
             <div className="text-xs">
               <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Session Length (Minutes)</label>
               <input
                 type="number"
-                min="1"
+                min="5"
                 max="180"
+                step="5"
                 value={focusSessionLength}
                 onChange={handleSessionChange}
                 disabled={focusRunning}

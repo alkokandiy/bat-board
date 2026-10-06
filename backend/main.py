@@ -334,6 +334,9 @@ class BatFocusSchema(BaseModel):
     mission_id: Optional[int] = None
     habit_id: Optional[int] = None
     owner_id: int
+    # True when a session ended under the minimum and was discarded (not logged
+    # or counted). False for any session that was actually recorded.
+    discarded: bool = False
 
 class StatsBreakdownItem(BaseModel):
     type: str

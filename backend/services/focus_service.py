@@ -20,6 +20,11 @@ _UNSET = object()
 # Timer visual modes: Normal, Flip Clock, Bat-Signal, Batmobile.
 FOCUS_MODES = ("normal", "flip", "signal", "batmobile")
 
+# Sessions shorter than this are discarded on end: not logged, not counted,
+# no points, no mission/habit minutes. Keeps the record honest — a glance at
+# the timer isn't "focus".
+MIN_FOCUS_MINUTES = 5
+
 
 def _owns(db: Session, model, row_id, current_user: models.BatAccount) -> bool:
     if not row_id:
@@ -137,6 +142,20 @@ def end_focus_session(
     else:
         session.duration_minutes = elapsed
 
+    # Too short to count — discard entirely: no points, no mission/habit
+    # minutes, no stored row. Return a transient copy flagged `discarded` so
+    # the caller can tell the user it wasn't logged.
+    if session.duration_minutes < MIN_FOCUS_MINUTES:
+        result = models.BatFocus(
+            id=session.id, start_time=session.start_time, end_time=session.end_time,
+            duration_minutes=session.duration_minutes, mission_id=session.mission_id,
+            habit_id=session.habit_id, mode=session.mode, owner_id=current_user.id,
+        )
+        result.discarded = True
+        db.delete(session)
+        db.commit()
+        return result
+
     if session.duration_minutes:
         if session.mission_id:
             mission = db.query(models.BatMission).filter(
@@ -174,4 +193,5 @@ def end_focus_session(
     })
     db.commit()
 
+    session.discarded = False
     return session
