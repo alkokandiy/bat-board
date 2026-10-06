@@ -3,6 +3,15 @@ import { api } from '../utils/api';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
+// "135" -> "2h 15m", "40" -> "40m". Time invested matters more than the tick.
+function fmtMins(mins) {
+  const m = Math.max(0, Math.round(mins || 0));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem ? `${h}h ${rem}m` : `${h}h`;
+}
+
 // Due dates are calendar dates stored as UTC midnight; read the date part
 // directly so they never shift a day in timezones behind UTC.
 function dueDateKey(due) {
@@ -118,7 +127,9 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
               {mission.due_date && <span>🎯 {formatDueDate(mission.due_date)}</span>}
               {mission.location && <span>📍 {mission.location}</span>}
               {subtasks.length > 0 && <span>✓ {doneSubtasks}/{subtasks.length}</span>}
-              {mission.focus_minutes > 0 && <span>⏱ {mission.focus_minutes}m</span>}
+              {mission.focus_minutes > 0 && (
+                <span className="text-electric-bat-yellow font-semibold">⏱ {fmtMins(mission.focus_minutes)} focused</span>
+              )}
             </div>
             {mission.completed_focus_sessions > 0 && (
               <div className="text-[10px] text-slate-500 font-mono mt-0.5">

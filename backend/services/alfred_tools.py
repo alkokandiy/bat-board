@@ -138,6 +138,7 @@ def _session_dict(s):
         "id": s.id, "start_time": _iso(s.start_time),
         "end_time": _iso(s.end_time), "duration_minutes": s.duration_minutes,
         "mission_id": s.mission_id, "habit_id": s.habit_id,
+        "discarded": getattr(s, "discarded", False),
     }
 
 

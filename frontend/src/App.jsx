@@ -116,6 +116,7 @@ export default function App() {
   const [focusRunning, setFocusRunning] = useState(false);
   const [focusSelectedMissionId, setFocusSelectedMissionId] = useState('');
   const [focusSelectedHabitId, setFocusSelectedHabitId] = useState('');
+  const [focusNotice, setFocusNotice] = useState(null);
   // Timer visual mode ('N' | 'F' | 'B' | 'M'). Lives here, not in the timer:
   // entering focus mode mounts a second timer, which used to reset it, and the
   // session start below needs to record it.
@@ -250,7 +251,9 @@ export default function App() {
     const durationMin = Math.max(0, Math.round(focusActiveMsRef.current / 60000));
     focusActiveMsRef.current = 0;
     try {
-      await api.endFocusSession(sid, { duration_minutes: durationMin });
+      const res = await api.endFocusSession(sid, { duration_minutes: durationMin });
+      // Sessions under the 5-minute minimum are discarded server-side.
+      setFocusNotice(res?.discarded ? 'Under 5 minutes — session not counted.' : null);
       handleRefreshMissions();
       handleRefreshAccount();
     } catch (err) {
@@ -271,6 +274,7 @@ export default function App() {
 
   const startFocusSession = useCallback(async (missionId, habitId) => {
     focusActiveMsRef.current = 0;
+    setFocusNotice(null);
     try {
       const data = {};
       if (missionId) data.mission_id = parseInt(missionId);
@@ -431,6 +435,7 @@ export default function App() {
               focusSessionLength={focusSessionLength}
               focusSelectedMissionId={focusSelectedMissionId}
               focusSelectedHabitId={focusSelectedHabitId}
+              focusNotice={focusNotice}
               onFocusMissionChange={setFocusSelectedMissionId}
               onFocusHabitChange={setFocusSelectedHabitId}
               onFocusToggle={handleFocusToggle}
