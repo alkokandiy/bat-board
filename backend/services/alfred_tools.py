@@ -73,6 +73,35 @@ def _mission_dict(m):
     }
 
 
+def _norm_title(t) -> str:
+    return " ".join((t or "").split()).casefold()
+
+
+def _open_mission_titles(db, user) -> dict:
+    """Normalized title -> mission, for the user's open (non-completed,
+    non-dismissed) missions. Used to skip duplicate creates."""
+    rows = (
+        db.query(models.BatMission)
+        .filter(models.BatMission.owner_id == user.id,
+                models.BatMission.status != "completed",
+                models.BatMission.is_dismissed.is_(False))
+        .all()
+    )
+    return {_norm_title(m.title): m for m in rows}
+
+
+def _create_one_mission(db, user, spec: dict):
+    """Create a single mission from a spec dict (shared by the single and
+    batch tools). Caller handles duplicate checking."""
+    return mission_service.create_mission(
+        db, user, title=spec["title"], description=spec.get("description"),
+        due_date=_parse_dt(spec.get("due_date"), "due_date") if spec.get("due_date") else None,
+        priority=spec.get("priority") or "medium", tags=spec.get("tags"),
+        location=spec.get("location"), notes=spec.get("notes"),
+        subtasks=spec.get("subtasks"),
+        is_pinned=bool(spec.get("is_pinned")) if spec.get("is_pinned") is not None else False)
+
+
 def _habit_dict(h):
     return {
         "id": h.id, "name": h.name, "description": h.description,
@@ -206,6 +235,18 @@ WRITE_TOOLS = [
          "subtasks": {"type": "string", "description": "JSON array of {title, done}."},
          "is_pinned": {"type": "boolean"},
      }, "required": ["title"]}},
+    {"name": "create_missions", "description": "Create SEVERAL missions at once in a single call. ALWAYS use this (not repeated create_mission) when the user lists more than one mission in a message. Duplicates of existing or repeated titles are skipped automatically. Don't ask about each one — apply sensible defaults (priority medium, no due date unless stated) and report what you added.",
+     "parameters": {"type": "object", "properties": {
+         "missions": {"type": "array", "description": "The missions to create.", "items": {
+             "type": "object", "properties": {
+                 "title": {"type": "string"},
+                 "description": {"type": "string"},
+                 "due_date": {"type": "string", "description": "ISO datetime."},
+                 "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
+                 "tags": {"type": "string", "description": "Comma-separated tags."},
+                 "location": {"type": "string"}, "notes": {"type": "string"},
+             }, "required": ["title"]}},
+     }, "required": ["missions"]}},
     {"name": "complete_mission", "description": "Mark a mission completed (awards points).",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"},
@@ -475,14 +516,39 @@ def execute_tool(
                 "telegram_linked": telegram_service.is_telegram_linked(db, current_user)}
 
     if name == "create_mission":
-        m = mission_service.create_mission(
-            db, current_user, title=args["title"], description=args.get("description"),
-            due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None,
-            priority=args.get("priority") or "medium", tags=args.get("tags"),
-            location=args.get("location"), notes=args.get("notes"),
-            subtasks=args.get("subtasks"),
-            is_pinned=bool(args.get("is_pinned")) if args.get("is_pinned") is not None else False)
+        title = (args.get("title") or "").strip()
+        if not title:
+            return {"error": "A mission needs a title."}
+        existing = _open_mission_titles(db, current_user).get(_norm_title(title))
+        if existing is not None:
+            # Already on the board — don't create a second copy.
+            return {"skipped": True, "reason": "A mission with this title already exists.",
+                    "mission": _mission_dict(existing)}
+        m = _create_one_mission(db, current_user, {**args, "title": title})
         return {"mission": _mission_dict(m)}
+    if name == "create_missions":
+        items = args.get("missions") or []
+        if not isinstance(items, list) or not items:
+            return {"error": "Provide a non-empty 'missions' array."}
+        existing = _open_mission_titles(db, current_user)
+        seen = set()
+        created, skipped = [], []
+        for spec in items:
+            if not isinstance(spec, dict):
+                continue
+            title = (spec.get("title") or "").strip()
+            if not title:
+                continue
+            key = _norm_title(title)
+            if key in seen or key in existing:
+                skipped.append(title)
+                continue
+            seen.add(key)
+            m = _create_one_mission(db, current_user, {**spec, "title": title})
+            existing[key] = m  # guard against later dupes in the same batch
+            created.append(_mission_dict(m))
+        return {"created": created, "created_count": len(created),
+                "skipped_duplicates": skipped}
     if name == "complete_mission":
         m = mission_service.complete_mission(db, current_user, int(args["mission_id"]))
         if m is None:
