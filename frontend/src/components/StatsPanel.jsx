@@ -124,60 +124,51 @@ const Donut = ({ segments, size = 150, stroke = 18, centerText, centerSub }) => 
   );
 };
 
+// Bars read far more clearly at a glance than a curve, and an all-zero period
+// shows a clean empty state instead of a flat bright line.
 const TrendChart = ({ points }) => {
-  const W = 600;
-  const H = 160;
-  const PAD = 14;
-  const values = points.map((p) => p.minutes);
+  const values = points.map((p) => p.minutes || 0);
   const maxVal = Math.max(...values, 0);
-  const yScale = maxVal > 0 ? maxVal : 1;
-  const step = values.length > 1 ? (W - PAD * 2) / (values.length - 1) : 0;
-  const x = (i) => PAD + i * step;
-  const y = (v) => H - PAD - (v / yScale) * (H - PAD * 2);
-
-  let path = `M ${x(0)},${y(values[0])}`;
-  for (let i = 0; i < values.length - 1; i++) {
-    const mx = (x(i) + x(i + 1)) / 2;
-    path += ` C ${mx},${y(values[i])} ${mx},${y(values[i + 1])} ${x(i + 1)},${y(values[i + 1])}`;
-  }
-
   const allZero = maxVal === 0;
 
+  if (allZero) {
+    return (
+      <div className="h-44 flex flex-col items-center justify-center gap-1 text-slate-500">
+        <span className="text-sm font-mono">No focus logged yet this period</span>
+        <span className="text-[10px] font-mono text-slate-600">Start a session — bars appear here.</span>
+      </div>
+    );
+  }
+
+  // Only label a handful of ticks so they stay readable when there are many bars.
+  const n = points.length;
+  const labelEvery = n <= 10 ? 1 : Math.ceil(n / 8);
+
   return (
-    <div className="relative">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-        <line
-          x1={PAD}
-          y1={y(maxVal)}
-          x2={W - PAD}
-          y2={y(maxVal)}
-          stroke="#1e293b"
-          strokeWidth="1"
-        />
-        <path d={path} fill="none" stroke={YELLOW} strokeWidth="2" strokeLinecap="round" />
-        {!allZero &&
-          values.map((v, i) => (
-            <circle key={i} cx={x(i)} cy={y(v)} r="2.5" fill={YELLOW} />
-          ))}
-        {values.map((p, i) => (
-          <text
-            key={i}
-            x={x(i)}
-            y={H - 2}
-            textAnchor="middle"
-            fontSize="9"
-            fill="#64748b"
-            fontFamily="Share Tech Mono, monospace"
-          >
-            {p.label}
-          </text>
+    <div>
+      <div className="flex items-end gap-[3px] h-44">
+        {points.map((p, i) => {
+          const pct = Math.max(2, Math.round((p.minutes / maxVal) * 100));
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center justify-end h-full group relative" title={`${p.label} · ${fmtDuration(p.minutes)}`}>
+              <span className="text-[9px] font-mono text-electric-bat-yellow mb-1 opacity-0 group-hover:opacity-100 transition">
+                {p.minutes > 0 ? fmtDuration(p.minutes) : ''}
+              </span>
+              <div
+                className={`w-full rounded-t ${p.minutes > 0 ? 'bg-electric-bat-yellow' : 'bg-slate-800'}`}
+                style={{ height: `${pct}%` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-[3px] mt-2 border-t border-slate-800 pt-1.5">
+        {points.map((p, i) => (
+          <div key={i} className="flex-1 text-center text-[9px] font-mono text-slate-600 truncate">
+            {i % labelEvery === 0 ? p.label : ''}
+          </div>
         ))}
-      </svg>
-      {allZero && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xs font-mono text-slate-500">No sessions yet this period</span>
-        </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -221,18 +212,22 @@ export default function StatsPanel() {
 
   const loadTiles = useCallback(async () => {
     try {
-      const [today, allTime] = await Promise.all([
+      const [today, week, allTime] = await Promise.all([
         api.getFocusStats('day'),
+        api.getFocusStats('week'),
         api.getFocusStats('all'),
       ]);
       setTiles({
         todaySessions: today.total_sessions,
         todayMinutes: today.total_minutes,
+        weekSessions: week.total_sessions,
+        weekMinutes: week.total_minutes,
+        streak: today.current_streak_days,
         totalSessions: allTime.total_sessions,
         totalMinutes: allTime.total_minutes,
       });
     } catch {
-      // Tiles are decorative — fail silently.
+      // Hero stats — fail silently and show placeholders.
     }
   }, []);
 
@@ -364,107 +359,62 @@ export default function StatsPanel() {
 
   const renderOverview = () => (
     <div className="space-y-6">
-      {/* Stat tiles — always today/all-time, independent of period toggle */}
+      {/* Hero — the glance view: today and this week, big and legible */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Today's Sessions", value: tiles ? String(tiles.todaySessions) : '–' },
-          { label: "Today's Focus", value: tiles ? fmtDuration(tiles.todayMinutes) : '–' },
-          { label: 'Total Sessions', value: tiles ? String(tiles.totalSessions) : '–' },
-          { label: 'Total Focus Duration', value: tiles ? fmtDuration(tiles.totalMinutes) : '–' },
-        ].map((t) => (
-          <div key={t.label} className="bg-dark-slate p-4 rounded border border-slate-800">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">{t.label}</div>
-            <div className="text-xl font-bold text-slate-100 font-mono">{t.value}</div>
+        <div className="bg-dark-slate p-5 rounded border border-electric-bat-yellow/30">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Today</div>
+          <div className="text-4xl font-bold text-electric-bat-yellow font-mono leading-none">{tiles ? fmtDuration(tiles.todayMinutes) : '–'}</div>
+          <div className="text-[11px] font-mono text-slate-500 mt-2">{tiles ? tiles.todaySessions : '–'} session{tiles && tiles.todaySessions !== 1 ? 's' : ''}</div>
+        </div>
+        <div className="bg-dark-slate p-5 rounded border border-slate-800">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">This Week</div>
+          <div className="text-4xl font-bold text-slate-100 font-mono leading-none">{tiles ? fmtDuration(tiles.weekMinutes) : '–'}</div>
+          <div className="text-[11px] font-mono text-slate-500 mt-2">{tiles ? tiles.weekSessions : '–'} session{tiles && tiles.weekSessions !== 1 ? 's' : ''}</div>
+        </div>
+        <div className="bg-dark-slate p-5 rounded border border-slate-800">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Streak</div>
+          <div className="text-4xl font-bold text-slate-100 font-mono leading-none flex items-center gap-2">
+            {tiles && tiles.streak > 0 && <BatIcon />}
+            {tiles ? tiles.streak : '–'}
           </div>
-        ))}
+          <div className="text-[11px] font-mono text-slate-500 mt-2">day{tiles && tiles.streak !== 1 ? 's' : ''} in a row</div>
+        </div>
+        <div className="bg-dark-slate p-5 rounded border border-slate-800">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">All Time</div>
+          <div className="text-4xl font-bold text-slate-100 font-mono leading-none">{tiles ? fmtDuration(tiles.totalMinutes) : '–'}</div>
+          <div className="text-[11px] font-mono text-slate-500 mt-2">{tiles ? tiles.totalSessions : '–'} session{tiles && tiles.totalSessions !== 1 ? 's' : ''}</div>
+        </div>
       </div>
 
-      {/* Period toggle + totals */}
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {PERIODS.map((p) => (
-            <button key={p.key} data-testid={`period-${p.key}`} onClick={() => setPeriod(p.key)} className={tabClass(period === p.key)}>
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {loading && !stats && (
-          <div className="p-8 text-center text-slate-500 font-mono text-xs">CALCULATING DEEP WORK...</div>
-        )}
-
-        {stats && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-dark-slate p-5 rounded border border-slate-800">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Total Focus</div>
-              <div className="text-3xl font-bold text-electric-bat-yellow font-mono">{fmtDuration(stats.total_minutes)}</div>
-            </div>
-            <div className="bg-dark-slate p-5 rounded border border-slate-800">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Sessions</div>
-              <div className="text-3xl font-bold text-slate-100 font-mono">{stats.total_sessions}</div>
-            </div>
-            <div className="bg-dark-slate p-5 rounded border border-slate-800">
-              <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">Streak</div>
-              <div className="text-3xl font-bold text-slate-100 font-mono flex items-center gap-2">
-                {stats.current_streak_days > 0 && <BatIcon />}
-                {stats.current_streak_days} day{stats.current_streak_days !== 1 ? 's' : ''}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Heatmap */}
-      {stats && (
-        <div className="bg-dark-slate rounded border border-slate-800 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">FOCUS HEATMAP</span>
-            <span className="text-[10px] font-mono text-slate-500">LAST 35 DAYS</span>
-          </div>
-          <div className="grid grid-cols-7 gap-1.5 mb-1.5">
-            {WEEKDAY_HEADERS.map((d, i) => (
-              <div key={i} className="text-center text-[9px] font-mono text-slate-600">{d}</div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {stats.daily_heatmap.map((cell) => (
-              <div key={cell.date} title={`${cell.date} · ${cell.minutes} min`} className={`aspect-square rounded ${heatColor(cell.minutes)}`} />
-            ))}
-          </div>
-          <div className="flex items-center justify-end gap-2 mt-4 text-[9px] font-mono text-slate-600">
-            Less
-            <div className="w-3 h-3 rounded bg-slate-800" />
-            <div className="w-3 h-3 rounded bg-electric-bat-yellow/20" />
-            <div className="w-3 h-3 rounded bg-electric-bat-yellow/50" />
-            <div className="w-3 h-3 rounded bg-electric-bat-yellow/75" />
-            <div className="w-3 h-3 rounded bg-electric-bat-yellow" />
-            More
-          </div>
-        </div>
-      )}
-
-      {/* Recent Focus Curve */}
+      {/* Trend — bars, the momentum view */}
       <div className="bg-dark-slate rounded border border-slate-800 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">RECENT FOCUS CURVE</span>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-slate-600 hidden sm:inline">FOCUS MINUTES</span>
-            <div className="flex items-center gap-1.5">
-              {TREND_GRANULARITIES.map((g) => (
-                <button key={g.key} data-testid={`trend-gran-${g.key}`} onClick={() => setTrendGranularity(g.key)} className={`px-2 py-1 rounded text-[9px] font-mono tracking-wider border transition ${tabClass(trendGranularity === g.key)}`}>
-                  {g.label}
-                </button>
-              ))}
-            </div>
+        <div className="flex items-center justify-between mb-5">
+          <span className="text-xs font-mono text-slate-300 uppercase tracking-widest">Focus Trend</span>
+          <div className="flex items-center gap-1.5">
+            {TREND_GRANULARITIES.map((g) => (
+              <button key={g.key} data-testid={`trend-gran-${g.key}`} onClick={() => setTrendGranularity(g.key)} className={`px-2 py-1 rounded text-[9px] font-mono tracking-wider border transition ${tabClass(trendGranularity === g.key)}`}>
+                {g.label}
+              </button>
+            ))}
           </div>
         </div>
         {trendLoading && !trend ? (
-          <div className="h-40 flex items-center justify-center text-slate-500 font-mono text-xs">PLOTTING...</div>
+          <div className="h-44 flex items-center justify-center text-slate-500 font-mono text-xs">PLOTTING...</div>
         ) : trend ? (
           <TrendChart points={trend.points} />
         ) : (
-          <div className="h-40 flex items-center justify-center text-slate-500 font-mono text-xs">No sessions yet this period</div>
+          <div className="h-44 flex items-center justify-center text-slate-500 font-mono text-xs">No focus logged yet this period</div>
         )}
+      </div>
+
+      {/* Period toggle — scopes the breakdown below */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-slate-600 mr-1">Breakdown:</span>
+        {PERIODS.map((p) => (
+          <button key={p.key} data-testid={`period-${p.key}`} onClick={() => setPeriod(p.key)} className={tabClass(period === p.key)}>
+            {p.label}
+          </button>
+        ))}
       </div>
 
       {/* Breakdown ranking */}
