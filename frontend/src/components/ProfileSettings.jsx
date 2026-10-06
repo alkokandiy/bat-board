@@ -14,16 +14,16 @@ function timezoneOptions(current) {
 }
 
 const LEVELS = [
-  { min: 0, max: 1999, title: 'The Orphan' },
+  { min: 0, max: 1999, title: 'The Recruit' },
   { min: 2000, max: 4999, title: 'The Vigilante' },
   { min: 5000, max: 9999, title: 'The Detective' },
-  { min: 10000, max: 19999, title: 'Son of Gotham' },
+  { min: 10000, max: 19999, title: "Gotham's Shadow" },
   { min: 20000, max: 34999, title: 'The Caped Crusader' },
-  { min: 35000, max: 54999, title: 'Heir of the Demon' },
+  { min: 35000, max: 54999, title: 'The Watchful Protector' },
   { min: 55000, max: 79999, title: 'The Dark Knight' },
-  { min: 80000, max: 119999, title: 'Faris al-Khorasan' },
-  { min: 120000, max: 179999, title: 'Sword of the Ummah' },
-  { min: 180000, max: null, title: 'Dark Knight of Khorasan' },
+  { min: 80000, max: 119999, title: 'Legend of Gotham' },
+  { min: 120000, max: 179999, title: 'The Bat Incarnate' },
+  { min: 180000, max: null, title: 'The Dark Knight Eternal' },
 ];
 
 function AdminPanel() {
@@ -308,7 +308,7 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
   };
 
   const currentPoints = account?.points ?? 0;
-  const currentLevel = account?.bat_level ?? 'The Orphan';
+  const currentLevel = account?.bat_level ?? 'The Recruit';
 
   useEffect(() => {
     let cancelled = false;
@@ -540,7 +540,7 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
               Danger Zone
             </h2>
             <p className="text-xs text-slate-400 mb-4">
-              Reset all Bat Points to 0. Your level will revert to The Orphan. This action is irreversible.
+              Reset all Bat Points to 0. Your level will revert to The Recruit. This action is irreversible.
             </p>
             <button
               onClick={handleResetPoints}

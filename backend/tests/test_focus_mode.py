@@ -105,7 +105,7 @@ def test_migration_013_adds_nullable_mode_and_keeps_existing_rows(tmp_path):
     con = sqlite3.connect(db_file)
     con.execute(
         "INSERT INTO bat_account (username, hashed_password, points, bat_level, is_active, "
-        "created_at, updated_at, token_version) VALUES ('old','x',0,'The Orphan',1,"
+        "created_at, updated_at, token_version) VALUES ('old','x',0,'The Recruit',1,"
         "datetime('now'),datetime('now'),0)"
     )
     con.execute(

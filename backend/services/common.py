@@ -9,25 +9,25 @@ import models
 # --- Tier Calculation Helper ---
 def calculate_bat_level(points: int) -> str:
     if points < 2000:
-        return "The Orphan"
+        return "The Recruit"
     elif points < 5000:
         return "The Vigilante"
     elif points < 10000:
         return "The Detective"
     elif points < 20000:
-        return "Son of Gotham"
+        return "Gotham's Shadow"
     elif points < 35000:
         return "The Caped Crusader"
     elif points < 55000:
-        return "Heir of the Demon"
+        return "The Watchful Protector"
     elif points < 80000:
         return "The Dark Knight"
     elif points < 120000:
-        return "Faris al-Khorasan"
+        return "Legend of Gotham"
     elif points < 180000:
-        return "Sword of the Ummah"
+        return "The Bat Incarnate"
     else:
-        return "Dark Knight of Khorasan"
+        return "The Dark Knight Eternal"
 
 
 # --- Auto Log Helper ---

@@ -439,7 +439,7 @@ def register(request: Request, user_data: UserCreate, db: Session = Depends(get_
         username=user_data.username,
         hashed_password=hashed,
         points=0,
-        bat_level="The Orphan",
+        bat_level="The Recruit",
         timezone=user_data.timezone,
     )
     db.add(account)

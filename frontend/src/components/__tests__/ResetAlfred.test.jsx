@@ -14,7 +14,7 @@ vi.mock('../../utils/api', () => ({
   browserTimezone: () => 'Asia/Tashkent',
 }));
 
-const account = { username: 'bruce', points: 0, bat_level: 'The Orphan', timezone: 'Asia/Tashkent' };
+const account = { username: 'bruce', points: 0, bat_level: 'The Recruit', timezone: 'Asia/Tashkent' };
 
 describe('Reset Alfred confirmation', () => {
   beforeEach(() => {
