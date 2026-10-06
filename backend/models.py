@@ -38,7 +38,7 @@ class BatAccount(Base):
     username = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     points = Column(Integer, default=0, nullable=False)
-    bat_level = Column(String, default="The Orphan", nullable=False)
+    bat_level = Column(String, default="The Recruit", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     # IANA zone name (e.g. "Asia/Tashkent"); day boundaries are computed in it.
     timezone = Column(String, nullable=True)

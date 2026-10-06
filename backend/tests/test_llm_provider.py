@@ -82,7 +82,7 @@ def test_thought_signature_captured_and_replayed(fake_client):
                 {"name": "get_profile", "arguments": {},
                  "thought_signature": first.tool_calls[0].thought_signature}]},
             {"role": "tool", "name": "get_profile",
-             "result": {"username": "x", "points": 0, "bat_level": "The Orphan"}},
+             "result": {"username": "x", "points": 0, "bat_level": "The Recruit"}},
         ]
         second = await llm_provider.generate(messages, [])
         assert second.text == "done"
