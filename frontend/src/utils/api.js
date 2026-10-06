@@ -260,4 +260,12 @@ export const api = {
   testAlfredProvider: (provider, model_name, api_key) => request('/alfred/provider/test', { method: 'POST', body: { provider, model_name, api_key } }),
   saveAlfredProvider: (provider, model_name, api_key) => request('/alfred/provider', { method: 'POST', body: { provider, model_name, api_key } }),
   deleteAlfredProvider: () => request('/alfred/provider', { method: 'DELETE' }),
+
+  // Admin (gated server-side by ADMIN_USERNAMES; getAdminMe returns is_admin:false
+  // for everyone else, so the UI stays hidden rather than erroring)
+  getAdminMe: () => request('/admin/me'),
+  getAdminUsers: () => request('/admin/users'),
+  disableUser: (id) => request(`/admin/users/${id}/disable`, { method: 'POST' }),
+  enableUser: (id) => request(`/admin/users/${id}/enable`, { method: 'POST' }),
+  deleteUser: (id) => request(`/admin/users/${id}`, { method: 'DELETE' }),
 };

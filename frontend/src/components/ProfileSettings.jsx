@@ -26,6 +26,162 @@ const LEVELS = [
   { min: 180000, max: null, title: 'Dark Knight of Khorasan' },
 ];
 
+function AdminPanel() {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setData(await api.getAdminUsers());
+    } catch (e) {
+      setError(e.message || 'Failed to load users.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const p = api.getAdminMe?.();
+    if (!p || typeof p.then !== 'function') return; // never break the Profile page
+    p.then((r) => {
+      if (cancelled || !r?.is_admin) return;
+      setIsAdmin(true);
+      load();
+    }).catch(() => {}); // non-admins / errors: stay hidden
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!isAdmin) return null;
+
+  const act = async (fn, id) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      await fn(id);
+      await load();
+    } catch (e) {
+      setError(e.message || 'Action failed.');
+    } finally {
+      setBusyId(null);
+      setConfirmDeleteId(null);
+    }
+  };
+
+  return (
+    <div className="bg-dark-slate rounded border border-amber-500/30 p-6">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-sm font-mono tracking-widest text-amber-400">ADMIN · USERS</h3>
+        <button
+          onClick={load}
+          className="px-3 py-1 border border-slate-700 text-slate-300 rounded text-[11px] font-mono tracking-widest hover:border-amber-400/60 transition"
+        >
+          REFRESH
+        </button>
+      </div>
+      {data && (
+        <p className="text-xs text-slate-500 font-body mb-4">
+          {data.total_users} user{data.total_users === 1 ? '' : 's'} · {data.active_users} active
+        </p>
+      )}
+      {error && <div className="text-[12px] text-red-400 font-body mb-3">{error}</div>}
+      {loading && !data ? (
+        <div className="text-slate-500 text-sm">Loading…</div>
+      ) : data && data.users.length > 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12px] font-body">
+            <thead>
+              <tr className="text-slate-500 font-mono text-[10px] tracking-wider border-b border-slate-800">
+                <th className="py-2 pr-3">USER</th>
+                <th className="py-2 pr-3">STATUS</th>
+                <th className="py-2 pr-3">SETUP</th>
+                <th className="py-2 pr-3">DATA</th>
+                <th className="py-2 pr-3 text-right">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {data.users.map((u) => (
+                <tr key={u.id} className="align-middle">
+                  <td className="py-2.5 pr-3">
+                    <div className="text-slate-200">
+                      {u.username}
+                      {u.is_admin && <span className="ml-1.5 text-amber-400 text-[10px] font-mono">ADMIN</span>}
+                    </div>
+                    <div className="text-slate-600 text-[10px]">{u.bat_level} · {u.points} BP</div>
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    {u.is_active
+                      ? <span className="text-green-400">active</span>
+                      : <span className="text-red-400">disabled</span>}
+                  </td>
+                  <td className="py-2.5 pr-3 text-[11px]">
+                    <span className={u.telegram_linked ? 'text-slate-300' : 'text-slate-600'}>TG</span>
+                    {' · '}
+                    <span className={u.provider_configured ? 'text-slate-300' : 'text-slate-600'}>AI</span>
+                  </td>
+                  <td className="py-2.5 pr-3 text-slate-500 text-[11px]">
+                    {u.counts.missions}m · {u.counts.habits}h · {u.counts.notes}n
+                  </td>
+                  <td className="py-2.5 pr-0 text-right whitespace-nowrap">
+                    {u.is_admin ? (
+                      <span className="text-slate-600 text-[11px]">—</span>
+                    ) : confirmDeleteId === u.id ? (
+                      <span className="inline-flex gap-1.5 items-center">
+                        <span className="text-[10px] text-red-400 font-mono">delete?</span>
+                        <button
+                          disabled={busyId === u.id}
+                          onClick={() => act(api.deleteUser, u.id)}
+                          className="px-2 py-1 border border-red-500/50 text-red-400 rounded text-[10px] font-mono hover:bg-red-500/10 disabled:opacity-50"
+                        >YES</button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2 py-1 border border-slate-700 text-slate-400 rounded text-[10px] font-mono"
+                        >NO</button>
+                      </span>
+                    ) : (
+                      <span className="inline-flex gap-1.5">
+                        {u.is_active ? (
+                          <button
+                            disabled={busyId === u.id}
+                            onClick={() => act(api.disableUser, u.id)}
+                            className="px-2 py-1 border border-slate-700 text-slate-300 rounded text-[10px] font-mono tracking-wider hover:border-amber-400/60 disabled:opacity-50"
+                          >DISABLE</button>
+                        ) : (
+                          <button
+                            disabled={busyId === u.id}
+                            onClick={() => act(api.enableUser, u.id)}
+                            className="px-2 py-1 border border-slate-700 text-green-400 rounded text-[10px] font-mono tracking-wider hover:border-green-400/60 disabled:opacity-50"
+                          >ENABLE</button>
+                        )}
+                        <button
+                          disabled={busyId === u.id}
+                          onClick={() => setConfirmDeleteId(u.id)}
+                          className="px-2 py-1 border border-red-500/40 text-red-400/90 rounded text-[10px] font-mono tracking-wider hover:bg-red-500/10 disabled:opacity-50"
+                        >DELETE</button>
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-[10px] text-slate-600 font-body mt-3">
+            Disable blocks login (reversible). Delete permanently removes the user and all their data. Admins are protected.
+          </p>
+        </div>
+      ) : (
+        <div className="text-slate-500 text-sm">No users.</div>
+      )}
+    </div>
+  );
+}
+
 export default function ProfileSettings({ account, onRefreshAccount }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -548,6 +704,8 @@ export default function ProfileSettings({ account, onRefreshAccount }) {
           </div>
         </div>
       </div>
+
+      <AdminPanel />
     </div>
   );
 }
