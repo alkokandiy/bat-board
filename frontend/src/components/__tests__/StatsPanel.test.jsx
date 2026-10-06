@@ -92,36 +92,34 @@ describe('StatsPanel', () => {
     document.body.innerHTML = '';
   });
 
-  it('renders header, stat tiles, totals, heatmap, and breakdown', async () => {
+  it('renders header, hero stats, trend, and breakdown', async () => {
     render(<StatsPanel />);
 
     expect(await screen.findByText('FOCUS STATS')).toBeInTheDocument();
     expect(screen.getByText('Where the deep work actually goes.')).toBeInTheDocument();
 
-    expect(screen.getByText("Today's Sessions")).toBeInTheDocument();
-    expect(screen.getByText("Today's Focus")).toBeInTheDocument();
-    expect(screen.getByText('Total Sessions')).toBeInTheDocument();
-    expect(screen.getByText('Total Focus Duration')).toBeInTheDocument();
-    expect(screen.getAllByText('12').length).toBeGreaterThan(0);
+    // Hero cards
+    expect(screen.getByText('Today')).toBeInTheDocument();
+    expect(screen.getByText('This Week')).toBeInTheDocument();
+    expect(screen.getByText('Streak')).toBeInTheDocument();
+    expect(screen.getByText('All Time')).toBeInTheDocument();
     expect(screen.getAllByText('5h 40m').length).toBeGreaterThan(0);
 
-    await waitFor(() => expect(screen.getByText('4 days')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('days in a row')).toBeInTheDocument());
     expect(api.getFocusStats).toHaveBeenCalledWith('week');
-
-    const cells = document.querySelectorAll('div[title*="min"]');
-    expect(cells.length).toBe(35);
 
     expect(screen.getAllByText('Ship PHANTOM-1 auth module').length).toBeGreaterThan(0);
     expect(screen.getByText('Gym Training')).toBeInTheDocument();
     expect(screen.getAllByText('Unassigned').length).toBeGreaterThan(0);
   });
 
-  it('renders the recent focus curve and refetches on granularity change', async () => {
+  it('renders the focus trend bars and refetches on granularity change', async () => {
     render(<StatsPanel />);
 
-    expect(await screen.findByText('RECENT FOCUS CURVE')).toBeInTheDocument();
+    expect(await screen.findByText('Focus Trend')).toBeInTheDocument();
     expect(api.getFocusTrend).toHaveBeenCalledWith('day');
-    expect(document.querySelector('svg path')).toBeInTheDocument();
+    // Bars carry a "label · duration" title; at least one non-zero bar exists.
+    await waitFor(() => expect(document.querySelectorAll('div[title*="·"]').length).toBeGreaterThan(0));
 
     fireEvent.click(screen.getByTestId('trend-gran-week'));
     await waitFor(() => expect(api.getFocusTrend).toHaveBeenCalledWith('week'));
@@ -134,12 +132,12 @@ describe('StatsPanel', () => {
     });
 
     render(<StatsPanel />);
-    expect(await screen.findByText('No sessions yet this period')).toBeInTheDocument();
+    expect(await screen.findByText('No focus logged yet this period')).toBeInTheDocument();
   });
 
   it('refetches stats when the period toggle changes', async () => {
     render(<StatsPanel />);
-    await screen.findByText('4 days');
+    await screen.findByText('days in a row');
 
     fireEvent.click(screen.getByTestId('period-month'));
     await waitFor(() => expect(api.getFocusStats).toHaveBeenCalledWith('month'));
@@ -150,7 +148,7 @@ describe('StatsPanel', () => {
     api.getFocusSessionLog.mockResolvedValue({ total: 0, limit: 20, offset: 0, items: [] });
 
     render(<StatsPanel />);
-    await screen.findByText('0m');
+    await waitFor(() => expect(screen.getAllByText('0m').length).toBeGreaterThan(0));
     expect(screen.getByText('No completed focus sessions in this period.')).toBeInTheDocument();
   });
 
