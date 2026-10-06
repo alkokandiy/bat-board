@@ -42,7 +42,12 @@ class Settings(BaseSettings):
 
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
-    @field_validator("cors_origins", mode="before")
+    # Usernames allowed to use the admin endpoints (/api/admin/*). Comma-separated
+    # or a JSON array. Empty (the default) means NO admins, so the admin API is
+    # inert until an operator opts in — existing users are unaffected either way.
+    admin_usernames: List[str] = Field(default_factory=list)
+
+    @field_validator("cors_origins", "admin_usernames", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
