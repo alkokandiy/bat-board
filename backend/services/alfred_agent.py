@@ -25,6 +25,7 @@ from services.notes_service import delete_note
 from services.mission_service import delete_mission
 from services.habit_service import delete_habit
 from services.calendar_service import delete_event
+from services import briefing_service
 from services.llm_providers.base import LLMProviderAdapter, extract_system_instruction
 from services.timezones import local_now, local_today
 
@@ -124,6 +125,17 @@ existing topic, update that note rather than creating a near-duplicate title.
 open browser tab — the browser will not show the session, even on refresh. Whenever \
 you start a session, always say this plainly in your reply. Never imply the browser \
 will show anything live.
+- Briefings and reminders are the one thing you deliver UNPROMPTED, over Telegram, on \
+a schedule. A briefing is a standing morning or night summary (missions, habits, events, \
+focus, and optionally a few news headlines on chosen topics); a reminder is a single \
+recurring nudge the user defines ("take medicine", "call mum every Sunday"). When they \
+ask to set up, change, or remove either, gather the essentials in one short question \
+before acting — for a briefing: which (morning/night), what time, and what to include; \
+for a reminder: the message, the time, and how often (daily, certain weekdays, a day each \
+month, or once). News needs its topics. Read the current settings first (get_briefings / \
+list_reminders) before editing, and route any deletion through the confirmation gate. \
+Both are delivered over Telegram only — if the user has not linked Telegram, save the \
+setting but tell them plainly it won't reach them until they link it in Profile.
 - Things that are not done in bat-board — say so directly when asked, never pretend \
 otherwise: pausing or resuming a focus session (no mechanism exists; it is a dial on \
 the desk, not a wire to the cave); resetting Bat Points; \
@@ -427,6 +439,8 @@ def _confirmation_template(action_type: str, title: str) -> str:
         "delete_mission": "mission",
         "delete_habit": "habit",
         "delete_event": "event",
+        "delete_briefing": "briefing",
+        "delete_reminder": "reminder",
     }
     kind = kind_map.get(action_type, "item")
     return f"Delete the {kind} '{title}'? This can't be undone. Reply YES to confirm."
@@ -452,6 +466,10 @@ def _execute_pending(
         delete_habit(db, user, int(args.get("habit_id", -1)))
     elif row.action_type == "delete_event":
         delete_event(db, user, int(args.get("event_id", -1)))
+    elif row.action_type == "delete_briefing":
+        briefing_service.delete_briefing(db, user, str(args.get("kind", "")))
+    elif row.action_type == "delete_reminder":
+        briefing_service.delete_reminder(db, user, int(args.get("reminder_id", -1)))
     db.delete(row)
     db.commit()
     return f"Deleted '{title}'."

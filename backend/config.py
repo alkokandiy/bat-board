@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     telegram_bot_token: Optional[str] = None
     telegram_webhook_secret: Optional[str] = None
 
+    # Phase F: shared secret for the briefings/reminders cron endpoint
+    # (POST /api/internal/cron/tick). Unset → the endpoint fails closed (503),
+    # so the feature is simply dormant until an operator configures it.
+    cron_secret: Optional[str] = None
+
     # LLM key for Alfred Phase 2B. Unused for now.
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3.1-flash-lite"

@@ -64,6 +64,8 @@ class BatAccount(Base):
     pending_alfred_actions = relationship("BatPendingAlfredAction", back_populates="owner", cascade="all, delete-orphan")
     alfred_usage = relationship("BatAlfredUsage", back_populates="owner", cascade="all, delete-orphan")
     ai_provider_config = relationship("BatAIProviderConfig", back_populates="owner", cascade="all, delete-orphan", uselist=False)
+    briefings = relationship("BatBriefing", back_populates="owner", cascade="all, delete-orphan")
+    reminders = relationship("BatReminder", back_populates="owner", cascade="all, delete-orphan")
 
     active_alfred_session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="SET NULL"), nullable=True)
 
@@ -338,3 +340,89 @@ class BatAIProviderConfig(Base):
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     owner = relationship("BatAccount", back_populates="ai_provider_config")
+
+
+# --- Phase F: proactive briefings & reminders -------------------------------
+# Alfred pushes these to the user over Telegram on a schedule. A protected
+# cron endpoint (POST /api/internal/cron/tick) fires anything due in the
+# user's own timezone; the *_log tables make firing exactly-once so repeated
+# or overlapping ticks are harmless (insert-first, skip on conflict).
+
+BRIEFING_KINDS = ("morning", "night")
+REMINDER_RECURRENCES = ("once", "daily", "weekly", "monthly")
+
+
+class BatBriefing(Base):
+    """A user's morning or night briefing config. One row per (owner, kind)."""
+
+    __tablename__ = "bat_briefings"
+    __table_args__ = (UniqueConstraint("owner_id", "kind", name="uq_bat_briefings_owner_kind"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, nullable=False)  # "morning" | "night"
+    enabled = Column(Boolean, default=True, nullable=False)
+    send_time = Column(String, nullable=False)  # "HH:MM" in the owner's timezone
+
+    # Content sections (all default on except news, which needs topics chosen).
+    include_missions = Column(Boolean, default=True, nullable=False)
+    include_habits = Column(Boolean, default=True, nullable=False)
+    include_events = Column(Boolean, default=True, nullable=False)
+    include_focus = Column(Boolean, default=True, nullable=False)
+    include_news = Column(Boolean, default=False, nullable=False)
+    news_topics = Column(String, nullable=True)  # comma-separated, e.g. "AI, cybersecurity"
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="briefings")
+
+
+class BatBriefingLog(Base):
+    """One row per briefing actually sent, keyed by local date for exactly-once."""
+
+    __tablename__ = "bat_briefing_log"
+    __table_args__ = (UniqueConstraint("owner_id", "kind", "local_date", name="uq_bat_briefing_log_owner_kind_date"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, nullable=False)
+    local_date = Column(String, nullable=False)  # YYYY-MM-DD in the owner's timezone
+    sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+
+
+class BatReminder(Base):
+    """A user-defined reminder Alfred pushes on a schedule (take medicine, etc.)."""
+
+    __tablename__ = "bat_reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+
+    recurrence = Column(String, nullable=False)  # once | daily | weekly | monthly
+    send_time = Column(String, nullable=False)   # "HH:MM" in the owner's timezone
+    weekdays = Column(String, nullable=True)     # weekly: CSV of 0-6 (Mon=0)
+    day_of_month = Column(Integer, nullable=True)  # monthly: 1-31 (clamped to month end)
+    run_date = Column(String, nullable=True)     # once: "YYYY-MM-DD" local
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="reminders")
+
+
+class BatReminderLog(Base):
+    """One row per reminder occurrence actually sent, for exactly-once firing."""
+
+    __tablename__ = "bat_reminder_log"
+    __table_args__ = (UniqueConstraint("reminder_id", "local_date", name="uq_bat_reminder_log_reminder_date"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    local_date = Column(String, nullable=False)  # YYYY-MM-DD in the owner's timezone
+    sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    reminder_id = Column(Integer, ForeignKey("bat_reminders.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import models
 from services import (
+    briefing_service,
     calendar_service,
     countdown_service,
     focus_service,
@@ -21,6 +22,7 @@ from services import (
     notes_service,
     profile_service,
     stats_service,
+    telegram_service,
 )
 
 FOCUS_NO_LIVE_SYNC_NOTE = (
@@ -110,6 +112,31 @@ def _session_dict(s):
     }
 
 
+def _briefing_dict(b):
+    return {
+        "kind": b.kind, "enabled": b.enabled, "send_time": b.send_time,
+        "includes": {
+            "missions": b.include_missions, "habits": b.include_habits,
+            "events": b.include_events, "focus": b.include_focus, "news": b.include_news,
+        },
+        "news_topics": b.news_topics,
+    }
+
+
+def _reminder_dict(r):
+    d = {
+        "id": r.id, "message": r.message, "enabled": r.enabled,
+        "recurrence": r.recurrence, "send_time": r.send_time,
+    }
+    if r.recurrence == "weekly":
+        d["weekdays"] = briefing_service.weekdays_label(r.weekdays)
+    elif r.recurrence == "monthly":
+        d["day_of_month"] = r.day_of_month
+    elif r.recurrence == "once":
+        d["run_date"] = r.run_date
+    return d
+
+
 def _parse_dt(value, field_name):
     if value is None:
         return None
@@ -159,6 +186,10 @@ READ_TOOLS = [
          "query": {"type": "string", "description": "Substring to match in memory title or body."},
      }, "required": ["query"]}},
     {"name": "show_focus_chart", "description": "Send the user an image chart of their focus time over the last 7 days (bars per day, total, streak). Use when they ask to see/visualise their focus or a weekly focus summary.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_briefings", "description": "Show the user's morning/night briefing settings: whether each is on, its time, which sections it includes, and news topics. Use when they ask about their briefings or before editing one.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "list_reminders", "description": "List the user's reminders (message, schedule, enabled). Use before editing or deleting one, or when they ask what reminders are set.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "show_daily_brief", "description": "Send the user a daily brief card (image): missions due today, habits still to do, next calendar event and countdown, points and level. Use for 'my day', 'daily brief', 'what's on today', 'morning summary'.",
      "parameters": {"type": "object", "properties": {}}},
@@ -249,6 +280,34 @@ WRITE_TOOLS = [
          "countdown_id": {"type": "integer"},
          "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime."},
      }, "required": ["countdown_id"]}},
+    {"name": "set_briefing", "description": "Create or update a morning or night briefing that Alfred sends over Telegram on a schedule. Ask the user which kind, what time, and what to include before setting it. Briefings require a linked Telegram. Only pass fields the user specified; omitted toggles are left unchanged. To include news, set include_news true AND provide news_topics.",
+     "parameters": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["morning", "night"]},
+         "enabled": {"type": "boolean"},
+         "send_time": {"type": "string", "description": "HH:MM, 24-hour, in the user's timezone."},
+         "include_missions": {"type": "boolean"}, "include_habits": {"type": "boolean"},
+         "include_events": {"type": "boolean"}, "include_focus": {"type": "boolean"},
+         "include_news": {"type": "boolean"},
+         "news_topics": {"type": "string", "description": "Comma-separated topics, e.g. 'AI, cybersecurity, defense'. Required if include_news."},
+     }, "required": ["kind"]}},
+    {"name": "create_reminder", "description": "Create a reminder Alfred pushes over Telegram on a schedule (e.g. 'take medicine' every morning, 'call mum' every Sunday). Ask for the time and how often it should repeat when missing. Requires a linked Telegram.",
+     "parameters": {"type": "object", "properties": {
+         "message": {"type": "string", "description": "What to remind the user about."},
+         "recurrence": {"type": "string", "enum": ["once", "daily", "weekly", "monthly"]},
+         "send_time": {"type": "string", "description": "HH:MM, 24-hour, user's timezone."},
+         "weekdays": {"type": "string", "description": "weekly only: comma-separated, e.g. 'Mon,Thu' or '0,3' (Mon=0)."},
+         "day_of_month": {"type": "integer", "description": "monthly only: 1-31 (clamped to month end)."},
+         "run_date": {"type": "string", "description": "once only: YYYY-MM-DD."},
+     }, "required": ["message", "recurrence", "send_time"]}},
+    {"name": "update_reminder", "description": "Update an existing reminder (message, time, recurrence, enable/disable). Only pass fields to change.",
+     "parameters": {"type": "object", "properties": {
+         "reminder_id": {"type": "integer"},
+         "message": {"type": "string"}, "enabled": {"type": "boolean"},
+         "recurrence": {"type": "string", "enum": ["once", "daily", "weekly", "monthly"]},
+         "send_time": {"type": "string", "description": "HH:MM."},
+         "weekdays": {"type": "string"}, "day_of_month": {"type": "integer"},
+         "run_date": {"type": "string", "description": "YYYY-MM-DD."},
+     }, "required": ["reminder_id"]}},
     {"name": "start_focus_session", "description": "Record a focus session start (database record only). Optionally link a mission or habit.",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"}, "habit_id": {"type": "integer"},
@@ -280,6 +339,14 @@ DESTRUCTIVE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "event_id": {"type": "integer"},
      }, "required": ["event_id"]}},
+    {"name": "delete_briefing", "description": "Delete (turn off and remove) a morning or night briefing. Requires user confirmation — never call directly.",
+     "parameters": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["morning", "night"]},
+     }, "required": ["kind"]}},
+    {"name": "delete_reminder", "description": "Delete a reminder. Requires user confirmation — never call directly.",
+     "parameters": {"type": "object", "properties": {
+         "reminder_id": {"type": "integer"},
+     }, "required": ["reminder_id"]}},
 ]
 
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + DESTRUCTIVE_TOOLS
@@ -321,6 +388,13 @@ def _describe_tool_target(
         e = calendar_service.list_upcoming_events(db, current_user)
         match = next((x for x in e if x.id == int(args.get("event_id"))), None)
         return match.title if match else None
+    if name == "delete_briefing":
+        kind = str(args.get("kind") or "")
+        b = briefing_service.get_briefing(db, current_user, kind)
+        return f"{kind} briefing" if b else None
+    if name == "delete_reminder":
+        r = briefing_service.get_reminder(db, current_user, int(args.get("reminder_id")))
+        return r.message if r else None
     return None
 
 
@@ -390,6 +464,15 @@ def execute_tool(
             if _has_memory_tag(n)
         ]
         return {"memories": [{"title": n.title, "body": n.body} for n in matches]}
+
+    if name == "get_briefings":
+        briefs = briefing_service.list_briefings(db, current_user)
+        return {"briefings": [_briefing_dict(b) for b in briefs],
+                "telegram_linked": telegram_service.is_telegram_linked(db, current_user)}
+    if name == "list_reminders":
+        rems = briefing_service.list_reminders(db, current_user)
+        return {"reminders": [_reminder_dict(r) for r in rems],
+                "telegram_linked": telegram_service.is_telegram_linked(db, current_user)}
 
     if name == "create_mission":
         m = mission_service.create_mission(
@@ -506,6 +589,50 @@ def execute_tool(
         if c is None:
             return {"error": "Countdown not found"}
         return {"countdown": _countdown_dict(c)}
+    if name == "set_briefing":
+        try:
+            b = briefing_service.upsert_briefing(
+                db, current_user, kind=args["kind"],
+                enabled=args.get("enabled"), send_time=args.get("send_time"),
+                include_missions=args.get("include_missions"),
+                include_habits=args.get("include_habits"),
+                include_events=args.get("include_events"),
+                include_focus=args.get("include_focus"),
+                include_news=args.get("include_news"),
+                news_topics=args.get("news_topics"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        result = {"briefing": _briefing_dict(b)}
+        if not telegram_service.is_telegram_linked(db, current_user):
+            result["note"] = ("Saved, but no Telegram is linked yet — briefings are "
+                              "delivered over Telegram, so link it in Profile to receive them.")
+        return result
+    if name == "create_reminder":
+        try:
+            r = briefing_service.create_reminder(
+                db, current_user, message=args["message"], recurrence=args["recurrence"],
+                send_time=args["send_time"], weekdays=args.get("weekdays"),
+                day_of_month=args.get("day_of_month"), run_date=args.get("run_date"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        result = {"reminder": _reminder_dict(r)}
+        if not telegram_service.is_telegram_linked(db, current_user):
+            result["note"] = ("Saved, but no Telegram is linked yet — reminders are "
+                              "delivered over Telegram, so link it in Profile to receive them.")
+        return result
+    if name == "update_reminder":
+        try:
+            r = briefing_service.update_reminder(
+                db, current_user, int(args["reminder_id"]),
+                message=args.get("message"), enabled=args.get("enabled"),
+                recurrence=args.get("recurrence"), send_time=args.get("send_time"),
+                weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
+                run_date=args.get("run_date"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        if r is None:
+            return {"error": "Reminder not found"}
+        return {"reminder": _reminder_dict(r)}
     if name == "start_focus_session":
         try:
             s = focus_service.start_focus_session(

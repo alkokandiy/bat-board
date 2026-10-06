@@ -11,7 +11,7 @@ Source: the owner's plan, recovered 2026-10-05. Phases are built in order.
 | Phase 4A (Batch E) | Image understanding (Telegram photos) | Done |
 | Visual briefs | Focus-week chart + daily-brief card images (Telegram) | Done |
 | Phase 4B (Batch E) | Image *generation* | Deferred — chart visuals cover the stated use cases; AI-gen only via BYOK key |
-| Phase 5 (Batch F) | Daily morning / night briefings | Planned |
+| Phase 5 (Batch F) | Daily briefings + reminders | Done |
 
 ## Adjustments to the plan (as of 2026-10-05)
 
@@ -162,3 +162,29 @@ Design constraints:
   to the template on provider failure, rejects missing/wrong cron secret.
 - Document the Railway cron setup in the README as exact steps for me to do
   by hand, and mark clearly that I need to perform them.
+
+### What was actually built (2026-10-06)
+
+Delivered as one feature (migration `014`, PR for `feat/briefings-reminders`),
+extending the plan above per the owner's request:
+
+- **Conversational, not slash commands.** Alfred owns this through new tools —
+  `get_briefings` / `set_briefing` / `delete_briefing`, `list_reminders` /
+  `create_reminder` / `update_reminder` / `delete_reminder`. He asks the
+  clarifying questions (which briefing, what time, what to include; a
+  reminder's message/time/recurrence) and routes deletes through the existing
+  confirmation gate.
+- **Configurable content sections** per briefing: missions, habits, events,
+  focus, and **news** — plus `news_topics`. News is pulled from Google News
+  RSS (reputable outlets, no API key, short headline + publisher), topic-based
+  (AI, cybersecurity, defense, politics, …), acknowledgment-style.
+- **General reminders** beyond briefings: `daily` / `weekly` (weekdays) /
+  `monthly` (day-of-month, clamped to month end) / `once`. One-off reminders
+  disable themselves after firing.
+- **Tables:** `bat_briefings`, `bat_briefing_log`, `bat_reminders`,
+  `bat_reminder_log` (two insert-first logs for exactly-once).
+- **Firing:** `POST /api/internal/cron/tick` guarded by `X-Cron-Secret`
+  (`secrets.compare_digest`); `services/scheduler.py` fires in each user's
+  timezone within a 3h window; `services/briefings.py` builds Alfred-voiced
+  text (template always; optional provider polish with template fallback).
+- **Next free migration: 015.**

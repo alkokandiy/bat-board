@@ -1,0 +1,206 @@
+"""Clock-driven firing of briefings and reminders.
+
+Driven by a protected cron endpoint (POST /api/internal/cron/tick) hit about
+once a minute — NOT an in-process scheduler, so it is correct at any worker
+count (see docs/ROADMAP.md). Each due item is fired at most once per local day
+via an insert-first on a *_log table with a UNIQUE constraint: if the insert
+conflicts (a concurrent tick, a retry), we roll back and skip. A missed window
+is skipped rather than fired late, so a morning brief never lands at noon.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, time, timedelta
+from typing import Optional
+
+import structlog
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+import models
+from config import get_settings
+from services import briefings, telegram_service
+from services.timezones import user_tz
+
+log = structlog.get_logger(__name__)
+
+# How late an item may still fire after its scheduled minute. Beyond this the
+# occurrence is skipped (the next day's will fire normally).
+LATE_WINDOW = timedelta(hours=3)
+
+
+def _parse_hhmm(value: str) -> Optional[time]:
+    try:
+        hh, mm = (value or "").strip().split(":")
+        return time(int(hh), int(mm))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _chat_id_for(db: Session, user: models.BatAccount) -> Optional[str]:
+    """The user's linked Telegram chat id, via any live personal access token."""
+    row = (
+        db.query(models.BatPersonalAccessToken)
+        .filter(models.BatPersonalAccessToken.owner_id == user.id,
+                models.BatPersonalAccessToken.revoked.is_(False),
+                models.BatPersonalAccessToken.telegram_chat_id.isnot(None))
+        .first()
+    )
+    return row.telegram_chat_id if row else None
+
+
+def _within_window(local_now: datetime, scheduled: time) -> bool:
+    """True if now is at or just past the scheduled local time (within LATE_WINDOW)."""
+    today_at = local_now.replace(hour=scheduled.hour, minute=scheduled.minute,
+                                 second=0, microsecond=0)
+    delta = local_now - today_at
+    return timedelta(0) <= delta <= LATE_WINDOW
+
+
+def _reminder_due_today(reminder: models.BatReminder, local_now: datetime) -> bool:
+    """Does this reminder's recurrence land on today's local date?"""
+    today = local_now.date()
+    rec = reminder.recurrence
+    if rec == "daily":
+        return True
+    if rec == "weekly":
+        days = {int(d) for d in (reminder.weekdays or "").split(",") if d.strip().isdigit()}
+        return today.weekday() in days
+    if rec == "monthly":
+        dom = reminder.day_of_month or 1
+        # Clamp to the month's last day so e.g. the 31st fires in February.
+        if local_now.day == dom:
+            return True
+        import calendar
+        last = calendar.monthrange(today.year, today.month)[1]
+        return dom > last and local_now.day == last
+    if rec == "once":
+        return (reminder.run_date or "") == today.isoformat()
+    return False
+
+
+def _send(db: Session, user: models.BatAccount, chat_id: str, text: str) -> bool:
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        log.warning("scheduler_no_bot_token")
+        return False
+    return telegram_service.send_telegram_message(settings.telegram_bot_token, chat_id, text)
+
+
+async def _fire_briefings(db: Session, user: models.BatAccount, chat_id: str,
+                          local_now: datetime, adapter, summary: dict) -> None:
+    briefs = (
+        db.query(models.BatBriefing)
+        .filter(models.BatBriefing.owner_id == user.id,
+                models.BatBriefing.enabled.is_(True))
+        .all()
+    )
+    for b in briefs:
+        scheduled = _parse_hhmm(b.send_time)
+        if not scheduled or not _within_window(local_now, scheduled):
+            continue
+        local_date = local_now.date().isoformat()
+
+        # Insert-first: claim this (owner, kind, day) before doing any work.
+        logrow = models.BatBriefingLog(owner_id=user.id, kind=b.kind, local_date=local_date)
+        db.add(logrow)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()  # already sent today (or a concurrent tick won)
+            continue
+
+        try:
+            text = await briefings.build_briefing_text(db, user, b, adapter=adapter)
+            ok = _send(db, user, chat_id, text)
+        except Exception as exc:
+            ok = False
+            log.warning("briefing_build_failed", user_id=user.id, kind=b.kind, error=str(exc))
+        summary["briefings_sent" if ok else "briefings_failed"] += 1
+        if not ok:
+            # Delivery failed — release the claim so a later tick can retry today.
+            db.delete(logrow)
+            db.commit()
+
+
+def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
+                    local_now: datetime, summary: dict) -> None:
+    rems = (
+        db.query(models.BatReminder)
+        .filter(models.BatReminder.owner_id == user.id,
+                models.BatReminder.enabled.is_(True))
+        .all()
+    )
+    for r in rems:
+        scheduled = _parse_hhmm(r.send_time)
+        if not scheduled or not _within_window(local_now, scheduled):
+            continue
+        if not _reminder_due_today(r, local_now):
+            continue
+        local_date = local_now.date().isoformat()
+
+        logrow = models.BatReminderLog(reminder_id=r.id, owner_id=user.id, local_date=local_date)
+        db.add(logrow)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            continue
+
+        try:
+            ok = _send(db, user, chat_id, briefings.render_reminder(user, r))
+        except Exception as exc:
+            ok = False
+            log.warning("reminder_send_failed", reminder_id=r.id, error=str(exc))
+
+        if ok:
+            summary["reminders_sent"] += 1
+            if r.recurrence == "once":
+                r.enabled = False  # one-shot: don't fire again
+                db.commit()
+        else:
+            summary["reminders_failed"] += 1
+            db.delete(logrow)
+            db.commit()
+
+
+async def run_tick(db: Session, adapter_for=None) -> dict:
+    """Fire every briefing/reminder due right now, for every eligible user.
+
+    `adapter_for(db, user)` returns that user's LLM adapter or None; it is a
+    parameter so tests can stub provider behaviour. Users without a linked
+    Telegram chat are skipped silently.
+    """
+    summary = {"users": 0, "briefings_sent": 0, "briefings_failed": 0,
+               "reminders_sent": 0, "reminders_failed": 0}
+
+    if adapter_for is None:
+        from services import alfred_agent
+
+        def adapter_for(_db, _user):
+            try:
+                return alfred_agent.resolve_adapter_for_user(_db, _user)
+            except Exception:
+                return None
+
+    # Only users who actually have an enabled briefing or reminder.
+    owner_ids = set()
+    owner_ids.update(oid for (oid,) in db.query(models.BatBriefing.owner_id)
+                     .filter(models.BatBriefing.enabled.is_(True)).distinct())
+    owner_ids.update(oid for (oid,) in db.query(models.BatReminder.owner_id)
+                     .filter(models.BatReminder.enabled.is_(True)).distinct())
+    if not owner_ids:
+        return summary
+
+    users = db.query(models.BatAccount).filter(models.BatAccount.id.in_(owner_ids)).all()
+    for user in users:
+        chat_id = _chat_id_for(db, user)
+        if not chat_id:
+            continue  # no linked Telegram — nothing to deliver to
+        summary["users"] += 1
+        local_now = datetime.now(user_tz(user))
+        adapter = adapter_for(db, user)
+        await _fire_briefings(db, user, chat_id, local_now, adapter, summary)
+        _fire_reminders(db, user, chat_id, local_now, summary)
+
+    return summary
