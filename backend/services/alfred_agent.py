@@ -5,6 +5,7 @@ returned string via send_telegram_message.
 """
 
 import json
+import random
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import List, Optional, Tuple
 
@@ -98,17 +99,24 @@ How you work bat-board (it holds missions, habits, focus sessions, \
 notes, countdowns, calendar events, and logs — you act on all of them through your tools):
 - Before answering ANY question about current affairs, consult the board first — call \
 the relevant read tool. Never guess or recall from memory what missions, habits, or \
-notes exist. Always fetch fresh.
-- When {address} asks for something to be logged with only the bare bones — \
-a mission with just a name, a habit with just a title — do not fire it off half-dressed \
-if two answers would dress it properly. Ask, in one short question, for the one or two \
-details that actually matter: for a mission, its importance (low, medium, high, \
-critical) and its target date; for an event, its start time; for a habit, how often it \
-is to be kept. Then stand by — the answer comes in their next message, and you act then.
-- But know the difference between tailoring and dithering. If they wave the question \
-off — "just log it", "defaults are fine" — you log it at once with sensible defaults \
-and say what you assumed, so it can be corrected. Never block on trimmings: tags, \
-location, notes, colour-coding. Those are offered, never demanded.
+notes exist. Always fetch fresh. When they ask what they have — "my missions", "list my \
+tasks" — list them ALL (every open one, by title), not merely the dated or high-priority \
+few. Do not quietly filter; if there are many, that is fine — show the lot.
+- SEVERAL at once: when {address} gives you more than one mission in a single message \
+(a list, several lines, "add these: …"), create them ALL in ONE create_missions call — \
+never one-by-one, and NEVER issue a create twice for the same item. Do not interrogate a \
+batch: apply sensible defaults (medium priority, no due date unless they stated one) and \
+report plainly what you added, and anything skipped as already on the board. The same \
+holds for several of anything.
+- A SINGLE bare item is the one time you may ask first: one mission with just a name, one \
+habit with just a title. Ask, in one short question, for the one or two details that \
+actually matter: for a mission, its importance (low, medium, high, critical) and target \
+date; for an event, its start time; for a habit, how often. Then stand by — the answer \
+comes in their next message. But know tailoring from dithering: if they wave it off \
+("just log it", "defaults are fine"), log it at once with sensible defaults and say what \
+you assumed. Never block on trimmings (tags, location, notes, colour) — offer, never demand.
+- Never create something that already exists. If an item is already on the board, skip it \
+and say so rather than making a second copy.
 - Deleting any entity (mission, habit, note, event, countdown) goes through a \
 confirmation gate. Call the delete tool — the system will present a confirmation \
 template to the user. Wait for YES before proceeding. Never skip the gate.
@@ -165,7 +173,9 @@ def _build_system_prompt(user: models.BatAccount) -> str:
         current_time=_format_local(local_now(user)),
     )
 
-MAX_TOOL_CALLS_PER_TURN = 5
+# Bulk mission adds go through the single create_missions call, so this cap
+# bounds *distinct* operations in a turn rather than how many items are created.
+MAX_TOOL_CALLS_PER_TURN = 8
 MAX_MODEL_CALLS_PER_TURN = 8
 MAX_HISTORY_TURNS = 20
 PENDING_TTL = timedelta(minutes=2)
@@ -665,6 +675,7 @@ async def _tool_loop(
 ) -> str:
     executions = 0
     last_text = None
+    executed: List[Tuple[str, dict]] = []  # (tool_name, result) for the fallback summary
 
     # Model calls are bounded separately from tool executions: unknown or
     # missing-target calls don't execute anything, and a model that keeps
@@ -708,9 +719,67 @@ async def _tool_loop(
             else:
                 result = _execute_tool_safely(db, user, call.name, call.arguments or {}, media_sink)
                 executions += 1
+                executed.append((call.name, result if isinstance(result, dict) else {}))
             messages.append({"role": "tool", "name": call.name, "result": result})
 
-    return last_text or "Done — anything else?"
+    if last_text:
+        return last_text
+    return _summarize_turn(executed)
+
+
+# Varied openers so back-to-back confirmations don't all read "Done.".
+_DONE_OPENERS = ["Done", "Very good", "Consider it done", "As you wish", "Handled"]
+
+
+def _summarize_turn(executed: List[Tuple[str, dict]]) -> str:
+    """A brief, informative confirmation built from what actually ran this turn.
+    Used only when the model returned no closing text of its own."""
+    if not executed:
+        return "Done — anything else?"
+
+    created = skipped = completed = checked = updated = deleted = 0
+    other = 0
+    for name, result in executed:
+        if name == "create_missions":
+            created += int(result.get("created_count", 0) or 0)
+            skipped += len(result.get("skipped_duplicates", []) or [])
+        elif name == "create_mission":
+            if result.get("skipped"):
+                skipped += 1
+            else:
+                created += 1
+        elif name in ("create_habit", "create_event", "create_note", "create_countdown", "create_reminder"):
+            created += 1
+        elif name == "complete_mission":
+            completed += 1
+        elif name == "check_in_habit":
+            checked += 1
+        elif name.startswith("update_") or name in ("set_briefing", "toggle_pin"):
+            updated += 1
+        elif name.startswith("delete_"):
+            deleted += 1
+        else:
+            other += 1
+
+    parts = []
+    if created:
+        parts.append(f"added {created} item{'s' if created != 1 else ''}")
+    if completed:
+        parts.append(f"completed {completed}")
+    if checked:
+        parts.append(f"checked in {checked}")
+    if updated:
+        parts.append(f"updated {updated}")
+    if deleted:
+        parts.append(f"removed {deleted}")
+    if skipped:
+        parts.append(f"skipped {skipped} already on the board")
+
+    opener = random.choice(_DONE_OPENERS)
+    if not parts:
+        return f"{opener} — anything else?"
+    # "Done — added 6 items, skipped 2 already on the board."
+    return f"{opener} — {', '.join(parts)}."
 
 
 def _execute_tool_safely(db: Session, user: models.BatAccount, name: str, args: dict, media_sink: Optional[list] = None) -> dict:
