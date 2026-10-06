@@ -42,12 +42,14 @@ class Settings(BaseSettings):
 
     cors_origins: List[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
-    # Usernames allowed to use the admin endpoints (/api/admin/*). Comma-separated
-    # or a JSON array. Empty (the default) means NO admins, so the admin API is
-    # inert until an operator opts in — existing users are unaffected either way.
-    admin_usernames: List[str] = Field(default_factory=list)
+    # Usernames allowed to use the admin endpoints (/api/admin/*), as a plain
+    # comma-separated string (e.g. "alice,bob"). Kept as `str`, not List[str]:
+    # pydantic-settings JSON-decodes complex env fields before validators run,
+    # so a bare "alice" would crash startup. Parsed in routers/admin.py.
+    # Empty (the default) means NO admins — the admin API stays inert.
+    admin_usernames: str = ""
 
-    @field_validator("cors_origins", "admin_usernames", mode="before")
+    @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
         if isinstance(v, str):

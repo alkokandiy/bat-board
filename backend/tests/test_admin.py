@@ -10,7 +10,8 @@ from routers import admin as admin_router
 
 
 def _mk_settings(*admins):
-    return type("S", (), {"admin_usernames": list(admins)})()
+    # admin_usernames is a plain comma-separated string (env-safe), like prod.
+    return type("S", (), {"admin_usernames": ",".join(admins)})()
 
 
 def _uid(username):

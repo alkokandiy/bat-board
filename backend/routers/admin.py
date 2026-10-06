@@ -25,7 +25,8 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def _admin_names() -> set:
-    return {n.strip() for n in get_settings().admin_usernames if n and n.strip()}
+    raw = get_settings().admin_usernames or ""
+    return {n.strip() for n in raw.split(",") if n.strip()}
 
 
 def is_admin(user: models.BatAccount) -> bool:
