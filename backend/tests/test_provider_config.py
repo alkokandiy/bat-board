@@ -53,7 +53,7 @@ def test_status_never_returns_key(client, auth_headers):
     body = r.json()
     assert body["configured"] is True
     assert body["provider"] == "gemini"
-    assert set(body.keys()) == {"provider", "model_name", "configured"}
+    assert set(body.keys()) == {"provider", "model_name", "configured", "free_tier"}
 
 
 def test_endpoint_rejects_save_when_test_fails(client, auth_headers, monkeypatch):
