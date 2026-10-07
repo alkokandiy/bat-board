@@ -113,3 +113,23 @@ def test_summary_is_varied_and_informative():
         ("complete_mission", {}), ("check_in_habit", {}), ("update_note", {}),
     ])
     assert "completed 1" in s2 and "checked in 1" in s2 and "updated 1" in s2
+
+
+def test_list_missions_returns_deterministic_counts():
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        for i in range(11):
+            db.add(models.BatMission(owner_id=uid, title=f"P{i}", status="pending"))
+        for i in range(3):
+            db.add(models.BatMission(owner_id=uid, title=f"C{i}", status="completed"))
+        db.add(models.BatMission(owner_id=uid, title="D", status="dismissed", is_dismissed=True))
+        db.commit()
+    finally:
+        db.close()
+    res = _run(uid, "list_missions", {})
+    assert res["counts"] == {"pending": 11, "completed": 3, "dismissed": 1, "total": 15}
+    assert res["showing"] == "pending"
+    assert len(res["missions"]) == 11            # default shows pending only
+    assert len(_run(uid, "list_missions", {"status": "all"})["missions"]) == 15
+    assert len(_run(uid, "list_missions", {"status": "completed"})["missions"]) == 3
