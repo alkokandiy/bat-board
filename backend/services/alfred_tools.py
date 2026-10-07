@@ -182,9 +182,10 @@ def _parse_dt(value, field_name):
 
 
 READ_TOOLS = [
-    {"name": "list_missions", "description": "List the user's missions. Optionally filter by due date.",
+    {"name": "list_missions", "description": "List the user's missions AND get exact counts. Returns `missions` (filtered by `status`, default pending/active) plus `counts` {pending, completed, dismissed, total} computed server-side. For ANY 'how many missions' question, report the number straight from `counts` — never tally the list yourself. The default pending count matches the dashboard's Active Missions.",
      "parameters": {"type": "object", "properties": {
          "due_date": {"type": "string", "description": "ISO date to filter missions due on that day."},
+         "status": {"type": "string", "enum": ["pending", "completed", "all"], "description": "Which missions to return (default pending). `counts` always covers everything regardless."},
      }}},
     {"name": "list_habits", "description": "List the user's habits with streaks.",
      "parameters": {"type": "object", "properties": {}}},
@@ -453,9 +454,25 @@ def execute_tool(
         raise RuntimeError(f"Tool {name} requires confirmation and cannot execute directly")
 
     if name == "list_missions":
-        return {"missions": [_mission_dict(m) for m in mission_service.list_missions(
-            db, current_user,
-            due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None)]}
+        due = _parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None
+        all_m = mission_service.list_missions(db, current_user, due_date=due)
+        # Code-computed counts so Alfred never has to tally the list itself.
+        # "pending" matches the dashboard's Active Missions (status == 'pending').
+        pending = [m for m in all_m if m.status == "pending"]
+        completed = [m for m in all_m if m.status == "completed"]
+        dismissed = [m for m in all_m if m.status == "dismissed" or m.is_dismissed]
+        status = (args.get("status") or "pending").lower()
+        shown = completed if status == "completed" else all_m if status == "all" else pending
+        return {
+            "missions": [_mission_dict(m) for m in shown],
+            "showing": status,
+            "counts": {
+                "pending": len(pending),
+                "completed": len(completed),
+                "dismissed": len(dismissed),
+                "total": len(all_m),
+            },
+        }
     if name == "list_habits":
         return {"habits": [_habit_dict(h) for h in habit_service.list_habits(db, current_user)]}
     if name == "list_upcoming_events":
