@@ -10,7 +10,7 @@ is skipped rather than fired late, so a morning brief never lands at noon.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -164,15 +164,65 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
             db.commit()
 
 
+def _focus_target_name(db: Session, session: models.BatFocus) -> Optional[str]:
+    if session.mission_id:
+        m = db.get(models.BatMission, session.mission_id)
+        return m.title if m else None
+    if session.habit_id:
+        h = db.get(models.BatHabit, session.habit_id)
+        return h.name if h else None
+    return None
+
+
+def _fire_due_focus(db: Session, now_utc: datetime, summary: dict) -> None:
+    """Auto-end any timed focus session whose time is up, then ping the user.
+
+    Runs for every user regardless of briefings/reminders — a timer is a timer.
+    """
+    from services import focus_service
+
+    open_timed = (
+        db.query(models.BatFocus)
+        .filter(models.BatFocus.end_time.is_(None),
+                models.BatFocus.planned_minutes.isnot(None))
+        .all()
+    )
+    for s in open_timed:
+        start = s.start_time if s.start_time.tzinfo else s.start_time.replace(tzinfo=timezone.utc)
+        if now_utc < start + timedelta(minutes=s.planned_minutes):
+            continue  # not finished yet
+        owner = db.get(models.BatAccount, s.owner_id)
+        if owner is None:
+            continue
+        target = _focus_target_name(db, s)
+        planned = s.planned_minutes
+        ended = focus_service.end_focus_session(db, owner, s.id, duration_minutes=planned)
+        if ended is None:
+            continue
+        summary["focus_autoended"] += 1
+        chat_id = _chat_id_for(db, owner)
+        if not chat_id:
+            continue
+        addr = (getattr(owner, "alfred_address", None) or "").strip() or owner.username
+        tgt = f" on {target}" if target else ""
+        if _send(db, owner, chat_id, f"Focus complete, {addr} — {planned} minutes logged{tgt}. Well done."):
+            summary["focus_pings_sent"] += 1
+
+
 async def run_tick(db: Session, adapter_for=None) -> dict:
-    """Fire every briefing/reminder due right now, for every eligible user.
+    """Fire every briefing/reminder due right now, for every eligible user,
+    and auto-end any timed focus session whose time is up.
 
     `adapter_for(db, user)` returns that user's LLM adapter or None; it is a
     parameter so tests can stub provider behaviour. Users without a linked
     Telegram chat are skipped silently.
     """
     summary = {"users": 0, "briefings_sent": 0, "briefings_failed": 0,
-               "reminders_sent": 0, "reminders_failed": 0}
+               "reminders_sent": 0, "reminders_failed": 0,
+               "focus_autoended": 0, "focus_pings_sent": 0}
+
+    # Timed focus sessions auto-end on their own clock, for everyone.
+    _fire_due_focus(db, datetime.now(timezone.utc), summary)
 
     if adapter_for is None:
         from services import alfred_agent
