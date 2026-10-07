@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-3.1-flash-lite"
 
+    # Free tier: a built-in provider the operator funds so NEW users get value
+    # with no API key of their own. Dormant until `system_provider_key` is set —
+    # until then users without their own key see the normal setup prompt.
+    # BYOK remains unlimited; free-tier users are capped per day below.
+    system_provider: Optional[str] = None          # gemini | anthropic | openai | deepseek | kimi
+    system_model: Optional[str] = None              # model id for that provider
+    system_provider_key: Optional[str] = None       # the operator-funded key
+    free_tier_daily_cap: int = 15                   # messages/day on the free tier
+
     # Per-user provider keys (BYOK). Fail-loudly like SECRET_KEY: the app
     # refuses to boot without it, so stored keys are never unreadable.
     provider_key_encryption_secret: Optional[str] = None

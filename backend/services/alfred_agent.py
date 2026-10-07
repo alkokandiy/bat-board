@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
+from config import get_settings
 from services import alfred_tools, llm_provider
 from services.alfred_tools import (
     DESTRUCTIVE_TOOL_NAMES,
@@ -231,12 +232,17 @@ SNAG_REPLY = "Alfred hit a snag — try again in a moment."
 RATE_LIMIT_REPLY = "Alfred's thinking engine is rate-limited right now — give it a minute and try again."
 SERVICE_DOWN_REPLY = "Alfred's thinking engine is temporarily overloaded — try again in a moment."
 CAPPED_REPLY = "Alfred's had a lot to think about today — back tomorrow."
+FREE_TIER_CAPPED_REPLY = (
+    "That's today's free allowance with me, sir. It resets tomorrow — or, for "
+    "unlimited use, add your own model key in bat-board → Alfred settings "
+    "(or send /setkey here)."
+)
 
 # Replies that mean no real exchange happened (quota, setup, or a failed model
 # call). The background memory review is skipped for these: there is nothing
 # to file, and after a provider failure it would just fail again at our cost.
 NO_REVIEW_REPLIES = frozenset({
-    CAPPED_REPLY, SETUP_REPLY, NOT_CONFIGURED_REPLY, SNAG_REPLY,
+    CAPPED_REPLY, FREE_TIER_CAPPED_REPLY, SETUP_REPLY, NOT_CONFIGURED_REPLY, SNAG_REPLY,
     RATE_LIMIT_REPLY, SERVICE_DOWN_REPLY,
 })
 
@@ -301,20 +307,26 @@ def _today_key(user: models.BatAccount) -> str:
     return local_today(user).isoformat()
 
 
-def check_usage(db: Session, user: models.BatAccount) -> bool:
+def check_usage(db: Session, user: models.BatAccount, cap: Optional[int] = None) -> bool:
     """True if the user may proceed (and counts this message). False at cap.
+
+    `cap` is the per-day message limit — defaults to DAILY_MESSAGE_CAP (read at
+    call time, so it stays monkeypatchable) for BYOK users; the smaller
+    free-tier cap is passed in for users on the operator-funded key.
 
     Race-free across workers: a single conditional UPDATE both checks the cap
     and increments; the first message of the day inserts the row, and the
     (owner_id, day) unique constraint turns a concurrent insert into a retry
     of the UPDATE. (The old read-then-write could double-insert or overshoot.)
     """
+    if cap is None:
+        cap = DAILY_MESSAGE_CAP
     day = _today_key(user)
     usage = models.BatAlfredUsage
     for _ in range(2):
         updated = (
             db.query(usage)
-            .filter(usage.owner_id == user.id, usage.day == day, usage.count < DAILY_MESSAGE_CAP)
+            .filter(usage.owner_id == user.id, usage.day == day, usage.count < cap)
             .update({usage.count: usage.count + 1}, synchronize_session=False)
         )
         if updated:
@@ -547,17 +559,32 @@ class NoProviderConfiguredError(RuntimeError):
     """Raised when a turn needs an LLM but the user has no provider config."""
 
 
+def user_on_free_tier(db: Session, user: models.BatAccount) -> bool:
+    """True when the user has no key of their own but a system key exists —
+    i.e. they're running on the operator-funded free tier (daily-capped)."""
+    from services import provider_config_service
+
+    if provider_config_service.get_config_row(db, user) is not None:
+        return False
+    return provider_config_service.build_system_adapter() is not None
+
+
 def resolve_adapter_for_user(db: Session, user: models.BatAccount):
-    """Per-user adapter selection. Raises NoProviderConfiguredError when absent."""
+    """Per-user adapter selection. Prefers the user's own key (BYOK, unlimited);
+    falls back to the operator-funded free-tier adapter when one is configured;
+    raises NoProviderConfiguredError only when neither exists."""
     from services import provider_config_service
 
     row = provider_config_service.get_config_row(db, user)
-    if row is None:
-        raise NoProviderConfiguredError(
-            "No AI provider configured for this user."
-        )
-    raw_key = provider_config_service.decrypt_key(row.api_key_encrypted)
-    return provider_config_service.build_adapter(row.provider, row.model_name, raw_key)
+    if row is not None:
+        raw_key = provider_config_service.decrypt_key(row.api_key_encrypted)
+        return provider_config_service.build_adapter(row.provider, row.model_name, raw_key)
+
+    system = provider_config_service.build_system_adapter()
+    if system is not None:
+        return system
+
+    raise NoProviderConfiguredError("No AI provider configured for this user.")
 
 
 def vision_precheck(db: Session, user: models.BatAccount) -> str:
@@ -640,8 +667,12 @@ async def run_turn(
         store_turn(db, user, session_id, user_text, SETUP_REPLY)
         return SETUP_REPLY
 
-    if not check_usage(db, user):
-        return CAPPED_REPLY
+    # Free-tier users (operator-funded key, no BYOK) get a smaller daily cap and
+    # a message that nudges them to add their own key for unlimited use.
+    free_tier = user_on_free_tier(db, user)
+    cap = get_settings().free_tier_daily_cap if free_tier else DAILY_MESSAGE_CAP
+    if not check_usage(db, user, cap=cap):
+        return FREE_TIER_CAPPED_REPLY if free_tier else CAPPED_REPLY
 
     live_user = {"role": "user", "content": user_text}
     if images:

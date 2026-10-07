@@ -159,6 +159,10 @@ npm run dev
 | `TELEGRAM_BOT_TOKEN` | For Telegram | — | Bot token from BotFather (voice, images, briefings, reminders) |
 | `TELEGRAM_WEBHOOK_SECRET` | For Telegram | — | Shared secret for the Telegram webhook |
 | `CRON_SECRET` | For briefings | — | Shared secret for the briefings/reminders cron tick (see below). Unset → the tick endpoint returns 503 and the feature stays dormant |
+| `SYSTEM_PROVIDER` | For free tier | — | Built-in provider for new users (`gemini`/`anthropic`/`openai`/`deepseek`/`kimi`). Set all three `SYSTEM_*` vars to turn the free tier on |
+| `SYSTEM_MODEL` | For free tier | — | Model id for `SYSTEM_PROVIDER` |
+| `SYSTEM_PROVIDER_KEY` | For free tier | — | The operator-funded key. While unset, users with no key of their own see the setup prompt (unchanged). While set, they get Alfred for free up to the daily cap; BYOK stays unlimited |
+| `FREE_TIER_DAILY_CAP` | No | `15` | Messages/day for free-tier users before they're nudged to add their own key |
 
 ---
 

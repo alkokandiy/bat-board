@@ -94,11 +94,19 @@ def get_decrypted_key(db: Session, current_user: models.BatAccount) -> Optional[
 
 
 def get_config_status(db: Session, current_user: models.BatAccount) -> Dict:
-    """Status only — NEVER the key itself."""
+    """Status only — NEVER the key itself.
+
+    `free_tier` is True when the user has no key of their own but a system key
+    exists, so they can still use Alfred (daily-capped). The UI uses it to show
+    "free tier active — add your key for unlimited" instead of a hard setup wall.
+    """
     row = get_config_row(db, current_user)
+    free_tier_available = build_system_adapter() is not None
     if row is None:
-        return {"provider": None, "model_name": None, "configured": False}
-    return {"provider": row.provider, "model_name": row.model_name, "configured": True}
+        return {"provider": None, "model_name": None, "configured": False,
+                "free_tier": free_tier_available}
+    return {"provider": row.provider, "model_name": row.model_name, "configured": True,
+            "free_tier": False}
 
 
 def delete_config(db: Session, current_user: models.BatAccount) -> bool:
@@ -125,6 +133,24 @@ def build_adapter(provider: str, model_name: str, raw_api_key: str):
 
         return OpenAICompatibleAdapter.for_provider(provider, api_key=raw_api_key, model=model_name)
     raise ValueError(f"Unknown provider: {provider}")
+
+
+def build_system_adapter():
+    """The operator-funded free-tier adapter, or None when not configured.
+
+    Lets users with no key of their own still talk to Alfred (up to the free
+    daily cap). Inert until `system_provider_key` + `system_provider` +
+    `system_model` are all set in the environment.
+    """
+    from config import get_settings
+
+    s = get_settings()
+    if not (s.system_provider_key and s.system_provider and s.system_model):
+        return None
+    try:
+        return build_adapter(s.system_provider, s.system_model, s.system_provider_key)
+    except ValueError:
+        return None
 
 
 async def test_config(provider: str, model_name: str, raw_api_key: str) -> Tuple[bool, str]:
