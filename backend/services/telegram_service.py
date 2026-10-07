@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple
 
 import httpx
 import structlog
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
@@ -119,6 +120,69 @@ def exchange_link_code(
     db.delete(row)
     db.commit()
     return user
+
+
+def create_telegram_account(db: Session, telegram_chat_id: str) -> Optional[models.BatAccount]:
+    """Create a fresh bat-board account already linked to this Telegram chat.
+
+    Telegram-first signup: a brand-new chatter gets an account with no web
+    password (a random, unusable hash) and a linked PAT, so they can use Alfred
+    at once. They set a username + web password later to claim the dashboard.
+    Returns the account, or the existing one if the chat is already linked
+    (a concurrent create — the unique telegram_chat_id constraint guards it).
+    """
+    from auth import get_password_hash
+
+    # Unique, non-guessable username; retry on the rare collision.
+    account = None
+    for _ in range(5):
+        username = f"bat-{secrets.token_hex(4)}"
+        if db.query(models.BatAccount.id).filter(models.BatAccount.username == username).first():
+            continue
+        account = models.BatAccount(
+            username=username,
+            # Random unusable password — no web login until they set one.
+            hashed_password=get_password_hash(secrets.token_urlsafe(24)),
+            is_active=True,
+        )
+        db.add(account)
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            account = None
+            continue
+        break
+    if account is None:
+        return None
+
+    raw_token = secrets.token_urlsafe(32)
+    db.add(models.BatPersonalAccessToken(
+        name="Telegram — Alfred",
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        telegram_chat_id=telegram_chat_id,
+        owner_id=account.id,
+    ))
+    try:
+        db.commit()
+    except IntegrityError:
+        # Chat linked by a concurrent create — use the account that won.
+        db.rollback()
+        return get_user_by_chat_id(db, telegram_chat_id)
+    db.refresh(account)
+    logger.info("telegram_account_autocreated", username=account.username)
+    return account
+
+
+def get_user_by_chat_id(db: Session, telegram_chat_id: str) -> Optional[models.BatAccount]:
+    """The account linked to a Telegram chat via a live PAT, or None."""
+    row = (
+        db.query(models.BatPersonalAccessToken)
+        .filter(models.BatPersonalAccessToken.telegram_chat_id == telegram_chat_id,
+                models.BatPersonalAccessToken.revoked.is_(False))
+        .first()
+    )
+    return db.query(models.BatAccount).filter(models.BatAccount.id == row.owner_id).first() if row else None
 
 
 def link_attempts_blocked(db: Session, telegram_chat_id: str) -> bool:

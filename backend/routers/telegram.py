@@ -44,6 +44,17 @@ LINK_THROTTLED_REPLY = (
 LINK_SUCCESS_REPLY = (
     "Linked ✓ — this Telegram account is now connected to your bat-board account."
 )
+WELCOME_REPLY = (
+    "Good day. I'm Alfred — your companion for bat-board, the operations room for "
+    "your days. You can simply speak to me here: set missions and habits, start a "
+    "focus timer, ask what's on today — by text, a voice note, or a photo. "
+    "What shall we begin with?\n\n"
+    "(Your account is ready — everything works right here in Telegram. A web "
+    "dashboard with charts is optional and can be set up later.)"
+)
+SIGNUP_FAILED_REPLY = (
+    "I couldn't open an account just now — do try again in a moment."
+)
 
 
 @router.post("/api/account/telegram-link/generate-code")
@@ -178,8 +189,16 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             # for Alfred (it used to get the "not linked" reply).
 
         if user is None:
-            _reply(chat_id, UNLINKED_REPLY)
-            return
+            # Telegram-first signup: a brand-new chatter gets an account at once.
+            user = telegram_service.create_telegram_account(db, chat_id)
+            if user is None:
+                _reply(chat_id, SIGNUP_FAILED_REPLY)
+                return
+            _reply(chat_id, WELCOME_REPLY)
+            # On the opening "/start" (or an empty text), the welcome is the whole
+            # reply. Any real first message falls through and gets answered.
+            if text in ("", "/start") and not message.get("voice") and not _extract_image(message):
+                return
 
         # --- Voice note: transcribe with the user's own model, then run as text ---
         voice = message.get("voice")

@@ -201,10 +201,11 @@ def test_unlink_revokes_and_unlinks(client, auth_headers, monkeypatch):
     r = client.get("/api/account/telegram-link/status", headers=h)
     assert r.json() == {"linked": False}
 
-    # Subsequent messages from that chat are treated as unlinked
+    # After a deliberate unlink, the chat is unlinked: a new message now starts
+    # a fresh Telegram-first account (open signup) rather than refusing.
     sent.clear()
     r = client.post(
         "/api/telegram/webhook", json=_update(chat_id="chat-u", text="hello?"), headers=SECRET_HEADER
     )
     assert r.status_code == 200
-    assert any("isn't linked" in call[2] for call in sent)
+    assert any("I'm Alfred" in call[2] for call in sent)
