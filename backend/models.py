@@ -141,6 +141,9 @@ class BatFocus(Base):
     start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     end_time = Column(DateTime, nullable=True)
     duration_minutes = Column(Integer, nullable=True)
+    # Set for a timed (Telegram) session: the cron tick auto-ends it this many
+    # minutes after start and pings the user. NULL = untimed (web stopwatch).
+    planned_minutes = Column(Integer, nullable=True)
     soundtrack_metadata = Column(String, nullable=True)
     # Timer visual mode when the session started (see FOCUS_MODES); NULL for
     # sessions recorded before this column existed.

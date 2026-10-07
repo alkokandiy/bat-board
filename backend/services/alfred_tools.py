@@ -142,6 +142,17 @@ def _session_dict(s):
     }
 
 
+def _active_session_dict(s):
+    from datetime import datetime, timezone
+    start = s.start_time if s.start_time.tzinfo else s.start_time.replace(tzinfo=timezone.utc)
+    elapsed = max(0, int((datetime.now(timezone.utc) - start).total_seconds() // 60))
+    d = {"id": s.id, "elapsed_minutes": elapsed, "mission_id": s.mission_id,
+         "habit_id": s.habit_id, "planned_minutes": s.planned_minutes}
+    if s.planned_minutes:
+        d["remaining_minutes"] = max(0, s.planned_minutes - elapsed)
+    return d
+
+
 def _briefing_dict(b):
     return {
         "kind": b.kind, "enabled": b.enabled, "send_time": b.send_time,
@@ -204,6 +215,8 @@ READ_TOOLS = [
          "start_date": {"type": "string", "description": "ISO datetime lower bound."},
          "end_date": {"type": "string", "description": "ISO datetime upper bound."},
      }}},
+    {"name": "get_active_focus_session", "description": "Check whether a focus session is currently running, with elapsed and (for timed sessions) remaining minutes. Use for 'am I focusing?', 'how long left?'.",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "get_focus_stats", "description": "Focus statistics for a period.",
      "parameters": {"type": "object", "properties": {
          "period": {"type": "string", "enum": ["day", "week", "month", "year", "all"]},
@@ -351,11 +364,14 @@ WRITE_TOOLS = [
          "weekdays": {"type": "string"}, "day_of_month": {"type": "integer"},
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
      }, "required": ["reminder_id"]}},
-    {"name": "start_focus_session", "description": "Record a focus session start (database record only). Optionally link a mission or habit.",
+    {"name": "start_focus_session", "description": "Start a focus session, optionally timed. Set `planned_minutes` (5-180) for a timer that auto-ends after that long and pings the user on Telegram when complete — prefer this. If the user names no duration, default to 25 and say so. Optionally link a mission or habit. Only one session runs at a time.",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"}, "habit_id": {"type": "integer"},
+         "planned_minutes": {"type": "integer", "description": "Timer length in minutes (5-180). Omit for an open-ended stopwatch the user must stop manually."},
      }}},
-    {"name": "end_focus_session", "description": "End a focus session; duration from wall clock.",
+    {"name": "stop_focus_session", "description": "Stop the user's current open focus session now and log the elapsed time (no id needed). Use for 'I'm done', 'stop focus', 'end my session'. Under 5 minutes is discarded.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "end_focus_session", "description": "End a specific focus session by id; duration from wall clock. Prefer stop_focus_session for 'I'm done'.",
      "parameters": {"type": "object", "properties": {
          "session_id": {"type": "integer"},
      }, "required": ["session_id"]}},
@@ -717,17 +733,51 @@ def execute_tool(
         if r is None:
             return {"error": "Reminder not found"}
         return {"reminder": _reminder_dict(r)}
+    if name == "get_active_focus_session":
+        active = focus_service.active_focus_session(db, current_user)
+        if active is None:
+            return {"active": None, "note": "No focus session is currently running."}
+        return {"active": _active_session_dict(active)}
     if name == "start_focus_session":
+        existing = focus_service.active_focus_session(db, current_user)
+        if existing is not None:
+            return {"error": "A focus session is already running — stop it first.",
+                    "active": _active_session_dict(existing)}
+        planned = args.get("planned_minutes")
+        if planned is not None:
+            try:
+                planned = int(planned)
+            except (TypeError, ValueError):
+                return {"error": "planned_minutes must be a number."}
+            if not 5 <= planned <= 180:
+                return {"error": "planned_minutes must be between 5 and 180."}
         try:
             s = focus_service.start_focus_session(
                 db, current_user,
                 mission_id=int(args["mission_id"]) if args.get("mission_id") else None,
-                habit_id=int(args["habit_id"]) if args.get("habit_id") else None)
+                habit_id=int(args["habit_id"]) if args.get("habit_id") else None,
+                planned_minutes=planned)
         except ValueError as exc:
             return {"error": str(exc)}
         result = _session_dict(s)
-        result["note"] = FOCUS_NO_LIVE_SYNC_NOTE
+        if planned:
+            result["planned_minutes"] = planned
+            result["note"] = (f"Timer running for {planned} minutes. It ends on its own and I'll "
+                              "message you here when it's complete — no screen to watch.")
+        else:
+            result["note"] = FOCUS_NO_LIVE_SYNC_NOTE + " Tell me 'stop' when you're done and I'll log the time."
         return {"session": result}
+    if name == "stop_focus_session":
+        active = focus_service.active_focus_session(db, current_user)
+        if active is None:
+            return {"note": "No focus session is currently running."}
+        s = focus_service.end_focus_session(db, current_user, active.id)
+        if s is None:
+            return {"note": "No focus session is currently running."}
+        out = _session_dict(s)
+        if getattr(s, "discarded", False):
+            out["note"] = "That was under 5 minutes, so it wasn't logged."
+        return {"session": out}
     if name == "end_focus_session":
         s = focus_service.end_focus_session(db, current_user, int(args["session_id"]))
         if s is None:

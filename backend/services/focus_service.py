@@ -34,18 +34,31 @@ def _owns(db: Session, model, row_id, current_user: models.BatAccount) -> bool:
     ).first() is not None
 
 
+def active_focus_session(db: Session, current_user: models.BatAccount) -> Optional[models.BatFocus]:
+    """The user's currently-open focus session (not yet ended), if any."""
+    return (
+        db.query(models.BatFocus)
+        .filter(models.BatFocus.owner_id == current_user.id,
+                models.BatFocus.end_time.is_(None))
+        .order_by(models.BatFocus.start_time.desc())
+        .first()
+    )
+
+
 def start_focus_session(
     db: Session,
     current_user: models.BatAccount,
     mission_id: Optional[int] = None,
     habit_id: Optional[int] = None,
     mode: Optional[str] = None,
+    planned_minutes: Optional[int] = None,
 ) -> models.BatFocus:
     """Raises ValueError("Mission not found") / ValueError("Habit not found")
     for invalid links (route translates to 404); never returns None.
 
     `mode` is recorded as given at start; switching modes mid-session does
-    not change it."""
+    not change it. `planned_minutes`, when set, makes this a timed session the
+    cron tick auto-ends after that many minutes."""
     if mode is not None and mode not in FOCUS_MODES:
         raise ValueError(f"Invalid focus mode: {mode!r}")
     if mission_id:
@@ -69,6 +82,7 @@ def start_focus_session(
         mission_id=mission_id,
         habit_id=habit_id,
         mode=mode,
+        planned_minutes=planned_minutes,
     )
     db.add(session)
     db.flush()
