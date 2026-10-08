@@ -232,6 +232,32 @@ def _fire_due_focus(db: Session, now_utc: datetime, summary: dict) -> None:
         summary["focus_stale_closed"] += 1
 
 
+async def _fire_nudges(db: Session, user: models.BatAccount, chat_id: str,
+                       local_now: datetime, adapter, summary: dict) -> None:
+    """One proactive check-in, if anything genuinely deserves a word."""
+    from services import nudges
+
+    nudge = nudges.evaluate(db, user, local_now)
+    if nudge is None:
+        return
+    if not nudges.record(db, user, nudge, local_now):
+        return  # another tick claimed it
+    try:
+        text = await nudges.compose(user, nudge, adapter=adapter)
+        ok = _send(db, user, chat_id, text)
+    except Exception as exc:
+        ok = False
+        log.warning("nudge_send_failed", user_id=user.id, kind=nudge.kind, error=str(exc))
+    if ok:
+        summary["nudges_sent"] += 1
+    else:
+        # Release the claim so a later tick can try again.
+        db.query(models.BatNudgeLog).filter(
+            models.BatNudgeLog.owner_id == user.id,
+            models.BatNudgeLog.nudge_key == nudge.key).delete()
+        db.commit()
+
+
 async def run_tick(db: Session, adapter_for=None) -> dict:
     """Fire every briefing/reminder due right now, for every eligible user,
     and auto-end any timed focus session whose time is up.
@@ -243,7 +269,7 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
     summary = {"users": 0, "briefings_sent": 0, "briefings_failed": 0,
                "reminders_sent": 0, "reminders_failed": 0,
                "focus_autoended": 0, "focus_pings_sent": 0,
-               "focus_stale_closed": 0}
+               "focus_stale_closed": 0, "nudges_sent": 0}
 
     # Timed focus sessions auto-end on their own clock, for everyone.
     _fire_due_focus(db, datetime.now(timezone.utc), summary)
@@ -257,12 +283,18 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
             except Exception:
                 return None
 
-    # Only users who actually have an enabled briefing or reminder.
+    # Users with an enabled briefing or reminder — plus everyone who can be
+    # checked in on proactively (any Telegram-linked account with nudges on).
     owner_ids = set()
     owner_ids.update(oid for (oid,) in db.query(models.BatBriefing.owner_id)
                      .filter(models.BatBriefing.enabled.is_(True)).distinct())
     owner_ids.update(oid for (oid,) in db.query(models.BatReminder.owner_id)
                      .filter(models.BatReminder.enabled.is_(True)).distinct())
+    owner_ids.update(
+        oid for (oid,) in db.query(models.BatPersonalAccessToken.owner_id)
+        .filter(models.BatPersonalAccessToken.revoked.is_(False),
+                models.BatPersonalAccessToken.telegram_chat_id.isnot(None)).distinct()
+    )
     if not owner_ids:
         return summary
 
@@ -276,5 +308,6 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
         adapter = adapter_for(db, user)
         await _fire_briefings(db, user, chat_id, local_now, adapter, summary)
         _fire_reminders(db, user, chat_id, local_now, summary)
+        await _fire_nudges(db, user, chat_id, local_now, adapter, summary)
 
     return summary

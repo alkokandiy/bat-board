@@ -235,6 +235,8 @@ READ_TOOLS = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "list_reminders", "description": "List the user's reminders (message, schedule, enabled). Use before editing or deleting one, or when they ask what reminders are set.",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "get_nudge_settings", "description": "Show how you check in on the user unprompted: whether it's on, their quiet hours, and the daily limit. Read before changing it.",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "show_daily_brief", "description": "Send the user a daily brief card (image): missions due today, habits still to do, next calendar event and countdown, points and level. Use for 'my day', 'daily brief', 'what's on today', 'morning summary'.",
      "parameters": {"type": "object", "properties": {}}},
 ]
@@ -346,6 +348,13 @@ WRITE_TOOLS = [
          "include_news": {"type": "boolean"},
          "news_topics": {"type": "string", "description": "Comma-separated topics, e.g. 'AI, cybersecurity, defense'. Required if include_news."},
      }, "required": ["kind"]}},
+    {"name": "set_nudge_settings", "description": "Change how you check in unprompted. Use when they say things like 'check in on me less', 'stop messaging me', 'don't message me after 9', 'you can nudge me more'. Only pass what they asked to change.",
+     "parameters": {"type": "object", "properties": {
+         "enabled": {"type": "boolean", "description": "False stops all unprompted check-ins."},
+         "quiet_start": {"type": "string", "description": "HH:MM local — start of quiet hours (no messages)."},
+         "quiet_end": {"type": "string", "description": "HH:MM local — end of quiet hours."},
+         "per_day": {"type": "integer", "description": "Max unprompted check-ins per day (1-10)."},
+     }}},
     {"name": "create_reminder", "description": "Create a reminder Alfred pushes over Telegram on a schedule (e.g. 'take medicine' every morning, 'call mum' every Sunday). Ask for the time and how often it should repeat when missing. Requires a linked Telegram.",
      "parameters": {"type": "object", "properties": {
          "message": {"type": "string", "description": "What to remind the user about."},
@@ -733,6 +742,36 @@ def execute_tool(
         if r is None:
             return {"error": "Reminder not found"}
         return {"reminder": _reminder_dict(r)}
+    if name == "get_nudge_settings":
+        from services import nudges
+        return {"nudges": {
+            "enabled": bool(getattr(current_user, "nudges_enabled", True)),
+            "quiet_start": getattr(current_user, "nudge_quiet_start", None) or nudges.DEFAULT_QUIET_START,
+            "quiet_end": getattr(current_user, "nudge_quiet_end", None) or nudges.DEFAULT_QUIET_END,
+            "per_day": getattr(current_user, "nudges_per_day", None) or nudges.DEFAULT_PER_DAY,
+        }}
+    if name == "set_nudge_settings":
+        import re as _re
+        hhmm = _re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+        if "enabled" in args and args["enabled"] is not None:
+            current_user.nudges_enabled = bool(args["enabled"])
+        for field, col in (("quiet_start", "nudge_quiet_start"), ("quiet_end", "nudge_quiet_end")):
+            val = args.get(field)
+            if val is not None:
+                val = str(val).strip()
+                if not hhmm.match(val):
+                    return {"error": f"{field} must be HH:MM (24-hour), got {val!r}."}
+                setattr(current_user, col, val)
+        if args.get("per_day") is not None:
+            try:
+                per_day = int(args["per_day"])
+            except (TypeError, ValueError):
+                return {"error": "per_day must be a number."}
+            if not 1 <= per_day <= 10:
+                return {"error": "per_day must be between 1 and 10."}
+            current_user.nudges_per_day = per_day
+        db.commit()
+        return execute_tool(db, current_user, "get_nudge_settings", {})
     if name == "get_active_focus_session":
         active = focus_service.active_focus_session(db, current_user)
         if active is None:
