@@ -44,6 +44,12 @@ class BatAccount(Base):
     timezone = Column(String, nullable=True)
     # How Alfred addresses this user (e.g. "Master Al-Kokandiy"); None = username.
     alfred_address = Column(String, nullable=True)
+    # Proactive check-ins ("nudges"): Alfred reaching out unprompted when
+    # something on the board deserves a word. Quiet hours are local HH:MM.
+    nudges_enabled = Column(Boolean, default=True, server_default="1", nullable=False)
+    nudge_quiet_start = Column(String, nullable=True)   # default 22:00
+    nudge_quiet_end = Column(String, nullable=True)     # default 08:00
+    nudges_per_day = Column(Integer, nullable=True)     # default 3
     # Embedded in every JWT ("tv"); bumping it revokes all issued tokens.
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -428,4 +434,22 @@ class BatReminderLog(Base):
     sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     reminder_id = Column(Integer, ForeignKey("bat_reminders.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+
+
+class BatNudgeLog(Base):
+    """One row per proactive check-in sent. `nudge_key` encodes the specific
+    occasion (e.g. "countdown:12:7d", "drift:2026-10-08"), so the UNIQUE
+    constraint makes each occasion fire exactly once and doubles as the
+    cooldown record."""
+
+    __tablename__ = "bat_nudge_log"
+    __table_args__ = (UniqueConstraint("owner_id", "nudge_key", name="uq_bat_nudge_log_owner_key"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    nudge_key = Column(String, nullable=False)
+    kind = Column(String, nullable=False)
+    local_date = Column(String, nullable=False)   # YYYY-MM-DD in the owner's zone
+    sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
