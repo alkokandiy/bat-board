@@ -911,6 +911,34 @@ export default function BatFocusTimer({
           >
             +30s
           </button>
+
+          {/* Ends the session and logs the time (5 min minimum). */}
+          <button
+            onClick={exitFocus}
+            title="End this session and log the time"
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(248,113,113,0.4)',
+              color: '#f87171',
+              fontFamily: "'Share Tech Mono', monospace",
+              fontSize: '11px',
+              letterSpacing: '1px',
+              padding: '10px 20px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = '#f87171';
+              e.currentTarget.style.background = 'rgba(248,113,113,0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(248,113,113,0.4)';
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            ■ STOP &amp; LOG
+          </button>
         </footer>
       </div>
     );

@@ -28,6 +28,10 @@ log = structlog.get_logger(__name__)
 # occurrence is skipped (the next day's will fire normally).
 LATE_WINDOW = timedelta(hours=3)
 
+# An untimed focus session still open after this long is treated as abandoned
+# (tab closed) and closed without credit.
+STALE_FOCUS_HOURS = 12
+
 
 def _parse_hhmm(value: str) -> Optional[time]:
     try:
@@ -208,6 +212,25 @@ def _fire_due_focus(db: Session, now_utc: datetime, summary: dict) -> None:
         if _send(db, owner, chat_id, f"Focus complete, {addr} — {planned} minutes logged{tgt}. Well done."):
             summary["focus_pings_sent"] += 1
 
+    # Abandoned untimed sessions (browser tab closed without stopping) would
+    # otherwise stay "open" forever and shadow the real active session. We
+    # can't know how much of that was real focus, so they're closed with no
+    # credit rather than inflating the record.
+    stale_before = now_utc - timedelta(hours=STALE_FOCUS_HOURS)
+    stale = (
+        db.query(models.BatFocus)
+        .filter(models.BatFocus.end_time.is_(None),
+                models.BatFocus.planned_minutes.is_(None),
+                models.BatFocus.start_time < stale_before.replace(tzinfo=None))
+        .all()
+    )
+    for s in stale:
+        owner = db.get(models.BatAccount, s.owner_id)
+        if owner is None:
+            continue
+        focus_service.end_focus_session(db, owner, s.id, duration_minutes=0)  # <5 min → discarded
+        summary["focus_stale_closed"] += 1
+
 
 async def run_tick(db: Session, adapter_for=None) -> dict:
     """Fire every briefing/reminder due right now, for every eligible user,
@@ -219,7 +242,8 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
     """
     summary = {"users": 0, "briefings_sent": 0, "briefings_failed": 0,
                "reminders_sent": 0, "reminders_failed": 0,
-               "focus_autoended": 0, "focus_pings_sent": 0}
+               "focus_autoended": 0, "focus_pings_sent": 0,
+               "focus_stale_closed": 0}
 
     # Timed focus sessions auto-end on their own clock, for everyone.
     _fire_due_focus(db, datetime.now(timezone.utc), summary)

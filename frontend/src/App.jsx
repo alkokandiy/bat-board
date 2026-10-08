@@ -306,6 +306,18 @@ export default function App() {
     setFocusRunning(true);
   }, [focusRunning, focusTimeLeft, focusSessionLength, focusSelectedMissionId, focusSelectedHabitId, startFocusSession]);
 
+  // Leaving focus mode (EXIT FOCUS / STOP & LOG) ends the session and logs the
+  // time — previously exiting left the session open forever, so web focus work
+  // was never credited unless the countdown happened to reach zero.
+  const handleFocusModeChange = useCallback(async (active) => {
+    setFocusMode(active);
+    if (active) return;
+    setFocusRunning(false);
+    clearInterval(focusTimerRef.current);
+    await endFocusSession();
+    setFocusTimeLeft(focusSessionLength * 60);
+  }, [endFocusSession, focusSessionLength]);
+
   const handleFocusAdjustTime = useCallback((delta) => {
     setFocusTimeLeft((prev) => {
       const next = Math.max(0, prev + delta);
@@ -425,7 +437,7 @@ export default function App() {
               onRefreshMissions={handleRefreshMissions}
               onRefreshHabits={handleRefreshHabits}
               onRefreshAccount={handleRefreshAccount}
-              onFocusModeChange={setFocusMode}
+              onFocusModeChange={handleFocusModeChange}
               timerMode={focusVisualMode}
               onTimerModeChange={setFocusVisualMode}
               focusMode={focusMode}
