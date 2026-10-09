@@ -86,6 +86,7 @@ class Ctx:
     habits_pending: list
     focus_today_minutes: int
     last_focus_at: Optional[datetime]
+    at_work: bool = False
 
 
 # --- gathering --------------------------------------------------------------
@@ -144,12 +145,16 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
         .first()
     )
 
+    from services import work_service
+    at_work = work_service.is_working_now(work_service.get_profile(db, user), local_now)
+
     return Ctx(
         user=user, local_now=local_now, today=today, address=_address(user),
         open_missions=open_missions, overdue=overdue, countdowns=countdowns,
         events_soon=events_soon, habits_pending=habits_pending,
         focus_today_minutes=focus_today,
         last_focus_at=_aware(last_done.end_time) if last_done else None,
+        at_work=at_work,
     )
 
 
@@ -207,6 +212,10 @@ def sig_drift(ctx: Ctx) -> Optional[Nudge]:
     """Nothing logged for a long stretch. Asked as a question, never a scolding —
     the honest possibilities are 'busy elsewhere' and 'drifting'."""
     if ctx.focus_today_minutes > 0:
+        return None
+    if ctx.at_work:
+        # They are at the office by their own schedule. That is not drifting,
+        # and implying otherwise is exactly the sort of nagging to avoid.
         return None
     if ctx.local_now.hour < 15:          # give the day a chance first
         return None

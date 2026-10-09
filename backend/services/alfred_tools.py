@@ -251,6 +251,8 @@ READ_TOOLS = [
          "project": {"type": "string"},
          "include_done": {"type": "boolean", "description": "Include finished tasks (default false)."},
      }}},
+    {"name": "get_work_profile", "description": "Read what you know about their JOB — working days, hours, employer, role, expected weekly hours, report preferences — plus exactly which details are still unknown and the next question to ask. ALWAYS call this first when they say 'set up work' or ask about their work setup, and again between answers so you ask the right next question.",
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "work_report", "description": "Build the corporate/work report for a period and send it. Use when they ask what they did at work — 'what did I do today at work', a Sunday review, an end-of-month review. Covers finished work, what's in hand, what's BLOCKED, hours logged, working days, and things learned; it ends with a reflection question. Only ever on request — never volunteer it.",
      "parameters": {"type": "object", "properties": {
          "period": {"type": "string", "enum": ["today", "week", "month"], "description": "today = this day, week = last 7 days, month = this calendar month."},
@@ -372,6 +374,21 @@ WRITE_TOOLS = [
          "include_news": {"type": "boolean"},
          "news_topics": {"type": "string", "description": "Comma-separated topics, e.g. 'AI, cybersecurity, defense'. Required if include_news."},
      }, "required": ["kind"]}},
+    {"name": "set_work_profile", "description": "Record what they tell you about their job. Pass ONLY the fields they just answered — call it after each answer rather than waiting for everything. Then call get_work_profile again for the next question.",
+     "parameters": {"type": "object", "properties": {
+         "work_days": {"type": "string", "description": "Working days, e.g. 'Mon,Tue,Wed,Thu,Fri' or '0,1,2,3,4' (Mon=0)."},
+         "work_start": {"type": "string", "description": "HH:MM local, start of the working day."},
+         "work_end": {"type": "string", "description": "HH:MM local, end of the working day."},
+         "employer": {"type": "string"},
+         "role": {"type": "string"},
+         "expected_weekly_hours": {"type": "integer", "description": "1-100."},
+         "started_on": {"type": "string", "description": "YYYY-MM-DD, when they started the job."},
+         "report_time": {"type": "string", "description": "HH:MM local for automatic work reports."},
+         "daily_report": {"type": "boolean", "description": "Send the day's work report at report_time — only on days they actually worked."},
+         "weekly_report_day": {"type": "string", "description": "Weekday for the weekly review (e.g. 'Sun'), or 'none' to turn it off."},
+         "monthly_report": {"type": "boolean", "description": "Send a review on the last day of the month."},
+         "notes": {"type": "string", "description": "Anything else about the job worth remembering."},
+     }}},
     {"name": "create_work_task", "description": "Add a CORPORATE/WORK task (the job track). Use whenever the task belongs to their employer rather than their own life. These never award Bat Points and never appear among personal missions. Don't interrogate — sensible defaults, then report what you added.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"},
@@ -821,6 +838,8 @@ def execute_tool(
         if r is None:
             return {"error": "Reminder not found"}
         return {"reminder": _reminder_dict(r)}
+    if name == "get_work_profile":
+        return work_service.profile_status(db, current_user)
     if name == "list_work_tasks":
         tasks = work_service.list_tasks(
             db, current_user, status=args.get("status"), project=args.get("project"),
@@ -856,6 +875,16 @@ def execute_tool(
             "quiet_end": getattr(current_user, "nudge_quiet_end", None) or nudges.DEFAULT_QUIET_END,
             "per_day": getattr(current_user, "nudges_per_day", None) or nudges.DEFAULT_PER_DAY,
         }}
+    if name == "set_work_profile":
+        try:
+            work_service.upsert_profile(db, current_user, **{
+                k: v for k, v in args.items() if v is not None})
+        except ValueError as exc:
+            return {"error": str(exc)}
+        status = work_service.profile_status(db, current_user)
+        status["next_step"] = ("Confirm what you recorded, then ask next_question if there is one. "
+                               "When next_question is null the setup is finished — say so plainly.")
+        return status
     if name == "create_work_task":
         existing = work_service.find_open_by_title(db, current_user, args.get("title") or "")
         if existing is not None:
