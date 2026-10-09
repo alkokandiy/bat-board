@@ -32,6 +32,9 @@ LATE_WINDOW = timedelta(hours=3)
 # (tab closed) and closed without credit.
 STALE_FOCUS_HOURS = 12
 
+# How far after a slot an item may be created and still fire it today.
+BACKFIRE_GRACE = timedelta(minutes=2)
+
 
 def _parse_hhmm(value: str) -> Optional[time]:
     try:
@@ -53,12 +56,39 @@ def _chat_id_for(db: Session, user: models.BatAccount) -> Optional[str]:
     return row.telegram_chat_id if row else None
 
 
-def _within_window(local_now: datetime, scheduled: time) -> bool:
-    """True if now is at or just past the scheduled local time (within LATE_WINDOW)."""
+def _effective_since(row) -> Optional[datetime]:
+    """When this item last became what it is (created, or last edited)."""
+    stamp = getattr(row, "updated_at", None) or getattr(row, "created_at", None)
+    if stamp is None:
+        return None
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
+
+
+def _within_window(local_now: datetime, scheduled: time, since: Optional[datetime] = None) -> bool:
+    """True if now is at or just past the scheduled local time (within LATE_WINDOW).
+
+    LATE_WINDOW exists so a brief cron outage still delivers a missed slot — it
+    must NOT back-date a slot that had already passed when the item was created
+    or last changed. Setting an 08:00 reminder at 09:50 used to fire it at once.
+    """
     today_at = local_now.replace(hour=scheduled.hour, minute=scheduled.minute,
                                  second=0, microsecond=0)
     delta = local_now - today_at
-    return timedelta(0) <= delta <= LATE_WINDOW
+    if not (timedelta(0) <= delta <= LATE_WINDOW):
+        return False
+    # Small grace so setting something for the current minute still fires —
+    # only genuinely past slots (an 08:00 set at 09:50) are suppressed.
+    if since is not None and (since - today_at.astimezone(timezone.utc)) > BACKFIRE_GRACE:
+        return False
+    return True
+
+
+def _reminder_expired(reminder: models.BatReminder, local_now: datetime) -> bool:
+    """True once the reminder's inclusive last day has passed."""
+    ends_on = getattr(reminder, "ends_on", None)
+    if not ends_on:
+        return False
+    return local_now.date().isoformat() > ends_on
 
 
 def _reminder_due_today(reminder: models.BatReminder, local_now: datetime) -> bool:
@@ -101,7 +131,7 @@ async def _fire_briefings(db: Session, user: models.BatAccount, chat_id: str,
     )
     for b in briefs:
         scheduled = _parse_hhmm(b.send_time)
-        if not scheduled or not _within_window(local_now, scheduled):
+        if not scheduled or not _within_window(local_now, scheduled, _effective_since(b)):
             continue
         local_date = local_now.date().isoformat()
 
@@ -137,7 +167,12 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
     )
     for r in rems:
         scheduled = _parse_hhmm(r.send_time)
-        if not scheduled or not _within_window(local_now, scheduled):
+        # Past its last day? Stop for good rather than checking forever.
+        if _reminder_expired(r, local_now):
+            r.enabled = False
+            db.commit()
+            continue
+        if not scheduled or not _within_window(local_now, scheduled, _effective_since(r)):
             continue
         if not _reminder_due_today(r, local_now):
             continue

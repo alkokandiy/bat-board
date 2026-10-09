@@ -168,7 +168,8 @@ def get_reminder(db: Session, user: models.BatAccount, reminder_id: int) -> Opti
 
 def create_reminder(db: Session, user: models.BatAccount, *, message: str, recurrence: str,
                     send_time: str, weekdays=None, day_of_month: Optional[int] = None,
-                    run_date: Optional[str] = None) -> models.BatReminder:
+                    run_date: Optional[str] = None,
+                    ends_on: Optional[str] = None) -> models.BatReminder:
     message = (message or "").strip()
     if not message:
         raise ValueError("A reminder needs a message.")
@@ -188,8 +189,13 @@ def create_reminder(db: Session, user: models.BatAccount, *, message: str, recur
             raise ValueError("A one-off reminder needs run_date (YYYY-MM-DD).")
         rd = _valid_run_date(run_date)
 
+    end = _valid_run_date(ends_on) if ends_on else None
+    if end and recurrence == "once":
+        end = None   # a one-off already has its date
+
     r = models.BatReminder(owner_id=user.id, message=message, recurrence=recurrence,
-                           send_time=send_time, weekdays=wk, day_of_month=dom, run_date=rd)
+                           send_time=send_time, weekdays=wk, day_of_month=dom, run_date=rd,
+                           ends_on=end)
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -200,7 +206,8 @@ def update_reminder(db: Session, user: models.BatAccount, reminder_id: int, *,
                     message: Optional[str] = None, enabled: Optional[bool] = None,
                     recurrence: Optional[str] = None, send_time: Optional[str] = None,
                     weekdays=None, day_of_month: Optional[int] = None,
-                    run_date: Optional[str] = None) -> Optional[models.BatReminder]:
+                    run_date: Optional[str] = None,
+                    ends_on: Optional[str] = None) -> Optional[models.BatReminder]:
     r = get_reminder(db, user, reminder_id)
     if r is None:
         return None
@@ -234,6 +241,11 @@ def update_reminder(db: Session, user: models.BatAccount, reminder_id: int, *,
         if not rd:
             raise ValueError("A one-off reminder needs run_date (YYYY-MM-DD).")
         updates["run_date"] = _valid_run_date(rd)
+
+    if ends_on is not None:
+        # "" / "none" clears the end date (runs indefinitely again)
+        cleared = str(ends_on).strip().lower() in ("", "none", "never", "null")
+        updates["ends_on"] = None if cleared else _valid_run_date(ends_on)
 
     for field, val in updates.items():
         setattr(r, field, val)

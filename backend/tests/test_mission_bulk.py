@@ -76,7 +76,9 @@ def test_single_create_mission_skips_duplicate():
     first = _run(uid, "create_mission", {"title": "Patrol Gotham"})
     assert "mission" in first and not first.get("skipped")
     dup = _run(uid, "create_mission", {"title": "patrol gotham"})
-    assert dup.get("skipped") is True
+    # Not a refusal: it hands back the existing mission so Alfred can enrich it.
+    assert dup["created"] is False
+    assert dup["existing_mission"]["title"] == "Patrol Gotham"
     db = SessionLocal()
     try:
         assert db.query(models.BatMission).filter_by(owner_id=uid).count() == 1

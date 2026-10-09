@@ -168,6 +168,7 @@ def _reminder_dict(r):
     d = {
         "id": r.id, "message": r.message, "enabled": r.enabled,
         "recurrence": r.recurrence, "send_time": r.send_time,
+        "ends_on": getattr(r, "ends_on", None) or "no end date",
     }
     if r.recurrence == "weekly":
         d["weekdays"] = briefing_service.weekdays_label(r.weekdays)
@@ -363,6 +364,7 @@ WRITE_TOOLS = [
          "weekdays": {"type": "string", "description": "weekly only: comma-separated, e.g. 'Mon,Thu' or '0,3' (Mon=0)."},
          "day_of_month": {"type": "integer", "description": "monthly only: 1-31 (clamped to month end)."},
          "run_date": {"type": "string", "description": "once only: YYYY-MM-DD."},
+         "ends_on": {"type": "string", "description": "Optional last day, YYYY-MM-DD, inclusive. Use whenever the user bounds it in time ('for one month', 'for two weeks', 'until 1 December') — work out the date from today. Omit for an open-ended reminder."},
      }, "required": ["message", "recurrence", "send_time"]}},
     {"name": "update_reminder", "description": "Update an existing reminder (message, time, recurrence, enable/disable). Only pass fields to change.",
      "parameters": {"type": "object", "properties": {
@@ -372,6 +374,7 @@ WRITE_TOOLS = [
          "send_time": {"type": "string", "description": "HH:MM."},
          "weekdays": {"type": "string"}, "day_of_month": {"type": "integer"},
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
+         "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
      }, "required": ["reminder_id"]}},
     {"name": "start_focus_session", "description": "Start a focus session, optionally timed. Set `planned_minutes` (5-180) for a timer that auto-ends after that long and pings the user on Telegram when complete — prefer this. If the user names no duration, default to 25 and say so. Optionally link a mission or habit. Only one session runs at a time.",
      "parameters": {"type": "object", "properties": {
@@ -564,9 +567,19 @@ def execute_tool(
             return {"error": "A mission needs a title."}
         existing = _open_mission_titles(db, current_user).get(_norm_title(title))
         if existing is not None:
-            # Already on the board — don't create a second copy.
-            return {"skipped": True, "reason": "A mission with this title already exists.",
-                    "mission": _mission_dict(existing)}
+            # Already on the board — don't make a second copy. This is NOT a
+            # refusal: if the user's wording carries detail the existing mission
+            # lacks, the right move is to enrich it with update_mission.
+            return {
+                "created": False,
+                "reason": "A mission with this exact title is already open — not duplicated.",
+                "existing_mission": _mission_dict(existing),
+                "next_step": ("Compare what the user just said with existing_mission. If their "
+                              "request adds anything new (a method, a tool, a date, a priority, "
+                              "notes), call update_mission to add it and tell them precisely what "
+                              "you changed. Only if nothing is new, say it's already on the board "
+                              "and name it."),
+            }
         m = _create_one_mission(db, current_user, {**args, "title": title})
         return {"mission": _mission_dict(m)}
     if name == "create_missions":
@@ -721,7 +734,8 @@ def execute_tool(
             r = briefing_service.create_reminder(
                 db, current_user, message=args["message"], recurrence=args["recurrence"],
                 send_time=args["send_time"], weekdays=args.get("weekdays"),
-                day_of_month=args.get("day_of_month"), run_date=args.get("run_date"))
+                day_of_month=args.get("day_of_month"), run_date=args.get("run_date"),
+                ends_on=args.get("ends_on"))
         except ValueError as exc:
             return {"error": str(exc)}
         result = {"reminder": _reminder_dict(r)}
@@ -736,7 +750,7 @@ def execute_tool(
                 message=args.get("message"), enabled=args.get("enabled"),
                 recurrence=args.get("recurrence"), send_time=args.get("send_time"),
                 weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
-                run_date=args.get("run_date"))
+                run_date=args.get("run_date"), ends_on=args.get("ends_on"))
         except ValueError as exc:
             return {"error": str(exc)}
         if r is None:
