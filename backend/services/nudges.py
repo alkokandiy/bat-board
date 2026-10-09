@@ -87,6 +87,7 @@ class Ctx:
     focus_today_minutes: int
     last_focus_at: Optional[datetime]
     at_work: bool = False
+    work_activity_today: bool = False
 
 
 # --- gathering --------------------------------------------------------------
@@ -147,6 +148,20 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
 
     from services import work_service
     at_work = work_service.is_working_now(work_service.get_profile(db, user), local_now)
+    # Did the job move at all today? Completing work tasks or writing work notes
+    # is working, even when the timer wasn't running.
+    work_touched = (
+        db.query(models.BatWorkTask)
+        .filter(models.BatWorkTask.owner_id == user.id,
+                models.BatWorkTask.updated_at >= _naive(d_start),
+                models.BatWorkTask.updated_at < _naive(d_end))
+        .first() is not None
+        or db.query(models.BatWorkNote)
+        .filter(models.BatWorkNote.owner_id == user.id,
+                models.BatWorkNote.created_at >= _naive(d_start),
+                models.BatWorkNote.created_at < _naive(d_end))
+        .first() is not None
+    )
 
     return Ctx(
         user=user, local_now=local_now, today=today, address=_address(user),
@@ -155,6 +170,7 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
         focus_today_minutes=focus_today,
         last_focus_at=_aware(last_done.end_time) if last_done else None,
         at_work=at_work,
+        work_activity_today=work_touched,
     )
 
 
@@ -209,16 +225,39 @@ def sig_event_soon(ctx: Ctx) -> Optional[Nudge]:
 
 
 def sig_drift(ctx: Ctx) -> Optional[Nudge]:
-    """Nothing logged for a long stretch. Asked as a question, never a scolding —
-    the honest possibilities are 'busy elsewhere' and 'drifting'."""
+    """Nothing timed today. The remark is kept whatever the context — it is a
+    reminder worth having — but its wording follows where they actually are.
+    Telling someone at their desk that they are "drifting" is the failure; going
+    silent on them is the opposite failure. So: ask, but ask correctly.
+
+    Focus on a WORK task counts as focus. Once the timer is running on the job,
+    this stays quiet of its own accord.
+    """
     if ctx.focus_today_minutes > 0:
-        return None
-    if ctx.at_work:
-        # They are at the office by their own schedule. That is not drifting,
-        # and implying otherwise is exactly the sort of nagging to avoid.
         return None
     if ctx.local_now.hour < 15:          # give the day a chance first
         return None
+
+    key = f"drift:{ctx.today.isoformat()}"
+
+    # At their desk by their own schedule — offer to time it, don't accuse.
+    if ctx.at_work:
+        return Nudge(
+            key=key, kind="drift", priority=45,
+            draft=(f"You're at work by your own schedule, {ctx.address}, but nothing's "
+                   f"timed yet today. Shall I start a session on one of your work tasks?"),
+            facts="No focus time logged today; currently within their working hours.",
+        )
+
+    # The job moved today, it just wasn't timed.
+    if ctx.work_activity_today:
+        return Nudge(
+            key=key, kind="drift", priority=45,
+            draft=(f"You've moved work along today, {ctx.address}, but timed none of it. "
+                   f"Worth running the clock on it — shall I start one?"),
+            facts="Work tasks or notes changed today, but no focus time was logged.",
+        )
+
     if not ctx.open_missions:
         return None
     gap = None
@@ -228,9 +267,7 @@ def sig_drift(ctx: Ctx) -> Optional[Nudge]:
             return None
     since = f" It's been {int(gap.total_seconds() // 3600)} hours." if gap else ""
     return Nudge(
-        key=f"drift:{ctx.today.isoformat()}",
-        kind="drift",
-        priority=45,
+        key=key, kind="drift", priority=45,
         draft=(f"No focus logged today, {ctx.address}.{since} "
                f"Busy elsewhere, or drifting? Say the word and I'll start a session."),
         facts=f"No focus logged today; {len(ctx.open_missions)} missions open.",
