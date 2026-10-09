@@ -172,7 +172,13 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             user = None
 
         if LINK_CODE_RE.match(text):
-            if user is None and telegram_service.link_attempts_blocked(db, chat_id):
+            # The brute-force budget applies to EVERY chat, linked or not. It
+            # used to be gated on `user is None`, which Telegram-first signup
+            # silently killed: a chat gets an account on its first message, so
+            # an attacker who said "hi" once could then guess link codes for
+            # ever with no counter and no lockout. A code is a bearer
+            # credential for a whole account, so the guard has to be unconditional.
+            if telegram_service.link_attempts_blocked(db, chat_id):
                 _reply(chat_id, LINK_THROTTLED_REPLY)
                 return
             linked = telegram_service.exchange_link_code(db, text, chat_id)
@@ -181,8 +187,8 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
                 logger.info("telegram_linked", username=linked.username)
                 _reply(chat_id, LINK_SUCCESS_REPLY)
                 return
+            telegram_service.record_link_failure(db, chat_id)
             if user is None:
-                telegram_service.record_link_failure(db, chat_id)
                 _reply(chat_id, UNLINKED_REPLY)
                 return
             # Already linked and not a valid code: it's just a number meant
