@@ -112,25 +112,27 @@ def test_is_working_now_respects_days_and_hours():
         db.close()
 
 
-def test_no_drift_nudge_while_at_work():
-    """The false accusation this profile exists to prevent."""
+def test_at_work_changes_the_wording_not_the_silence():
+    """He keeps the reminder — it is wanted — but drops the accusation."""
     uid = _mk_user()
     db = SessionLocal()
     try:
         user = db.get(models.BatAccount, uid)
         db.add(models.BatMission(owner_id=uid, title="Personal thing", status="pending"))
         db.commit()
-        tue_4pm = datetime(2026, 10, 6, 16, 0, tzinfo=ZoneInfo("UTC"))      # Tuesday
+        tue_4pm = _work_now()
 
         # with no profile he asks whether they're drifting
         n = nudges.evaluate(db, user, tue_4pm)
         assert n is not None and n.kind == "drift"
+        assert "drifting" in n.draft.lower()
 
-        # once he knows they're at work, he does not
-        work_service.upsert_profile(db, user, work_days="Mon,Tue,Wed,Thu,Fri",
+        # once he knows they're at work the reminder stays, reworded
+        work_service.upsert_profile(db, user, work_days=_today_is_a_workday(),
                                     work_start="09:00", work_end="18:00")
         n2 = nudges.evaluate(db, user, tue_4pm)
-        assert n2 is None or n2.kind != "drift"
+        assert n2 is not None and n2.kind == "drift"
+        assert "drifting" not in n2.draft.lower()
     finally:
         db.close()
 
@@ -212,3 +214,72 @@ def test_no_automatic_report_without_a_report_time(sink):
     _tool(uid, "create_work_task", {"title": "Thing"})
     summary = _run(scheduler.run_tick(db=SessionLocal(), adapter_for=lambda d, u: None))
     assert summary["work_reports_sent"] == 0      # reports stay on-request
+
+
+# --- the drift reminder, in a working life ---------------------------------
+
+def _work_now():
+    """4pm on today's real date — seeded rows must fall inside the day being
+    evaluated, so a fabricated date would quietly fall outside it."""
+    return datetime.now(ZoneInfo("UTC")).replace(hour=16, minute=0, second=0, microsecond=0)
+
+
+def _today_is_a_workday():
+    """Work days that include today, so `at_work` is genuinely true."""
+    return str(_work_now().weekday())
+
+
+def test_focus_on_a_work_task_silences_the_reminder():
+    """The whole point: once the timer runs on the job, there is nothing to
+    remind about — work focus is focus."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        work_service.upsert_profile(db, user, work_days=_today_is_a_workday(),
+                                    work_start="09:00", work_end="18:00")
+        task = work_service.create_task(db, user, title="Client migration")
+        anchor = _work_now()
+        db.add(models.BatFocus(owner_id=uid, work_task_id=task.id,
+                               start_time=anchor - timedelta(hours=1), end_time=anchor,
+                               duration_minutes=50))
+        db.commit()
+        # evaluated at a moment inside working hours, with work time logged
+        assert nudges.evaluate(db, user, _work_now()) is None or \
+            nudges.evaluate(db, user, _work_now()).kind != "drift"
+    finally:
+        db.close()
+
+
+def test_at_work_with_nothing_timed_still_gets_a_reminder_but_not_an_accusation():
+    """He must not go silent — the reminder is wanted — but he must not call
+    someone at their desk a drifter either."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        work_service.upsert_profile(db, user, work_days=_today_is_a_workday(),
+                                    work_start="09:00", work_end="18:00")
+        db.commit()
+        n = nudges.evaluate(db, user, _work_now())
+        assert n is not None and n.kind == "drift"
+        assert "drifting" not in n.draft.lower()        # no accusation
+        assert "work" in n.draft.lower()                # framed for where they are
+        assert n.draft.rstrip().endswith("?")           # still an offer
+    finally:
+        db.close()
+
+
+def test_work_moved_but_untimed_is_offered_the_clock():
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        # no profile → not "at work", but the job clearly moved today
+        work_service.create_task(db, user, title="Wrote the spec")
+        db.commit()
+        n = nudges.evaluate(db, user, _work_now())
+        assert n is not None and n.kind == "drift"
+        assert "timed none of it" in n.draft
+    finally:
+        db.close()
