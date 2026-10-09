@@ -72,6 +72,8 @@ class BatAccount(Base):
     ai_provider_config = relationship("BatAIProviderConfig", back_populates="owner", cascade="all, delete-orphan", uselist=False)
     briefings = relationship("BatBriefing", back_populates="owner", cascade="all, delete-orphan")
     reminders = relationship("BatReminder", back_populates="owner", cascade="all, delete-orphan")
+    work_tasks = relationship("BatWorkTask", back_populates="owner", cascade="all, delete-orphan")
+    work_notes = relationship("BatWorkNote", back_populates="owner", cascade="all, delete-orphan")
 
     active_alfred_session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="SET NULL"), nullable=True)
 
@@ -159,6 +161,8 @@ class BatFocus(Base):
     mission = relationship("BatMission")
     habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="SET NULL"), nullable=True)
     habit = relationship("BatHabit")
+    # Work-track link. A session on a work task logs time but awards NO points.
+    work_task_id = Column(Integer, ForeignKey("bat_work_tasks.id", ondelete="SET NULL"), nullable=True)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="focus_sessions")
@@ -456,3 +460,50 @@ class BatNudgeLog(Base):
     sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+
+
+# --- Corporate / work track -------------------------------------------------
+# Deliberately a SEPARATE domain from missions, not a flag on them. Work must
+# never leak into personal lists, counts, briefings, nudges, stats or Bat
+# Points — keeping it in its own tables makes that true by construction rather
+# than by remembering to filter in a dozen queries. Bat Points are a measure of
+# the person, not of the job, so nothing here ever awards them.
+
+WORK_STATUSES = ("todo", "doing", "blocked", "done")
+WORK_NOTE_KINDS = ("note", "learning", "reflection")
+
+
+class BatWorkTask(Base):
+    __tablename__ = "bat_work_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    detail = Column(String, nullable=True)
+    status = Column(String, default="todo", nullable=False)   # see WORK_STATUSES
+    project = Column(String, nullable=True)                   # free-text grouping
+    due_date = Column(DateTime, nullable=True)
+    # Minutes of focus logged against this task. No points are awarded for it.
+    focus_minutes = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="work_tasks")
+
+
+class BatWorkNote(Base):
+    """The work journal: plain notes, things learned, and end-of-period
+    reflections. Kept apart from the user's personal notes and from Alfred's
+    private memory so corporate context never colours personal context."""
+
+    __tablename__ = "bat_work_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, default="note", nullable=False)     # see WORK_NOTE_KINDS
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    work_task_id = Column(Integer, ForeignKey("bat_work_tasks.id", ondelete="SET NULL"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="work_notes")

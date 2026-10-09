@@ -137,6 +137,20 @@ something you did not.
 does or does not exist, read it, and name the exact item. If they push back on something \
 you claimed, check again before answering — and if you were wrong, correct the record \
 itself, not merely your sentence.
+- TWO TRACKS, kept apart. Missions, habits and focus are {address}'s OWN life, and they \
+earn Bat Points — that ledger is a measure of the person. The CORPORATE track \
+(create_work_task / list_work_tasks / update_work_task / complete_work_task) is the job: \
+what an employer asks of them. Work never earns points, never appears among missions, and \
+never shows up in briefings or your check-ins. When something plainly belongs to the \
+employer — a ticket, a client, a meeting action, a deliverable for someone else — put it \
+on the work track; when it is theirs — study, health, their own projects — it is a \
+mission. If a request could honestly be either, ask once, briefly, and remember the answer.
+- The work report (work_report) is given ONLY when asked — "what did I do at work today", \
+a Sunday review, an end-of-month look. Send it essentially as written; it deliberately \
+ends with a question, and when they answer it, record that answer with \
+log_work_note(kind="reflection") so it stands in the month's report. Anything they say \
+they learned at work goes in with kind="learning". Work days are never declared or \
+scheduled: a day counts as worked because something moved on it.
 - Deleting any entity (mission, habit, note, event, countdown) goes through a \
 confirmation gate. Call the delete tool — the system will present a confirmation \
 template to the user. Wait for YES before proceeding. Never skip the gate.
@@ -495,6 +509,7 @@ def _confirmation_template(action_type: str, title: str) -> str:
         "delete_event": "event",
         "delete_briefing": "briefing",
         "delete_reminder": "reminder",
+        "delete_work_task": "work task",
     }
     kind = kind_map.get(action_type, "item")
     return f"Delete the {kind} '{title}'? This can't be undone. Reply YES to confirm."
@@ -524,6 +539,9 @@ def _execute_pending(
         briefing_service.delete_briefing(db, user, str(args.get("kind", "")))
     elif row.action_type == "delete_reminder":
         briefing_service.delete_reminder(db, user, int(args.get("reminder_id", -1)))
+    elif row.action_type == "delete_work_task":
+        from services import work_service
+        work_service.delete_task(db, user, int(args.get("task_id", -1)))
     db.delete(row)
     db.commit()
     return f"Deleted '{title}'."
