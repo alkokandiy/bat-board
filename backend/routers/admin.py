@@ -25,12 +25,33 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def _admin_names() -> set:
+    """Configured admin usernames, case-folded.
+
+    Folding matters in both directions: it stops a case variant of the
+    configured name being claimable, and stops an owner configured as "Thomas"
+    silently having no powers because they registered as "thomas".
+    """
     raw = get_settings().admin_usernames or ""
-    return {n.strip() for n in raw.split(",") if n.strip()}
+    return {n.strip().casefold() for n in raw.split(",") if n.strip()}
 
 
 def is_admin(user: models.BatAccount) -> bool:
-    return user.username in _admin_names()
+    return (user.username or "").casefold() in _admin_names()
+
+
+def is_reserved_admin_name(name: str, actor: models.BatAccount = None) -> bool:
+    """True if taking this username would hand someone admin rights.
+
+    Admin authority is keyed on the username, and usernames are chosen freely
+    at registration and changeable afterwards — so an admin name that nobody
+    currently holds (fresh deploy, a typo in ADMIN_USERNAMES, the owner having
+    renamed) is a claimable escalation. Registration into an admin name is
+    refused outright; renaming into one is allowed only for an account that is
+    already an admin, so a legitimate admin can still adjust their own name.
+    """
+    if (name or "").strip().casefold() not in _admin_names():
+        return False
+    return actor is None or not is_admin(actor)
 
 
 def require_admin(current_user: models.BatAccount = Depends(get_current_active_user)) -> models.BatAccount:
@@ -79,7 +100,7 @@ def list_users(db: Session = Depends(get_db), _admin: models.BatAccount = Depend
             "id": u.id,
             "username": u.username,
             "is_active": u.is_active,
-            "is_admin": u.username in admins,
+            "is_admin": (u.username or "").casefold() in admins,
             "created_at": u.created_at.isoformat() if u.created_at else None,
             "points": u.points,
             "bat_level": u.bat_level,

@@ -431,6 +431,12 @@ def health_check():
 @app.post("/api/auth/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 def register(request: Request, user_data: UserCreate, db: Session = Depends(get_db)):
+    # An admin username that nobody holds yet would otherwise be claimable by
+    # anyone, and admin rights are keyed on the username.
+    from routers.admin import is_reserved_admin_name
+
+    if is_reserved_admin_name(user_data.username):
+        raise HTTPException(status_code=409, detail="Username already taken")
     existing = db.query(models.BatAccount).filter(
         models.BatAccount.username == user_data.username
     ).first()
@@ -524,6 +530,12 @@ def update_account(
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
     if payload.username is not None:
+        from routers.admin import is_reserved_admin_name
+
+        # Renaming into a configured admin name is an escalation unless the
+        # caller is already an admin.
+        if is_reserved_admin_name(payload.username, current_user):
+            raise HTTPException(status_code=409, detail="Username already taken")
         existing = db.query(models.BatAccount).filter(
             models.BatAccount.username == payload.username,
             models.BatAccount.id != current_user.id
