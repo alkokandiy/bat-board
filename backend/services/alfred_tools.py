@@ -23,6 +23,7 @@ from services import (
     profile_service,
     stats_service,
     telegram_service,
+    work_service,
 )
 
 FOCUS_NO_LIVE_SYNC_NOTE = (
@@ -142,6 +143,14 @@ def _session_dict(s):
     }
 
 
+def _work_task_dict(t):
+    return {
+        "id": t.id, "title": t.title, "detail": t.detail, "status": t.status,
+        "project": t.project, "due_date": _iso(t.due_date),
+        "focus_minutes": t.focus_minutes, "completed_at": _iso(t.completed_at),
+    }
+
+
 def _active_session_dict(s):
     from datetime import datetime, timezone
     start = s.start_time if s.start_time.tzinfo else s.start_time.replace(tzinfo=timezone.utc)
@@ -236,6 +245,20 @@ READ_TOOLS = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "list_reminders", "description": "List the user's reminders (message, schedule, enabled). Use before editing or deleting one, or when they ask what reminders are set.",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "list_work_tasks", "description": "List CORPORATE/WORK tasks (the job track) — separate from personal missions. Use for 'what work tasks do we have', 'what's on at the office'. Optionally filter by status (todo/doing/blocked/done) or project.",
+     "parameters": {"type": "object", "properties": {
+         "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
+         "project": {"type": "string"},
+         "include_done": {"type": "boolean", "description": "Include finished tasks (default false)."},
+     }}},
+    {"name": "work_report", "description": "Build the corporate/work report for a period and send it. Use when they ask what they did at work — 'what did I do today at work', a Sunday review, an end-of-month review. Covers finished work, what's in hand, what's BLOCKED, hours logged, working days, and things learned; it ends with a reflection question. Only ever on request — never volunteer it.",
+     "parameters": {"type": "object", "properties": {
+         "period": {"type": "string", "enum": ["today", "week", "month"], "description": "today = this day, week = last 7 days, month = this calendar month."},
+     }, "required": ["period"]}},
+    {"name": "list_work_notes", "description": "Read the work journal: plain notes, things LEARNED, and past REFLECTIONS. Kept separate from personal notes.",
+     "parameters": {"type": "object", "properties": {
+         "kind": {"type": "string", "enum": ["note", "learning", "reflection"]},
+     }}},
     {"name": "get_nudge_settings", "description": "Show how you check in on the user unprompted: whether it's on, their quiet hours, and the daily limit. Read before changing it.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "show_daily_brief", "description": "Send the user a daily brief card (image): missions due today, habits still to do, next calendar event and countdown, points and level. Use for 'my day', 'daily brief', 'what's on today', 'morning summary'.",
@@ -349,6 +372,41 @@ WRITE_TOOLS = [
          "include_news": {"type": "boolean"},
          "news_topics": {"type": "string", "description": "Comma-separated topics, e.g. 'AI, cybersecurity, defense'. Required if include_news."},
      }, "required": ["kind"]}},
+    {"name": "create_work_task", "description": "Add a CORPORATE/WORK task (the job track). Use whenever the task belongs to their employer rather than their own life. These never award Bat Points and never appear among personal missions. Don't interrogate — sensible defaults, then report what you added.",
+     "parameters": {"type": "object", "properties": {
+         "title": {"type": "string"},
+         "detail": {"type": "string"},
+         "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
+         "project": {"type": "string", "description": "Free-text grouping, e.g. a client or system name."},
+         "due_date": {"type": "string", "description": "ISO datetime."},
+     }, "required": ["title"]}},
+    {"name": "create_work_tasks", "description": "Add SEVERAL corporate/work tasks in one call. Always use this (not repeated create_work_task) when they list more than one. Duplicates of open titles are skipped.",
+     "parameters": {"type": "object", "properties": {
+         "tasks": {"type": "array", "items": {"type": "object", "properties": {
+             "title": {"type": "string"}, "detail": {"type": "string"},
+             "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
+             "project": {"type": "string"},
+             "due_date": {"type": "string", "description": "ISO datetime."},
+         }, "required": ["title"]}},
+     }, "required": ["tasks"]}},
+    {"name": "update_work_task", "description": "Change a work task — most often its status as it moves (todo → doing → blocked → done). Setting status 'done' completes it.",
+     "parameters": {"type": "object", "properties": {
+         "task_id": {"type": "integer"},
+         "title": {"type": "string"}, "detail": {"type": "string"},
+         "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
+         "project": {"type": "string"},
+         "due_date": {"type": "string", "description": "ISO datetime."},
+     }, "required": ["task_id"]}},
+    {"name": "complete_work_task", "description": "Mark a work task finished. Awards NO Bat Points — deliberately, this is the job, not the person.",
+     "parameters": {"type": "object", "properties": {
+         "task_id": {"type": "integer"},
+     }, "required": ["task_id"]}},
+    {"name": "log_work_note", "description": "Write to the WORK journal, kept apart from personal notes. kind 'learning' for something learned at work, 'reflection' for an answer to a report's reflection question (save these whenever they answer one), 'note' for anything else worth recording about the job.",
+     "parameters": {"type": "object", "properties": {
+         "content": {"type": "string"},
+         "kind": {"type": "string", "enum": ["note", "learning", "reflection"]},
+         "task_id": {"type": "integer", "description": "Optional work task it belongs to."},
+     }, "required": ["content"]}},
     {"name": "set_nudge_settings", "description": "Change how you check in unprompted. Use when they say things like 'check in on me less', 'stop messaging me', 'don't message me after 9', 'you can nudge me more'. Only pass what they asked to change.",
      "parameters": {"type": "object", "properties": {
          "enabled": {"type": "boolean", "description": "False stops all unprompted check-ins."},
@@ -414,6 +472,10 @@ DESTRUCTIVE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "kind": {"type": "string", "enum": ["morning", "night"]},
      }, "required": ["kind"]}},
+    {"name": "delete_work_task", "description": "Delete a corporate/work task. Requires user confirmation — never call directly.",
+     "parameters": {"type": "object", "properties": {
+         "task_id": {"type": "integer"},
+     }, "required": ["task_id"]}},
     {"name": "delete_reminder", "description": "Delete a reminder. Requires user confirmation — never call directly.",
      "parameters": {"type": "object", "properties": {
          "reminder_id": {"type": "integer"},
@@ -466,6 +528,9 @@ def _describe_tool_target(
     if name == "delete_reminder":
         r = briefing_service.get_reminder(db, current_user, int(args.get("reminder_id")))
         return r.message if r else None
+    if name == "delete_work_task":
+        t = work_service.get_task(db, current_user, int(args.get("task_id")))
+        return t.title if t else None
     return None
 
 
@@ -756,6 +821,33 @@ def execute_tool(
         if r is None:
             return {"error": "Reminder not found"}
         return {"reminder": _reminder_dict(r)}
+    if name == "list_work_tasks":
+        tasks = work_service.list_tasks(
+            db, current_user, status=args.get("status"), project=args.get("project"),
+            include_done=bool(args.get("include_done")))
+        all_open = work_service.list_tasks(db, current_user)
+        return {"work_tasks": [_work_task_dict(t) for t in tasks],
+                "counts": {s_: len([t for t in all_open if t.status == s_])
+                           for s_ in work_service.OPEN_STATUSES},
+                "open_total": len(all_open),
+                "note": "Corporate track — separate from personal missions and Bat Points."}
+    if name == "list_work_notes":
+        notes = work_service.list_notes(db, current_user, kind=args.get("kind"))
+        return {"work_notes": [{"id": n.id, "kind": n.kind, "content": n.content,
+                                "created_at": _iso(n.created_at)} for n in notes]}
+    if name == "work_report":
+        period = (args.get("period") or "today").lower()
+        if period not in work_service.PERIODS:
+            return {"error": f"period must be one of {work_service.PERIODS}."}
+        data = work_service.build_report(db, current_user, period)
+        text = work_service.render_report(current_user, data)
+        if media_sink is not None:
+            # Delivered as the turn's reply text by the caller; nothing to attach.
+            pass
+        return {"report": text,
+                "next_step": ("Send this report as your reply, essentially as written. If they "
+                              "answer the reflection question afterwards, save their answer with "
+                              "log_work_note(kind='reflection').")}
     if name == "get_nudge_settings":
         from services import nudges
         return {"nudges": {
@@ -764,6 +856,73 @@ def execute_tool(
             "quiet_end": getattr(current_user, "nudge_quiet_end", None) or nudges.DEFAULT_QUIET_END,
             "per_day": getattr(current_user, "nudges_per_day", None) or nudges.DEFAULT_PER_DAY,
         }}
+    if name == "create_work_task":
+        existing = work_service.find_open_by_title(db, current_user, args.get("title") or "")
+        if existing is not None:
+            return {"created": False,
+                    "reason": "An open work task with this title already exists — not duplicated.",
+                    "existing_task": _work_task_dict(existing),
+                    "next_step": ("If what they just said adds anything new, call update_work_task "
+                                  "and say what you changed; otherwise name the existing task.")}
+        try:
+            t = work_service.create_task(
+                db, current_user, title=args["title"], detail=args.get("detail"),
+                status=args.get("status") or "todo", project=args.get("project"),
+                due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"work_task": _work_task_dict(t)}
+    if name == "create_work_tasks":
+        items = args.get("tasks") or []
+        if not isinstance(items, list) or not items:
+            return {"error": "Provide a non-empty 'tasks' array."}
+        created, skipped, seen = [], [], set()
+        for spec in items:
+            if not isinstance(spec, dict):
+                continue
+            title = (spec.get("title") or "").strip()
+            if not title:
+                continue
+            key = " ".join(title.split()).casefold()
+            if key in seen or work_service.find_open_by_title(db, current_user, title):
+                skipped.append(title)
+                continue
+            seen.add(key)
+            try:
+                t = work_service.create_task(
+                    db, current_user, title=title, detail=spec.get("detail"),
+                    status=spec.get("status") or "todo", project=spec.get("project"),
+                    due_date=_parse_dt(spec.get("due_date"), "due_date") if spec.get("due_date") else None)
+            except ValueError:
+                continue
+            created.append(_work_task_dict(t))
+        return {"created": created, "created_count": len(created), "skipped_duplicates": skipped}
+    if name == "update_work_task":
+        try:
+            t = work_service.update_task(
+                db, current_user, int(args["task_id"]),
+                title=args.get("title"), detail=args.get("detail"),
+                status=args.get("status"), project=args.get("project"),
+                due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        if t is None:
+            return {"error": "Work task not found"}
+        return {"work_task": _work_task_dict(t)}
+    if name == "complete_work_task":
+        t = work_service.complete_task(db, current_user, int(args["task_id"]))
+        if t is None:
+            return {"error": "Work task not found"}
+        return {"work_task": _work_task_dict(t), "points_awarded": 0,
+                "note": "No Bat Points — corporate work is deliberately not scored."}
+    if name == "log_work_note":
+        try:
+            n = work_service.add_note(
+                db, current_user, content=args["content"], kind=args.get("kind") or "note",
+                work_task_id=int(args["task_id"]) if args.get("task_id") else None)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"work_note": {"id": n.id, "kind": n.kind, "content": n.content}}
     if name == "set_nudge_settings":
         import re as _re
         hhmm = _re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")

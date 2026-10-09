@@ -52,6 +52,7 @@ def start_focus_session(
     habit_id: Optional[int] = None,
     mode: Optional[str] = None,
     planned_minutes: Optional[int] = None,
+    work_task_id: Optional[int] = None,
 ) -> models.BatFocus:
     """Raises ValueError("Mission not found") / ValueError("Habit not found")
     for invalid links (route translates to 404); never returns None.
@@ -75,6 +76,9 @@ def start_focus_session(
         ).first()
         if not habit:
             raise ValueError("Habit not found")
+    if work_task_id:
+        if not _owns(db, models.BatWorkTask, work_task_id, current_user):
+            raise ValueError("Work task not found")
 
     session = models.BatFocus(
         start_time=datetime.now(timezone.utc),
@@ -83,6 +87,7 @@ def start_focus_session(
         habit_id=habit_id,
         mode=mode,
         planned_minutes=planned_minutes,
+        work_task_id=work_task_id,
     )
     db.add(session)
     db.flush()
@@ -186,8 +191,17 @@ def end_focus_session(
             ).first()
             if habit:
                 habit.focus_minutes = (habit.focus_minutes or 0) + session.duration_minutes
+        if session.work_task_id:
+            task = db.query(models.BatWorkTask).filter(
+                models.BatWorkTask.id == session.work_task_id,
+                models.BatWorkTask.owner_id == current_user.id
+            ).first()
+            if task:
+                task.focus_minutes = (task.focus_minutes or 0) + session.duration_minutes
 
-    reward = session.duration_minutes or 0
+    # Work time is logged but NEVER rewarded: Bat Points measure the person,
+    # not the job. A session attached to a work task earns nothing.
+    reward = 0 if session.work_task_id else (session.duration_minutes or 0)
     current_user.points += reward
     old_level = current_user.bat_level
     current_user.bat_level = calculate_bat_level(current_user.points)
