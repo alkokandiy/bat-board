@@ -415,6 +415,9 @@ class BatReminder(Base):
     weekdays = Column(String, nullable=True)     # weekly: CSV of 0-6 (Mon=0)
     day_of_month = Column(Integer, nullable=True)  # monthly: 1-31 (clamped to month end)
     run_date = Column(String, nullable=True)     # once: "YYYY-MM-DD" local
+    # Optional last day, inclusive ("for one month", "until 1 Dec"). NULL means
+    # it runs indefinitely. Past this date the reminder stops and disables itself.
+    ends_on = Column(String, nullable=True)      # "YYYY-MM-DD" local
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
