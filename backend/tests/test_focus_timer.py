@@ -17,11 +17,30 @@ def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
+def _chat_of(uid):
+    db = SessionLocal()
+    try:
+        row = (db.query(models.BatPersonalAccessToken)
+               .filter_by(owner_id=uid, revoked=False).first())
+        return row.telegram_chat_id if row else None
+    finally:
+        db.close()
+
+
+def _mine(sink, uid):
+    """Only the messages sent to THIS test's user. run_tick serves every linked
+    account, so a shared sink also catches other tests' users."""
+    cid = _chat_of(uid)
+    return [text for (chat_id, text) in sink if chat_id == cid]
+
+
 def _mk_user(linked=True):
     _n[0] += 1
     db = SessionLocal()
     try:
-        u = models.BatAccount(username=f"ft{_n[0]}", hashed_password="x", alfred_address="Master Wayne")
+        u = models.BatAccount(username=f"ft{_n[0]}", hashed_password="x", alfred_address="Master Wayne",
+                              # these tests aren't about proactive check-ins
+                              nudges_enabled=False)
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -119,7 +138,8 @@ def test_cron_autoends_due_timed_session_and_pings(sink):
     summary = _run(scheduler.run_tick(db=SessionLocal(), adapter_for=lambda d, u: None))
     assert summary["focus_autoended"] == 1
     assert summary["focus_pings_sent"] == 1
-    assert len(sink) == 1 and "Focus complete" in sink[0][1] and "Write report" in sink[0][1]
+    mine = _mine(sink, uid)
+    assert len(mine) == 1 and "Focus complete" in mine[0] and "Write report" in mine[0]
 
     db = SessionLocal()
     try:
@@ -145,7 +165,7 @@ def test_cron_leaves_unfinished_and_untimed_sessions(sink):
 
     summary = _run(scheduler.run_tick(db=SessionLocal(), adapter_for=lambda d, u: None))
     assert summary["focus_autoended"] == 0
-    assert sink == []
+    assert _mine(sink, uid) == []
     db = SessionLocal()
     try:
         assert db.get(models.BatFocus, not_due).end_time is None

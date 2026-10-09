@@ -248,8 +248,19 @@ def build_report(db: Session, user: models.BatAccount, period: str, today: Optio
     for n in notes:
         days.add(local_date(n.created_at, tz))
 
+    profile = get_profile(db, user)
+    if period == "today":
+        first = today
+    elif period == "week":
+        first = today - timedelta(days=6)
+    else:
+        first = today.replace(day=1)
+
     return {
         "period": period, "label": label, "today": today,
+        "profile": profile,
+        "expected_minutes": expected_minutes(profile, first, today),
+        "expected_days": scheduled_days_in(profile, first, today),
         "completed": completed,
         "open_by_status": by_status,
         "open_total": len(open_tasks),
@@ -284,6 +295,16 @@ def render_report(user: models.BatAccount, data: Dict) -> str:
         bits.append(f"{_fmt_hm(data['minutes'])} logged")
     bits.append(f"{len(data['completed'])} finished")
     lines.append(" · ".join(bits))
+
+    # Measured against their own stated schedule, when they've given me one.
+    exp_m, exp_d = data.get("expected_minutes") or 0, data.get("expected_days") or 0
+    if exp_m or exp_d:
+        parts = []
+        if exp_d:
+            parts.append(f"{len(days)} of {exp_d} scheduled day{'s' if exp_d != 1 else ''}")
+        if exp_m:
+            parts.append(f"{_fmt_hm(data['minutes'])} of about {_fmt_hm(exp_m)} expected")
+        lines.append("Against your schedule: " + ", ".join(parts) + ".")
 
     if data["completed"]:
         lines.append("")
@@ -328,3 +349,161 @@ def render_report(user: models.BatAccount, data: Dict) -> str:
     lines.append("")
     lines.append(REFLECTION_PROMPTS[data["period"]])
     return "\n".join(lines).strip()
+
+
+# --- the work profile -------------------------------------------------------
+# What Alfred knows about the job itself. The guided setup is driven from here
+# rather than improvised by the model: the tool reports exactly which fields are
+# still unknown and the next question to ask, so "set up work" behaves the same
+# way every time.
+
+from services.briefing_service import _normalize_weekdays, _valid_time, _valid_run_date  # noqa: E402
+
+WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+# (fields, question, essential)
+SETUP_STEPS = [
+    (("work_days",), "Which days do you work? (for instance, Monday to Friday)", True),
+    (("work_start", "work_end"), "And the hours — from when to when? (for instance, 09:00 to 18:00)", True),
+    (("employer",), "Who do you work for — what should I call the place?", False),
+    (("role",), "And your role there?", False),
+    (("expected_weekly_hours",), "How many hours a week are you expected to put in?", False),
+    (("report_time",), "When would you like the day's work report — and shall I add a weekly review and a month-end one?", False),
+    (("started_on",), "When did you start there? (I'll keep track of how long you've been at it.)", False),
+]
+
+PROFILE_FIELDS = ("employer", "role", "work_days", "work_start", "work_end",
+                  "expected_weekly_hours", "started_on", "report_time",
+                  "daily_report", "weekly_report_day", "monthly_report", "notes")
+
+
+def get_profile(db: Session, user: models.BatAccount) -> Optional[models.BatWorkProfile]:
+    return (
+        db.query(models.BatWorkProfile)
+        .filter(models.BatWorkProfile.owner_id == user.id)
+        .first()
+    )
+
+
+def profile_dict(p: Optional[models.BatWorkProfile]) -> Dict:
+    if p is None:
+        return {f: None for f in PROFILE_FIELDS}
+    out = {f: getattr(p, f) for f in PROFILE_FIELDS}
+    out["work_days_label"] = weekdays_label(p.work_days)
+    return out
+
+
+def weekdays_label(csv: Optional[str]) -> str:
+    nums = [int(d) for d in (csv or "").split(",") if d.strip().isdigit()]
+    return ", ".join(WEEKDAY_LABELS[n] for n in nums) if nums else ""
+
+
+def profile_status(db: Session, user: models.BatAccount) -> Dict:
+    """The profile plus what is still unknown and what to ask next."""
+    p = get_profile(db, user)
+    missing_essential, missing_optional, next_question = [], [], None
+    for fields, question, essential in SETUP_STEPS:
+        unset = [f for f in fields if getattr(p, f, None) in (None, "")]
+        if not unset:
+            continue
+        (missing_essential if essential else missing_optional).extend(unset)
+        if next_question is None:
+            next_question = question
+    return {
+        "profile": profile_dict(p),
+        "configured": p is not None and not missing_essential,
+        "missing_essential": missing_essential,
+        "missing_optional": missing_optional,
+        "next_question": next_question,
+    }
+
+
+def upsert_profile(db: Session, user: models.BatAccount, **fields) -> models.BatWorkProfile:
+    """Partial update — pass only what the user just told you."""
+    p = get_profile(db, user)
+    if p is None:
+        p = models.BatWorkProfile(owner_id=user.id)
+        db.add(p)
+
+    if fields.get("work_days") is not None:
+        p.work_days = _normalize_weekdays(fields["work_days"])
+    for key in ("work_start", "work_end", "report_time"):
+        if fields.get(key) is not None:
+            p.__setattr__(key, _valid_time(fields[key]))
+    if fields.get("started_on") is not None:
+        p.started_on = _valid_run_date(fields["started_on"])
+    if fields.get("expected_weekly_hours") is not None:
+        hours = int(fields["expected_weekly_hours"])
+        if not 1 <= hours <= 100:
+            raise ValueError("expected_weekly_hours must be between 1 and 100.")
+        p.expected_weekly_hours = hours
+    if fields.get("weekly_report_day") is not None:
+        wd = fields["weekly_report_day"]
+        if wd in ("", "none", None):
+            p.weekly_report_day = None
+        else:
+            wd = int(_normalize_weekdays(wd).split(",")[0])
+            p.weekly_report_day = wd
+    for key in ("employer", "role", "notes"):
+        if fields.get(key) is not None:
+            setattr(p, key, str(fields[key]).strip() or None)
+    for key in ("daily_report", "monthly_report"):
+        if fields.get(key) is not None:
+            setattr(p, key, bool(fields[key]))
+
+    db.commit()
+    db.refresh(p)
+    return p
+
+
+# --- schedule awareness -----------------------------------------------------
+
+def _hhmm(value: Optional[str]):
+    try:
+        hh, mm = (value or "").split(":")
+        return int(hh), int(mm)
+    except (ValueError, AttributeError):
+        return None
+
+
+def is_working_day(profile: Optional[models.BatWorkProfile], day: date) -> bool:
+    if profile is None or not profile.work_days:
+        return False
+    days = {int(d) for d in profile.work_days.split(",") if d.strip().isdigit()}
+    return day.weekday() in days
+
+
+def is_working_now(profile: Optional[models.BatWorkProfile], local_now: datetime) -> bool:
+    """True when they are, by their own account, at work right now."""
+    if not is_working_day(profile, local_now.date()):
+        return False
+    start, end = _hhmm(profile.work_start), _hhmm(profile.work_end)
+    if not start or not end:
+        return False
+    now_m = local_now.hour * 60 + local_now.minute
+    s, e = start[0] * 60 + start[1], end[0] * 60 + end[1]
+    if s <= e:
+        return s <= now_m < e
+    return now_m >= s or now_m < e      # a shift across midnight
+
+
+def scheduled_days_in(profile: Optional[models.BatWorkProfile], start: date, end: date) -> int:
+    """How many working days the schedule expects between two dates, inclusive."""
+    if profile is None or not profile.work_days:
+        return 0
+    n, day = 0, start
+    while day <= end:
+        if is_working_day(profile, day):
+            n += 1
+        day += timedelta(days=1)
+    return n
+
+
+def expected_minutes(profile: Optional[models.BatWorkProfile], start: date, end: date) -> int:
+    """Expected working minutes over a date range, from the weekly figure."""
+    if profile is None or not profile.expected_weekly_hours or not profile.work_days:
+        return 0
+    per_week = profile.expected_weekly_hours * 60
+    days_per_week = max(1, len([d for d in profile.work_days.split(",") if d.strip().isdigit()]))
+    per_day = per_week / days_per_week
+    return int(per_day * scheduled_days_in(profile, start, end))

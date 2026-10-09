@@ -24,12 +24,31 @@ def _run(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 
+def _chat_of(uid):
+    db = SessionLocal()
+    try:
+        row = (db.query(models.BatPersonalAccessToken)
+               .filter_by(owner_id=uid, revoked=False).first())
+        return row.telegram_chat_id if row else None
+    finally:
+        db.close()
+
+
+def _mine(sink, uid):
+    """Only the messages sent to THIS test's user. run_tick serves every linked
+    account, so a shared sink also catches other tests' users."""
+    cid = _chat_of(uid)
+    return [text for (chat_id, text) in sink if chat_id == cid]
+
+
 def _mk_user(tz="UTC", linked=True):
     _uid[0] += 1
     db = SessionLocal()
     try:
         u = models.BatAccount(username=f"brief{_uid[0]}", hashed_password="x",
-                              timezone=tz, alfred_address="Master Wayne")
+                              timezone=tz, alfred_address="Master Wayne",
+                              # these tests aren't about proactive check-ins
+                              nudges_enabled=False)
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -116,7 +135,7 @@ def test_briefing_fires_once_then_dedupes(sink):
     finally:
         db.close()
     assert s1["briefings_sent"] == 1
-    assert len(sink) == 1
+    assert len(_mine(sink, uid)) == 1
 
     db = SessionLocal()
     try:
@@ -124,7 +143,7 @@ def test_briefing_fires_once_then_dedupes(sink):
     finally:
         db.close()
     assert s2["briefings_sent"] == 0  # already logged today
-    assert len(sink) == 1
+    assert len(_mine(sink, uid)) == 1
 
 
 def test_disabled_briefing_does_not_fire(sink):
@@ -141,7 +160,7 @@ def test_disabled_briefing_does_not_fire(sink):
     finally:
         db.close()
     assert s["briefings_sent"] == 0
-    assert sink == []
+    assert _mine(sink, uid) == []
 
 
 def test_user_without_telegram_is_skipped(sink):
@@ -157,7 +176,7 @@ def test_user_without_telegram_is_skipped(sink):
         s = _run(scheduler.run_tick(db, adapter_for=_no_adapter))
     finally:
         db.close()
-    assert sink == []
+    assert _mine(sink, uid) == []
 
 
 def test_future_briefing_not_yet_due(sink):
@@ -173,7 +192,7 @@ def test_future_briefing_not_yet_due(sink):
         _run(scheduler.run_tick(db, adapter_for=_no_adapter))
     finally:
         db.close()
-    assert sink == []
+    assert _mine(sink, uid) == []
 
 
 def test_once_reminder_disables_after_firing(sink):
@@ -214,9 +233,10 @@ def test_daily_reminder_fires_with_alfred_voice(sink):
         _run(scheduler.run_tick(db, adapter_for=_no_adapter))
     finally:
         db.close()
-    assert len(sink) == 1
-    assert "drink water" in sink[0][1]
-    assert "Master Wayne" in sink[0][1]
+    mine = _mine(sink, uid)
+    assert len(mine) == 1
+    assert "drink water" in mine[0]
+    assert "Master Wayne" in mine[0]
 
 
 # --- content: template, toggles, polish fallback ---------------------------
