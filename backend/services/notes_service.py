@@ -38,11 +38,24 @@ def create_note(
     return note
 
 
+# Alfred's private memory lives in the notes table under this tag. It is HIS
+# record, not the user's writing, so it is kept out of their notes by default —
+# they can still look at it deliberately with scope="alfred".
+ALFRED_MEMORY_TAG = "alfred-memory"
+VALID_SCOPES = ("mine", "alfred", "all")
+
+
+def _is_alfred_memory(note) -> bool:
+    return any(t.strip().lower() == ALFRED_MEMORY_TAG
+               for t in (note.tags or "").split(","))
+
+
 def list_notes(
     db: Session,
     current_user: models.BatAccount,
     search: Optional[str] = None,
     sort: str = "updated",
+    scope: str = "all",
 ) -> List[models.BatNote]:
     query = db.query(models.BatNote).filter(models.BatNote.owner_id == current_user.id)
     if search:
@@ -54,6 +67,10 @@ def list_notes(
             )
         )
     notes = query.all()
+    if scope == "mine":
+        notes = [n for n in notes if not _is_alfred_memory(n)]
+    elif scope == "alfred":
+        notes = [n for n in notes if _is_alfred_memory(n)]
     # Pinned first (matches frontend), then the requested sort.
     if sort == "title":
         notes.sort(key=lambda n: ((n.title or "").lower(), n.id))

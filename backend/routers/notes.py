@@ -9,7 +9,7 @@ import models
 from dependencies import get_current_active_user, get_db, limiter
 from schemas.notes import NoteCreate, NoteResponse, NoteUpdate
 from services import notes_service
-from services.notes_service import VALID_SORTS
+from services.notes_service import VALID_SCOPES, VALID_SORTS
 
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 
@@ -18,15 +18,23 @@ router = APIRouter(prefix="/api/notes", tags=["notes"])
 def list_notes(
     search: Optional[str] = None,
     sort: str = "updated",
+    scope: str = "mine",
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
+    """`scope` separates the user's own notes from Alfred's private memory:
+    "mine" (default), "alfred", or "all"."""
     if sort not in VALID_SORTS:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid sort. Must be one of: {', '.join(VALID_SORTS)}",
         )
-    return notes_service.list_notes(db, current_user, search=search, sort=sort)
+    if scope not in VALID_SCOPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid scope. Must be one of: {', '.join(VALID_SCOPES)}",
+        )
+    return notes_service.list_notes(db, current_user, search=search, sort=sort, scope=scope)
 
 
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)

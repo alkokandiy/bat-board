@@ -33,6 +33,8 @@ export default function NotesPanel() {
   const [selectedId, setSelectedId] = useState(null);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('edited');
+  // 'mine' = your own notes; 'alfred' = Alfred's private memory, kept separate
+  const [scope, setScope] = useState('mine');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -41,29 +43,33 @@ export default function NotesPanel() {
 
   const pendingRef = useRef({}); // noteId -> timeout id for debounced PUT
   const sfRef = useRef(null);
+  const migratedRef = useRef(false);   // legacy import runs once, not per scope
 
   // One-time legacy migration, then load from the API.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await migrateOnce({
-          legacyKey: LEGACY_KEY,
-          flagKey: MIGRATED_FLAG,
-          toPayload: (n) => ({
-            title: n.title || '',
-            body: n.body || null,
-            category: n.category || null,
-            is_pinned: !!n.pinned,
-          }),
-          upload: (payload) => api.createNote(payload),
-        });
+        if (!migratedRef.current) {
+          migratedRef.current = true;
+          await migrateOnce({
+            legacyKey: LEGACY_KEY,
+            flagKey: MIGRATED_FLAG,
+            toPayload: (n) => ({
+              title: n.title || '',
+              body: n.body || null,
+              category: n.category || null,
+              is_pinned: !!n.pinned,
+            }),
+            upload: (payload) => api.createNote(payload),
+          });
+        }
       } catch {
         // Migration failed partway: flag not set, retries next load.
         // Fall through to loading whatever the server already has.
       }
       try {
-        const data = await api.getNotes();
+        const data = await api.getNotes('', '', scope);
         if (!cancelled) setNotes((data || []).map(fromServer));
       } catch {
         // Offline/backend down: keep empty list rather than crashing.
@@ -72,7 +78,7 @@ export default function NotesPanel() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [scope]);
 
   const flushPending = useCallback((id) => {
     const timers = pendingRef.current;
@@ -210,6 +216,21 @@ export default function NotesPanel() {
       <div className="flex-1 min-h-0 flex gap-4 p-4">
         <aside className="w-80 shrink-0 flex flex-col bg-[#0d0d18] rounded-[10px] border border-[#1e1e2e] overflow-hidden">
           <div className="shrink-0 p-3 border-b border-[#1e1e2e] space-y-2">
+            <div className="flex gap-1.5">
+              {[['mine', 'MINE'], ['alfred', "ALFRED'S"]].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => { setScope(key); setSelectedId(null); }}
+                  className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono tracking-wider border transition ${
+                    scope === key
+                      ? 'bg-[#f5c518] text-[#08080f] font-bold border-[#f5c518]'
+                      : 'bg-transparent border-[#1e1e2e] text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <input
               type="text" placeholder="Search notes..." value={search}
               onChange={e => setSearch(e.target.value)}

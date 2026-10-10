@@ -221,11 +221,13 @@ export const api = {
   deleteCalendarEvent: (id) => request(`/calendar/events/${id}`, { method: 'DELETE' }),
 
   // Notes
-  getNotes: (search = '', sort = '') => {
+  // scope: 'mine' (default, excludes Alfred's private memory) | 'alfred' | 'all'
+  getNotes: (search = '', sort = '', scope = '') => {
     let url = '/notes';
     const params = [];
     if (search) params.push(`search=${encodeURIComponent(search)}`);
     if (sort) params.push(`sort=${encodeURIComponent(sort)}`);
+    if (scope) params.push(`scope=${encodeURIComponent(scope)}`);
     if (params.length) url += `?${params.join('&')}`;
     return request(url);
   },

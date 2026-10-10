@@ -589,8 +589,8 @@ def execute_tool(
         return {"events": [_event_dict(e) for e in calendar_service.list_upcoming_events(db, current_user)]}
     if name == "list_notes":
         return {"notes": [_note_dict(n) for n in notes_service.list_notes(
-            db, current_user,
-            search=args.get("search"), sort=args.get("sort") or "updated")]}
+            db, current_user, search=args.get("search"),
+            sort=args.get("sort") or "updated", scope="mine")]}
     if name == "list_countdowns":
         return {"countdowns": [_countdown_dict(c) for c in countdown_service.list_countdowns(db, current_user)]}
     if name == "list_recent_logs":

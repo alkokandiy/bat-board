@@ -548,8 +548,13 @@ def test_reset_alfred_keeps_key_and_user_notes(client, auth_headers, monkeypatch
     assert r.status_code == 200
     assert r.json()["sessions"] >= 1 and r.json()["messages"] >= 2 and r.json()["memory_notes"] == 0
     assert client.get("/api/alfred/sessions", headers=h).json() == []
-    titles = [n["title"] for n in client.get("/api/notes", headers=h).json()]
-    assert "Coffee" in titles and "My own note" in titles  # memory kept unless asked
+    # The user's own notes and Alfred's memory are separate scopes now, so check
+    # both: the memory survives the reset, and the user's note is untouched.
+    mine = [n["title"] for n in client.get("/api/notes", headers=h).json()]
+    memory = [n["title"] for n in client.get("/api/notes?scope=alfred", headers=h).json()]
+    assert "My own note" in mine
+    assert "Coffee" in memory          # memory kept unless asked
+    assert "Coffee" not in mine        # and no longer clutters their notes
 
     r = client.post("/api/alfred/reset", json={"erase_memory": True}, headers=h)
     assert r.json()["memory_notes"] == 1
