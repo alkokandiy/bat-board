@@ -89,3 +89,51 @@ def test_notes_rate_limit(client, auth_headers):
         r = client.post("/api/notes", json={"title": "spam"}, headers=h)
         statuses.add(r.status_code)
     assert 429 in statuses
+
+
+# --- Alfred's private memory is kept out of the user's notes ---------------
+
+def test_notes_scope_separates_alfred_memory(client, auth_headers):
+    """Alfred's memory notes live in the notes table under a tag. They are HIS
+    record, so they must not clutter the user's own notes by default."""
+    h = auth_headers("notes_scope_user")
+    client.post("/api/notes", headers=h, json={"title": "My own note", "body": "mine"})
+    client.post("/api/notes", headers=h,
+                json={"title": "Identity", "body": "remembered", "tags": "alfred-memory"})
+
+    mine = client.get("/api/notes", headers=h).json()                     # default
+    assert [n["title"] for n in mine] == ["My own note"]
+
+    alfred = client.get("/api/notes?scope=alfred", headers=h).json()
+    assert [n["title"] for n in alfred] == ["Identity"]
+
+    both = client.get("/api/notes?scope=all", headers=h).json()
+    assert {n["title"] for n in both} == {"My own note", "Identity"}
+
+
+def test_notes_scope_rejects_unknown_value(client, auth_headers):
+    h = auth_headers("notes_scope_bad")
+    assert client.get("/api/notes?scope=everything", headers=h).status_code == 422
+
+
+def test_alfred_still_reads_and_writes_its_own_memory(auth_headers):
+    """The separation must not blind Alfred to his own memory."""
+    from database import SessionLocal
+    import models
+    from services import alfred_tools
+
+    auth_headers("notes_scope_alfred")
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).filter_by(username="notes_scope_alfred").first()
+        alfred_tools.execute_tool(db, user, "alfred_remember",
+                                  {"title": "Prefers tea", "content": "Earl Grey"})
+        topics = alfred_tools.execute_tool(db, user, "alfred_list_memory_topics", {})
+        assert any(t["title"] == "Prefers tea" for t in topics["topics"])
+        recalled = alfred_tools.execute_tool(db, user, "alfred_recall", {"query": "tea"})
+        assert recalled["memories"] and "Earl Grey" in recalled["memories"][0]["body"]
+        # ...while the user-facing notes tool does not show it
+        listed = alfred_tools.execute_tool(db, user, "list_notes", {})
+        assert all(n["title"] != "Prefers tea" for n in listed["notes"])
+    finally:
+        db.close()

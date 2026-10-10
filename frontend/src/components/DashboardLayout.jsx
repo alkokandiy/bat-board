@@ -78,7 +78,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   const isCollapsed = sidebarCollapsed;
 
   return (
-    <div className="min-h-screen bg-matte-obsidian text-slate-100 flex flex-col font-sans">
+    <div className="h-screen bg-matte-obsidian text-slate-100 flex flex-col font-sans overflow-hidden">
       {!focusMode && (
         <header className="h-16 border-b border-dark-slate flex items-center justify-between px-6 bg-matte-obsidian z-10">
           <div className="flex items-center space-x-3">
@@ -116,7 +116,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
         </header>
       )}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {!focusMode && (
           <aside
             className="border-r border-dark-slate bg-matte-obsidian flex flex-col shrink-0 hidden md:flex relative overflow-hidden"
@@ -264,7 +264,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
           </aside>
         )}
 
-        <main className={`flex-1 bg-matte-obsidian overflow-y-auto ${focusMode ? 'p-0' : 'p-6 md:p-8'}`}>
+        <main className={`flex-1 min-h-0 bg-matte-obsidian overflow-y-auto ${focusMode ? 'p-0' : 'p-6 md:p-8'}`}>
           {children}
         </main>
       </div>
