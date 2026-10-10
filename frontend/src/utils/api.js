@@ -263,6 +263,24 @@ export const api = {
   saveAlfredProvider: (provider, model_name, api_key) => request('/alfred/provider', { method: 'POST', body: { provider, model_name, api_key } }),
   deleteAlfredProvider: () => request('/alfred/provider', { method: 'DELETE' }),
 
+  // Work / corporate track.
+  // getWorkStatus is the only one that answers while the track is off (it is
+  // how the UI learns that); every other call 409s, so callers must check.
+  getWorkStatus: () => request('/work/status'),
+  setWorkEnabled: (enabled) => request('/work/status', { method: 'PUT', body: { enabled: !!enabled } }),
+  updateWorkProfile: (data) => request('/work/profile', { method: 'PUT', body: data }),
+  getWorkTasks: (includeDone = false) =>
+    request(`/work/tasks${includeDone ? '?include_done=true' : ''}`),
+  createWorkTask: (data) => request('/work/tasks', { method: 'POST', body: data }),
+  updateWorkTask: (id, data) => request(`/work/tasks/${id}`, { method: 'PUT', body: data }),
+  completeWorkTask: (id) => request(`/work/tasks/${id}/complete`, { method: 'POST' }),
+  deleteWorkTask: (id) => request(`/work/tasks/${id}`, { method: 'DELETE' }),
+  getWorkNotes: (kind = '') =>
+    request(`/work/notes${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
+  createWorkNote: (data) => request('/work/notes', { method: 'POST', body: data }),
+  getWorkReport: (period = 'today') =>
+    request(`/work/report?period=${encodeURIComponent(period)}`),
+
   // Admin (gated server-side by ADMIN_USERNAMES; getAdminMe returns is_admin:false
   // for everyone else, so the UI stays hidden rather than erroring)
   getAdminMe: () => request('/admin/me'),
