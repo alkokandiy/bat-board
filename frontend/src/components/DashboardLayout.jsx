@@ -5,6 +5,7 @@ import {
   Timer,
   CalendarDays,
   NotebookText,
+  Briefcase,
   CircleUserRound,
   ChevronLeft,
 } from 'lucide-react';
@@ -15,13 +16,14 @@ const ICON_MAP = {
   focus: Timer,
   calendar: CalendarDays,
   notes: NotebookText,
+  work: Briefcase,
   profile: CircleUserRound,
 };
 
 const SIDEBAR_WIDTH = 256;
 const SIDEBAR_COLLAPSED_WIDTH = 72;
 
-export default function DashboardLayout({ account, currentView, onViewChange = () => {}, onLogout = () => {}, activeTrack, isPlaying, onTogglePlay, onTrackChange, focusMode, children }) {
+export default function DashboardLayout({ account, currentView, onViewChange = () => {}, onLogout = () => {}, activeTrack, isPlaying, onTogglePlay, onTrackChange, focusMode, workEnabled = false, children }) {
   const { username = "Loading...", points = 0, bat_level = "Loading..." } = account || {};
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -35,12 +37,15 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   const navRefs = useRef({});
   const glowTimeoutRef = useRef(null);
 
+  // Work appears only when the user has the corporate track switched on. With
+  // it off the entry is simply absent — not greyed out, not a dead end.
   const navItems = [
     { id: 'missions', label: 'Missions' },
     { id: 'habits', label: 'Habits' },
     { id: 'focus', label: 'Focus' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'notes', label: 'Notes' },
+    ...(workEnabled ? [{ id: 'work', label: 'Work' }] : []),
     { id: 'profile', label: 'Profile' },
   ];
 
@@ -60,7 +65,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
 
   useEffect(() => {
     updateIndicator();
-  }, [updateIndicator, sidebarCollapsed]);
+  }, [updateIndicator, sidebarCollapsed, workEnabled]);
 
   useEffect(() => {
     if (glowingItem) {

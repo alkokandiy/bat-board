@@ -22,6 +22,7 @@ def _mk_user(linked=True):
     db = SessionLocal()
     try:
         u = models.BatAccount(username=f"wp{_n[0]}", hashed_password="x",
+                              work_enabled=True,
                               timezone="UTC", alfred_address="Master Wayne")
         db.add(u)
         db.commit()

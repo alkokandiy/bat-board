@@ -374,6 +374,10 @@ WRITE_TOOLS = [
          "include_news": {"type": "boolean"},
          "news_topics": {"type": "string", "description": "Comma-separated topics, e.g. 'AI, cybersecurity, defense'. Required if include_news."},
      }, "required": ["kind"]}},
+    {"name": "set_work_track", "description": "Turn the CORPORATE/WORK track on or off for this user. Call it with enabled=true when work is off and they ask for anything work-related — do that in the same turn and then carry on with what they actually asked, rather than making them set it up as a separate errand. Call it with enabled=false when they say they want work out of bat-board; nothing is deleted and it all returns if they switch it back on.",
+     "parameters": {"type": "object", "properties": {
+         "enabled": {"type": "boolean", "description": "True turns the work track on, false turns it off."},
+     }, "required": ["enabled"]}},
     {"name": "set_work_profile", "description": "Record what they tell you about their job. Pass ONLY the fields they just answered — call it after each answer rather than waiting for everything. Then call get_work_profile again for the next question.",
      "parameters": {"type": "object", "properties": {
          "work_days": {"type": "string", "description": "Working days, e.g. 'Mon,Tue,Wed,Thu,Fri' or '0,1,2,3,4' (Mon=0)."},
@@ -503,6 +507,42 @@ ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + DESTRUCTIVE_TOOLS
 DESTRUCTIVE_TOOL_NAMES = {t["name"] for t in DESTRUCTIVE_TOOLS}
 TOOL_NAMES = {t["name"] for t in ALL_TOOLS}
 
+# Tools that only make sense when the corporate track is switched on. Listed
+# by hand rather than matched on the name "work", so adding a tool can never
+# silently opt it in or out — and `set_work_track` itself is deliberately
+# absent: it stays available so the track can always be switched back on.
+WORK_TOOL_NAMES = {
+    "list_work_tasks", "get_work_profile", "work_report", "list_work_notes",
+    "set_work_profile", "create_work_task", "create_work_tasks",
+    "update_work_task", "complete_work_task", "log_work_note",
+    "delete_work_task",
+}
+assert WORK_TOOL_NAMES <= TOOL_NAMES, WORK_TOOL_NAMES - TOOL_NAMES
+
+WORK_OFF_RESULT = {
+    "error": "The corporate/work track is switched off for this user.",
+    "next_step": ("If they are asking for something work-related, call "
+                  "set_work_track(enabled=true) and then do what they asked. "
+                  "Otherwise say the work track is off and leave it off."),
+}
+
+
+def tools_for(db: Session, current_user: models.BatAccount) -> list:
+    """The tool list this user should see — work tools only when work is on.
+
+    Filtering the schema (rather than only refusing at execution) is what stops
+    a disabled track leaking into the conversation: Alfred cannot offer, or
+    quietly use, a tool he was never shown.
+    """
+    if work_service.is_enabled(db, current_user):
+        return ALL_TOOLS
+    return [t for t in ALL_TOOLS if t["name"] not in WORK_TOOL_NAMES]
+
+
+def work_blocked(db: Session, current_user: models.BatAccount, name: str) -> bool:
+    """True when this call must be refused because work is switched off."""
+    return name in WORK_TOOL_NAMES and not work_service.is_enabled(db, current_user)
+
 
 def describe_tool_target(
     db: Session, current_user: models.BatAccount, name: str, args: Dict[str, Any]
@@ -562,6 +602,20 @@ def execute_tool(
     """
     if name in DESTRUCTIVE_TOOL_NAMES:
         raise RuntimeError(f"Tool {name} requires confirmation and cannot execute directly")
+
+    # Belt and braces: the schema already hides these when work is off.
+    if work_blocked(db, current_user, name):
+        return dict(WORK_OFF_RESULT)
+
+    if name == "set_work_track":
+        enabled = bool(args.get("enabled"))
+        was = work_service.is_enabled(db, current_user)
+        now = work_service.set_enabled(db, current_user, enabled)
+        return {"work_enabled": now, "changed": was != now,
+                "note": ("The work track is on; tasks, journal and reports are available again."
+                         if now else
+                         "The work track is off. Nothing was deleted — it all returns if "
+                         "they switch it back on.")}
 
     if name == "list_missions":
         due = _parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None

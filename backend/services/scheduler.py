@@ -276,6 +276,9 @@ def _fire_work_reports(db: Session, user: models.BatAccount, chat_id: str,
     """
     from services import work_service
 
+    # Switched off → no work reports at all, even if a profile still says 19:00.
+    if not work_service.is_enabled(db, user):
+        return
     profile = work_service.get_profile(db, user)
     if profile is None or not profile.report_time:
         return
