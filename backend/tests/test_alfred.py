@@ -786,3 +786,14 @@ def test_first_ever_message_auto_creates_session(client, auth_headers, monkeypat
         assert len(msgs) == 2  # user + assistant
     finally:
         db.close()
+
+
+def test_prompt_forbids_markdown_so_telegram_never_shows_raw_asterisks():
+    """Telegram renders Alfred's words literally, so '**bold**' arrives as
+    rubbish. The prompt is the primary defence; telegram_format is the net."""
+    prompt = alfred_agent.IDENTITY_CORE
+    lowered = prompt.lower()
+    assert "plain text only" in lowered
+    assert "no markdown" in lowered
+    assert "speak, do not report" in lowered
+    assert "lists are a last resort" in lowered
