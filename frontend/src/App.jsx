@@ -6,6 +6,7 @@ import FocusPanel from './components/FocusPanel';
 import CountdownSection from './components/CountdownSection';
 import CalendarPanel from './components/CalendarPanel';
 import NotesPanel from './components/NotesPanel';
+import WorkPanel from './components/WorkPanel';
 import ProfileSettings from './components/ProfileSettings';
 import StatsPanel from './components/StatsPanel';
 import AlfredWidget from './components/AlfredWidget';
@@ -109,6 +110,10 @@ export default function App() {
   const [activeTrack, setActiveTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  // Is the corporate track switched on? Drives the sidebar entry and the
+  // dashboard tile. Defaults to off, so a failed/absent status never shows a
+  // work side that cannot work.
+  const [workEnabled, setWorkEnabled] = useState(false);
 
   // Focus timer state - persists across tab switches
   const [focusSessionLength, setFocusSessionLength] = useState(25);
@@ -144,6 +149,12 @@ export default function App() {
       setMissions(miss);
       setHabits(habs);
       setIsAuthenticated(true);
+      // Deliberately after the boot data and never awaited into it: work is
+      // optional, so if this call fails the dashboard still comes up and the
+      // work entry simply stays hidden.
+      api.getWorkStatus()
+        .then((st) => setWorkEnabled(!!st.enabled))
+        .catch(() => setWorkEnabled(false));
     } catch (err) {
       if (err.message.includes('Session expired')) {
         setIsAuthenticated(false);
@@ -170,6 +181,7 @@ export default function App() {
       setAccount(null);
       setMissions([]);
       setHabits([]);
+      setWorkEnabled(false);
     };
     window.addEventListener('auth:logout', handleLogout);
 
@@ -200,6 +212,19 @@ export default function App() {
       console.error(err);
     }
   };
+
+  // One place decides what "work is off" means for the UI: hide the entry and
+  // leave the work view if that is where the user happens to be standing.
+  const handleWorkEnabledChange = useCallback((enabled) => {
+    setWorkEnabled(!!enabled);
+    if (!enabled) {
+      setCurrentView((view) => (view === 'work' ? 'dashboard' : view));
+    }
+  }, []);
+
+  const handleWorkStatus = useCallback((st) => {
+    handleWorkEnabledChange(!!st?.enabled);
+  }, [handleWorkEnabledChange]);
 
   const handleRefreshMissions = async () => {
     try {
@@ -463,8 +488,17 @@ export default function App() {
         return <CalendarPanel />;
       case 'notes':
         return <NotesPanel />;
+      case 'work':
+        return <WorkPanel onStatusChange={handleWorkStatus} />;
       case 'profile':
-        return <ProfileSettings account={account} onRefreshAccount={handleRefreshAccount} />;
+        return (
+          <ProfileSettings
+            account={account}
+            onRefreshAccount={handleRefreshAccount}
+            workEnabled={workEnabled}
+            onWorkEnabledChange={handleWorkEnabledChange}
+          />
+        );
       default:
         return (
           <div className="space-y-6">
@@ -472,7 +506,7 @@ export default function App() {
               <h1 className="text-2xl font-bold tracking-wider">BATCAVE COMMAND CENTER</h1>
               <p className="text-xs text-slate-400">Tactical overview of ongoing Gotham defense protocols.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`grid grid-cols-1 gap-6 ${workEnabled ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
               <button
                 onClick={() => setCurrentView('missions')}
                 className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
@@ -509,6 +543,18 @@ export default function App() {
                 </div>
                 <div className="text-xs text-slate-500">Level upgrade triggers automatically at points tier.</div>
               </button>
+              {workEnabled && (
+                <button
+                  onClick={() => setCurrentView('work')}
+                  className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-sky-700/50 transition"
+                >
+                  <div>
+                    <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Corporate Track</span>
+                    <div className="text-lg font-bold mt-2 text-sky-300 font-mono">THE JOB</div>
+                  </div>
+                  <div className="text-xs text-slate-500">Work tasks and reports. No Bat Points — by design.</div>
+                </button>
+              )}
             </div>
             <CountdownSection />
             <div className="bg-dark-slate rounded border border-slate-800 p-6">
@@ -536,6 +582,7 @@ export default function App() {
       onTogglePlay={handleTogglePlay}
       onTrackChange={handleTrackChange}
       focusMode={focusMode}
+      workEnabled={workEnabled}
     >
       {renderView()}
       <AudioPlayer

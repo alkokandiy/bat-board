@@ -37,6 +37,7 @@ from routers.telegram import router as telegram_router
 from routers.alfred import router as alfred_router
 from routers.cron import router as cron_router
 from routers.admin import router as admin_router
+from routers.work import router as work_router
 from services import (
     calendar_service,
     focus_service,
@@ -156,6 +157,7 @@ app.include_router(telegram_router)
 app.include_router(alfred_router)
 app.include_router(cron_router)
 app.include_router(admin_router)
+app.include_router(work_router)
 
 # NOTE: calculate_bat_level / auto_log_event now live in services/common.py
 # (imported above) so services can use them without a circular import.

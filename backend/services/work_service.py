@@ -50,6 +50,47 @@ def _fmt_hm(minutes: int) -> str:
     return f"{h}h" if h else f"{m}m"
 
 
+# --- the switch -------------------------------------------------------------
+# The whole track can be turned off. Everything work-related in the system asks
+# this one function first — the router, the sidebar, Alfred's tool list, the
+# scheduler's reports and the nudge engine — so "off" means off everywhere
+# rather than off in the places someone remembered to check.
+#
+# Turning it off NEVER deletes anything: the tasks, journal and profile stay
+# exactly as they are and come back untouched when it is turned on again.
+
+
+def has_work_data(db: Session, user: models.BatAccount) -> bool:
+    """Whether this user has ever used the work track."""
+    if get_profile(db, user) is not None:
+        return True
+    if db.query(models.BatWorkTask.id).filter(models.BatWorkTask.owner_id == user.id).first():
+        return True
+    return bool(db.query(models.BatWorkNote.id)
+                .filter(models.BatWorkNote.owner_id == user.id).first())
+
+
+def is_enabled(db: Session, user: models.BatAccount) -> bool:
+    """Is the work track active for this user?
+
+    An explicit choice always wins. NULL (never chosen) resolves to "on if they
+    already have work data" — which keeps the track working for people who were
+    using it before this switch existed.
+    """
+    explicit = getattr(user, "work_enabled", None)
+    if explicit is not None:
+        return bool(explicit)
+    return has_work_data(db, user)
+
+
+def set_enabled(db: Session, user: models.BatAccount, enabled: bool) -> bool:
+    """Record an explicit choice. Returns the new state. Destroys no data."""
+    user.work_enabled = bool(enabled)
+    db.commit()
+    db.refresh(user)
+    return bool(user.work_enabled)
+
+
 # --- tasks ------------------------------------------------------------------
 
 def list_tasks(db: Session, user: models.BatAccount, *, status: Optional[str] = None,

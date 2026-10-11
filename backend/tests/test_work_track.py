@@ -24,6 +24,7 @@ def _mk_user():
     db = SessionLocal()
     try:
         u = models.BatAccount(username=f"wk{_n[0]}", hashed_password="x",
+                              work_enabled=True,
                               timezone="UTC", alfred_address="Master Wayne", points=0)
         db.add(u)
         db.commit()

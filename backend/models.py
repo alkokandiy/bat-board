@@ -50,6 +50,12 @@ class BatAccount(Base):
     nudge_quiet_start = Column(String, nullable=True)   # default 22:00
     nudge_quiet_end = Column(String, nullable=True)     # default 08:00
     nudges_per_day = Column(Integer, nullable=True)     # default 3
+    # The corporate/work track, which can be switched off entirely.
+    # Tri-state on purpose: NULL means "never decided", and is resolved at read
+    # time to "on if they already have work data". That way the track stays on
+    # for anyone already using it (it shipped before this switch existed) and
+    # stays out of the way for everyone else, with no backfill and no guessing.
+    work_enabled = Column(Boolean, nullable=True)
     # Embedded in every JWT ("tv"); bumping it revokes all issued tokens.
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

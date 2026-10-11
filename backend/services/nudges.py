@@ -147,10 +147,15 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
     )
 
     from services import work_service
-    at_work = work_service.is_working_now(work_service.get_profile(db, user), local_now)
+    # With the corporate track off, work facts are simply not consulted: the
+    # drift nudge then speaks in purely personal terms, which is exactly what it
+    # did before work existed. It is never silenced — only worded differently.
+    work_on = work_service.is_enabled(db, user)
+    at_work = work_on and work_service.is_working_now(
+        work_service.get_profile(db, user), local_now)
     # Did the job move at all today? Completing work tasks or writing work notes
     # is working, even when the timer wasn't running.
-    work_touched = (
+    work_touched = work_on and (
         db.query(models.BatWorkTask)
         .filter(models.BatWorkTask.owner_id == user.id,
                 models.BatWorkTask.updated_at >= _naive(d_start),

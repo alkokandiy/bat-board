@@ -77,6 +77,12 @@ def start_focus_session(
         if not habit:
             raise ValueError("Habit not found")
     if work_task_id:
+        # A work task is not addressable while the corporate track is off; the
+        # row may still exist, but as far as the rest of the system is
+        # concerned it isn't there.
+        from services import work_service
+        if not work_service.is_enabled(db, current_user):
+            raise ValueError("Work task not found")
         if not _owns(db, models.BatWorkTask, work_task_id, current_user):
             raise ValueError("Work task not found")
 
