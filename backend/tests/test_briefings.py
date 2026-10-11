@@ -254,7 +254,12 @@ def test_template_contains_sections():
         db.close()
     assert "Good morning" in text
     assert "Meditate" in text
-    assert "Habits" in text
+    # The briefing is something Alfred SAYS: prose, never a filed report. These
+    # are the exact shapes that made it unreadable in Telegram before.
+    assert "Habits:" not in text and "Missions:" not in text
+    assert "*" not in text and "**" not in text
+    assert not any(line.lstrip().startswith(("•", "- ", "* "))
+                   for line in text.splitlines())
 
 
 def test_build_falls_back_to_template_on_provider_failure():
@@ -446,3 +451,55 @@ def test_cron_accepts_correct_secret(client, monkeypatch):
     monkeypatch.setattr(cron.scheduler, "run_tick", fake_tick)
     r = client.post("/api/internal/cron/tick", headers={"X-Cron-Secret": "right-secret"})
     assert r.status_code == 200 and r.json()["ok"] is True
+
+
+# --- voice contract --------------------------------------------------------
+# These guard the thing the owner actually noticed: briefings arriving as a
+# bulleted, asterisk-littered report instead of something Alfred says.
+
+def test_headlines_are_never_rewritten_by_the_polish_pass(monkeypatch):
+    """The personal half is polished; the headlines are appended verbatim.
+
+    A model asked to 'rewrite' a headline compresses it into a claim no outlet
+    published — which is how a briefing ends up asserting invented news.
+    """
+    uid = _mk_user(tz="UTC")
+    headline = "Anthropic breaches trigger White House reporting rules - Reuters"
+    seen_by_model = []
+
+    class GoodAdapter:
+        async def generate(self, messages, tools, system_instruction=None):
+            seen_by_model.append(messages[-1]["content"])
+            return type("R", (), {"text": "A quiet morning, Master Wayne. Nothing presses."})()
+
+    async def fake_fetch(topics):
+        return {"AI": [headline]}
+
+    monkeypatch.setattr(briefings, "fetch_news", fake_fetch)
+
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        b = briefing_service.upsert_briefing(
+            db, user, kind="morning", send_time="07:00",
+            include_news=True, news_topics="AI")
+        text = _run(briefings.build_briefing_text(db, user, b, adapter=GoodAdapter()))
+    finally:
+        db.close()
+
+    # The headline reached the user with its publisher intact...
+    assert "Anthropic breaches trigger White House reporting rules" in text
+    assert "Reuters" in text
+    # ...and the model was never shown it, so it could not have reworded it.
+    assert "Anthropic" not in "".join(seen_by_model)
+    assert text.startswith("A quiet morning")
+
+
+def test_polish_instructions_forbid_markdown_and_bullets():
+    """A future edit must not quietly drop the rules that keep briefings readable."""
+    system = briefings._POLISH_SYSTEM.format(addr="Master Wayne")
+    lowered = system.lower()
+    assert "plain text only" in lowered
+    assert "no markdown" in lowered
+    assert "bullet" in lowered
+    assert "asterisk" in lowered

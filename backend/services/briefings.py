@@ -184,113 +184,225 @@ def gather_briefing_data(db, user: models.BatAccount, kind: str) -> dict:
 
 
 # --- templating (Alfred's voice, always available) -------------------------
+# This reads as something Alfred SAYS, not a form he files. The old version
+# emitted "Missions:" / "Habits:" headers with bulleted children, which arrived
+# looking like a database dump and gave the polish pass a shape it simply
+# re-bulleted. Prose in means prose out.
+
+_NUMBER_WORDS = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five",
+                 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine"}
+
+
+def _num(n: int) -> str:
+    return _NUMBER_WORDS.get(n, str(n))
+
+
+def _oxford(items: List[str]) -> str:
+    """'a', 'a and b', 'a, b and c' — how a person reads a list aloud."""
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + f" and {items[-1]}"
+
+
+def _names(rows, limit: int, attr: str = "title") -> str:
+    """Up to `limit` names, with any remainder folded in as 'and N more' so the
+    sentence never turns into an unbounded wall."""
+    shown = [getattr(r, attr) for r in rows[:limit]]
+    rest = len(rows) - len(shown)
+    if rest > 0:
+        shown.append(f"{rest} more")
+    return _oxford(shown)
+
 
 def _fmt_event(ev, tz, today) -> str:
+    """'the dentist, tomorrow at 20:00' — a phrase that fits inside a sentence."""
     d = local_date(ev.start_time, tz)
-    when = "today" if d == today else d.strftime("%a %-d")
+    if d == today:
+        when = "today"
+    elif d == today + timedelta(days=1):
+        when = "tomorrow"
+    else:
+        when = d.strftime("%A")
     t = ev.start_time.astimezone(tz).strftime("%H:%M") if ev.start_time else ""
-    return f"{ev.title} · {when} {t}".strip()
+    return f"{ev.title}, {when} at {t}" if t else f"{ev.title}, {when}"
 
 
-def render_template(user: models.BatAccount, kind: str, data: dict,
-                    news: Optional[Dict[str, List[str]]] = None) -> str:
-    """A complete briefing in Alfred's voice, built only from `data`/`news`."""
+def _missions_sentence(kind: str, data: dict) -> str:
+    done, pending, overdue = data["due_done"], data["due_pending"], data["overdue"]
+    if kind == "morning":
+        if pending:
+            verb = "is" if len(pending) == 1 else "are"
+            noun = "mission" if len(pending) == 1 else "missions"
+            text = f"{_num(len(pending))} {noun} {verb} due today — {_names(pending, 4)}."
+        elif done:
+            text = "Everything due today is already settled."
+        elif not overdue:
+            return "Nothing is due today, and nothing is overdue."
+        else:
+            text = "Nothing falls due today."
+        if overdue:
+            verb = "remains" if len(overdue) == 1 else "remain"
+            text += f" {_names(overdue, 3)} {verb} overdue."
+        return text
+
+    # night
+    noun = "mission" if len(done) == 1 else "missions"
+    if done and pending:
+        text = (f"{_num(len(done))} {noun} closed today, which leaves "
+                f"{_names(pending, 4)} open.")
+    elif done:
+        text = f"{_num(len(done))} {noun} closed today, and nothing left open."
+    elif pending:
+        text = f"Nothing closed today. {_names(pending, 4)} still stands."
+    else:
+        text = "No missions were due today."
+    if overdue:
+        text += f" {_names(overdue, 3)} is still past its date." if len(overdue) == 1 \
+            else f" {_names(overdue, 3)} are still past their dates."
+    return text
+
+
+def _habits_sentence(kind: str, data: dict) -> str:
+    left, kept, habits = data["habits_left"], data["habits_done"], data["habits"]
+    if not habits:
+        return ""
+    if kind == "morning":
+        if not left:
+            return "Every habit is already kept. Quietly impressive."
+        text = (f"{_num(len(left))} habit{'' if len(left) == 1 else 's'} still to keep — "
+                f"{_names(left, 6, attr='name')}.")
+        # A streak worth protecting is the single most motivating fact here, so
+        # it earns its own clause rather than a column in a table.
+        best = max((h for h in left if (h.streak or 0) >= 3),
+                   key=lambda h: h.streak, default=None)
+        if best is not None:
+            # "Meditate. Meditate is on a 3-day run" reads like a stutter when it
+            # is the only one left, so name it only when the list has company.
+            subject = "It" if len(left) == 1 else best.name
+            text += f" {subject} is on a {best.streak}-day run; worth protecting."
+        return text
+    if not left:
+        return "Every habit kept today — the whole set."
+    if kept:
+        return (f"{_num(len(kept))} habit{'' if len(kept) == 1 else 's'} kept, "
+                f"{_names(left, 6, attr='name')} missed.")
+    return f"{_names(left, 6, attr='name')} went unkept today."
+
+
+def _horizon_sentence(kind: str, data: dict) -> str:
     tz, today = data["tz"], data["today"]
-    addr = _address(user)
-    lines: List[str] = []
-
-    if kind == "morning":
-        lines.append(f"Good morning, {addr}. {today.strftime('%A, %-d %B')}.")
-    else:
-        lines.append(f"Good evening, {addr}. The day in review.")
-
-    due, done, pending, overdue = data["due"], data["due_done"], data["due_pending"], data["overdue"]
-    if kind == "morning":
-        if due or overdue:
-            bits = []
-            if pending:
-                bits.append(f"{len(pending)} due today")
-            if overdue:
-                bits.append(f"{len(overdue)} overdue")
-            lines.append("")
-            lines.append("Missions: " + (", ".join(bits) if bits else "all today's are settled") + ".")
-            for m in pending[:5]:
-                lines.append(f"  • {m.title}")
-            for m in overdue[:3]:
-                lines.append(f"  • {m.title} (overdue)")
-        else:
-            lines.append("")
-            lines.append("Missions: nothing due today, and nothing overdue.")
-    else:
-        lines.append("")
-        lines.append(f"Missions: {len(done)} completed today"
-                     + (f", {len(pending)} still open" if pending else "") + ".")
-        for m in pending[:5]:
-            lines.append(f"  • still open: {m.title}")
-
-    habits_left, habits_done, habits = data["habits_left"], data["habits_done"], data["habits"]
-    if habits:
-        if kind == "morning":
-            if habits_left:
-                lines.append("")
-                lines.append(f"Habits to keep today ({len(habits_left)}):")
-                for h in habits_left[:6]:
-                    streak = f" — {h.streak}-day streak" if h.streak else ""
-                    lines.append(f"  • {h.name}{streak}")
-            else:
-                lines.append("")
-                lines.append("Habits: all kept already. Quietly impressive.")
-        else:
-            if habits_left:
-                lines.append("")
-                lines.append(f"Habits missed today ({len(habits_left)}): "
-                             + ", ".join(h.name for h in habits_left[:6]) + ".")
-            else:
-                lines.append("")
-                lines.append("Habits: every one kept today.")
-
     events, countdowns = data["events"], data["countdowns"]
+    parts: List[str] = []
     if kind == "morning" and events:
-        lines.append("")
-        lines.append("On the horizon (48h):")
-        for ev in events[:5]:
-            lines.append(f"  • {_fmt_event(ev, tz, today)}")
+        phrases = [_fmt_event(ev, tz, today) for ev in events[:4]]
+        parts.append(("Ahead of you: " if len(phrases) > 1 else "One thing ahead: ")
+                     + _oxford(phrases) + ".")
     if countdowns:
         from services.countdown_service import days_remaining_for
         near = [c for c in countdowns if days_remaining_for(c.target_date) <= 14]
         if near:
-            lines.append("")
-            lines.append("Countdowns: " + "; ".join(
-                f"{c.title} in {days_remaining_for(c.target_date)}d" for c in near[:3]) + ".")
+            phrases = [f"{c.title} in {days_remaining_for(c.target_date)} days"
+                       for c in near[:3]]
+            parts.append(_oxford(phrases).capitalize() + ".")
+    return " ".join(parts)
 
+
+def _focus_sentence(kind: str, data: dict) -> str:
     ft = data["focus_total"]
-    lines.append("")
     if kind == "morning":
-        lines.append(f"Focus yesterday: {ft} min." if ft else "Focus yesterday: none logged.")
+        if not ft:
+            return "Yesterday's focus went unlogged."
+        return f"You logged {ft} minutes of focus yesterday."
+    if not ft:
+        return "No focus was logged today."
+    return f"{ft} minutes of focus logged today."
+
+
+def render_template(user: models.BatAccount, kind: str, data: dict,
+                    news: Optional[Dict[str, List[str]]] = None) -> str:
+    """A complete briefing in Alfred's voice, built only from `data`/`news`.
+
+    Paragraphs, not sections: each sentence that has something to say gets a
+    line, and anything with nothing to say is simply left out rather than
+    announced as empty.
+    """
+    today = data["today"]
+    addr = _address(user)
+
+    if kind == "morning":
+        opening = f"Good morning, {addr}. {today.strftime('%A, %-d %B')}."
     else:
-        lines.append(f"Focus today: {ft} min." if ft else "Focus today: none logged.")
+        opening = f"Good evening, {addr}. The day in review."
 
-    if news:
-        reported = {t: hs for t, hs in news.items() if hs}
-        if reported:
-            lines.append("")
-            lines.append("Worth noting:")
-            for topic, headlines in reported.items():
-                lines.append(f"  {topic}:")
-                for h in headlines:
-                    lines.append(f"    • {h}")
+    body = [s for s in (
+        _missions_sentence(kind, data),
+        _habits_sentence(kind, data),
+        _horizon_sentence(kind, data),
+        _focus_sentence(kind, data),
+    ) if s]
 
-    return "\n".join(lines).strip()
+    text = opening + "\n\n" + "\n\n".join(body) if body else opening
+    if kind == "night":
+        text += "\n\nThe board is secured."
+    news_block = render_news(news)
+    if news_block:
+        text += "\n\n" + news_block
+    return text.strip()
+
+
+# --- news rendering --------------------------------------------------------
+
+def render_news(news: Optional[Dict[str, List[str]]]) -> str:
+    """Headlines, verbatim, with their publisher intact.
+
+    Kept deliberately separate from the prose above because this block is NOT
+    passed through the polish pass: a model asked to 'rewrite' a headline
+    compresses it into something that was never published, which is how a
+    briefing ends up asserting things no outlet actually said.
+    """
+    if not news:
+        return ""
+    reported = {t: hs for t, hs in news.items() if hs}
+    if not reported:
+        return ""
+    lines = ["Headlines, as published:"]
+    for topic, headlines in reported.items():
+        lines.append("")
+        # Capitalise the user's own topic word, but leave acronyms like "AI"
+        # and "NATO" exactly as they typed them.
+        lines.append(topic if topic.isupper() else topic[:1].upper() + topic[1:])
+        for h in headlines:
+            # Google News titles arrive as "Headline - Publisher"; an em dash
+            # reads better and survives being shown as plain text.
+            head, sep, publisher = h.rpartition(" - ")
+            lines.append(f"- {head} — {publisher}" if sep else f"- {h}")
+    return "\n".join(lines)
 
 
 # --- optional provider polish ----------------------------------------------
 
 _POLISH_SYSTEM = (
-    "You are Alfred Pennyworth delivering a short spoken briefing to {addr} over "
-    "Telegram — dry, composed, formal British, warm but never wordy. Rewrite the "
-    "briefing below in your own voice. Use ONLY the facts given; invent nothing, add "
-    "no news or numbers not present. Keep it tight — a quiet word, not a speech. "
-    "Plain text only, short bullet lines are fine."
+    "You are Alfred Pennyworth — butler and chief of staff — giving {addr} a short "
+    "spoken briefing over Telegram. Dry, composed, formal British, warm but never "
+    "wordy.\n\n"
+    "Rewrite the briefing below as something you would SAY, standing by the desk. "
+    "Use ONLY the facts given: invent nothing, add no news, no numbers and no names "
+    "that are not already there, and drop nothing that is.\n\n"
+    "Rules you must not break:\n"
+    "- Plain text only. No Markdown whatsoever — no asterisks, no underscores, no "
+    "backticks, no hash headings. Every character you type is shown literally, so a "
+    "stray asterisk is simply rubbish on their screen.\n"
+    "- No section headers and no bullet points. Not 'Missions:', not 'Habits:', not a "
+    "line beginning with a dash or a dot. Write sentences in short paragraphs.\n"
+    "- Lead with whatever actually matters most — what is late, what is close, what "
+    "went well. Let the rest follow.\n"
+    "- Join the facts up where they genuinely connect. One observation that shows you "
+    "were paying attention is worth more than a tidy inventory.\n"
+    "- Keep it under about 120 words, and end with at most one short question or "
+    "offer, only if one is actually earned."
 )
 
 
@@ -329,13 +441,18 @@ async def build_briefing_text(db, user: models.BatAccount, briefing: models.BatB
         if topics:
             news = await fetch_news(topics)
 
-    draft = render_template(user, briefing.kind, data, news)
+    # The personal half is polished; the headlines are appended afterwards,
+    # untouched. Letting the model rewrite a headline is how "Anthropic
+    # published X" becomes an assertion no outlet ever made.
+    draft = render_template(user, briefing.kind, data)
+    text = draft
     if adapter is not None:
         try:
-            return await polish_with_provider(adapter, user, draft)
+            text = await polish_with_provider(adapter, user, draft)
         except Exception as exc:  # any provider/parse failure → template
             log.info("briefing_polish_fallback", user_id=user.id, error=str(exc))
-    return draft
+    news_block = render_news(news)
+    return f"{text}\n\n{news_block}".strip() if news_block else text
 
 
 # --- reminders -------------------------------------------------------------

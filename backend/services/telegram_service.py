@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
+from services.telegram_format import strip_markdown, to_telegram_html
 
 logger = structlog.get_logger()
 
@@ -252,6 +253,9 @@ def is_telegram_linked(
 
 
 TELEGRAM_MAX_MESSAGE_CHARS = 4096
+# Split below the hard limit: HTML-encoding each chunk can expand it (e.g. "&"
+# -> "&amp;"), so splitting at 4096 could push a converted chunk over the edge.
+TELEGRAM_SPLIT_CHARS = 3500
 
 
 def _split_message(text: str, limit: int = TELEGRAM_MAX_MESSAGE_CHARS) -> List[str]:
@@ -276,8 +280,11 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: floa
     Text over Telegram's 4096-character limit is sent as several messages
     (it used to be rejected with a 400 and the reply silently lost); the
     reply markup goes on the last one.
+
+    Splitting happens on the raw text; each chunk is converted inside
+    _send_one, so a tag produced by the conversion can never be cut in half.
     """
-    chunks = _split_message(text)
+    chunks = _split_message(text, TELEGRAM_SPLIT_CHARS)
     ok = True
     for i, chunk in enumerate(chunks):
         markup = reply_markup if i == len(chunks) - 1 else None
@@ -286,19 +293,27 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: floa
 
 
 def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_markup: Optional[dict]) -> bool:
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     try:
-        payload = {"chat_id": chat_id, "text": text}
+        payload = {"chat_id": chat_id, "text": to_telegram_html(text), "parse_mode": "HTML"}
         if reply_markup is not None:
             payload["reply_markup"] = json.dumps(reply_markup)
-        resp = httpx.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json=payload,
-            timeout=timeout,
-        )
-        if resp.status_code != 200:
-            logger.error("telegram_send_failed", status_code=resp.status_code)
-            return False
-        return True
+        resp = httpx.post(url, json=payload, timeout=timeout)
+        if resp.status_code == 200:
+            return True
+        logger.error("telegram_send_failed", status_code=resp.status_code)
+        # A 400 here is usually a malformed entity: the model emitted a tag we
+        # can't safely render. Resend the SAME chunk once as plain text (no
+        # parse_mode) so an unparseable message is never silently lost.
+        logger.warning("telegram_send_html_retry_plain", status_code=resp.status_code)
+        fallback = {"chat_id": chat_id, "text": strip_markdown(text)}
+        if reply_markup is not None:
+            fallback["reply_markup"] = json.dumps(reply_markup)
+        retry = httpx.post(url, json=fallback, timeout=timeout)
+        if retry.status_code == 200:
+            return True
+        logger.error("telegram_send_plain_failed", status_code=retry.status_code)
+        return False
     except Exception as exc:
         logger.error("telegram_send_error", error_type=type(exc).__name__, error=str(exc))
         return False
