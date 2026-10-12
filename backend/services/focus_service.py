@@ -25,6 +25,48 @@ FOCUS_MODES = ("normal", "flip", "signal", "batmobile")
 # the timer isn't "focus".
 MIN_FOCUS_MINUTES = 5
 
+# There is no scientifically correct length for a work session. The famous 25
+# minutes came from the inventor's kitchen timer, and no trial has ever
+# compared 25 against 50 or 90. Attention does fade, but how fast depends
+# entirely on the task and the person — so the only defensible recommendation
+# is the person's OWN record. This default is used solely until they have one,
+# and is deliberately a plain round number rather than a borrowed myth.
+DEFAULT_FOCUS_MINUTES = 30
+# Below this many completed sessions, their history is too thin to read.
+SUGGESTION_MIN_SESSIONS = 5
+SUGGESTION_SAMPLE = 30
+
+
+def suggested_focus_minutes(db: Session, current_user: models.BatAccount) -> dict:
+    """How long to suggest this person works for, and why.
+
+    Returns {"minutes", "basis", "sessions"} where `basis` is "history" once
+    there is enough of their own record to read, else "default". The caller is
+    expected to be honest about which — telling someone a number is personal
+    when it is really a guess is exactly the failure this replaces.
+    """
+    rows = (
+        db.query(models.BatFocus.duration_minutes)
+        .filter(models.BatFocus.owner_id == current_user.id,
+                models.BatFocus.end_time.isnot(None),
+                models.BatFocus.duration_minutes.isnot(None),
+                models.BatFocus.duration_minutes >= MIN_FOCUS_MINUTES)
+        .order_by(models.BatFocus.start_time.desc())
+        .limit(SUGGESTION_SAMPLE)
+        .all()
+    )
+    lengths = sorted(r[0] for r in rows)
+    if len(lengths) < SUGGESTION_MIN_SESSIONS:
+        return {"minutes": DEFAULT_FOCUS_MINUTES, "basis": "default",
+                "sessions": len(lengths)}
+    # Median, not mean: one abandoned three-hour session should not drag the
+    # suggestion away from what they typically actually do.
+    mid = len(lengths) // 2
+    median = (lengths[mid] if len(lengths) % 2
+              else (lengths[mid - 1] + lengths[mid]) // 2)
+    return {"minutes": max(MIN_FOCUS_MINUTES, int(median)), "basis": "history",
+            "sessions": len(lengths)}
+
 
 def _owns(db: Session, model, row_id, current_user: models.BatAccount) -> bool:
     if not row_id:

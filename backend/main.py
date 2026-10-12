@@ -270,6 +270,9 @@ class BatHabitBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     frequency: Literal["daily", "weekly", "monthly"] = "daily"
+    # An implementation intention — when and where this actually happens.
+    # Naming it is the strongest single lever in the habit literature.
+    cue: Optional[str] = Field(None, max_length=200)
 
 class BatHabitCreate(BatHabitBase):
     pass
@@ -278,6 +281,7 @@ class BatHabitUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     frequency: Optional[Literal["daily", "weekly", "monthly"]] = None
+    cue: Optional[str] = Field(None, max_length=200)
     streak: Optional[int] = None
     target_date: Optional[datetime] = None
 
@@ -286,6 +290,7 @@ class BatHabitSchema(BatHabitBase):
 
     id: int
     streak: int
+    best_streak: int = 0
     last_completed: Optional[datetime] = None
     focus_minutes: int = 0
     target_date: Optional[datetime] = None
@@ -823,6 +828,21 @@ def list_habits(
 ):
     return habit_service.list_habits(db, current_user)
 
+@app.get("/api/focus/suggested-minutes")
+@limiter.limit("30/minute")
+def get_suggested_focus_minutes(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """How long to suggest this person works for, from their own record.
+
+    There is no evidence-backed universal session length — the famous 25
+    minutes came from a kitchen timer — so the honest answer is either their
+    own median or an openly-labelled fallback. `basis` says which it is.
+    """
+    return focus_service.suggested_focus_minutes(db, current_user)
+
 @app.post("/api/habits", response_model=BatHabitSchema, status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")
 def create_habit(
@@ -837,6 +857,7 @@ def create_habit(
         name=habit_data.name,
         description=habit_data.description,
         frequency=habit_data.frequency,
+        cue=habit_data.cue,
     )
 
 @app.put("/api/habits/{habit_id}", response_model=BatHabitSchema)

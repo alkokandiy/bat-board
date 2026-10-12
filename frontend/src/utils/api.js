@@ -195,6 +195,10 @@ export const api = {
   endFocusSession: (id, data) => request(`/focus/sessions/${id}`, { method: 'PUT', body: data }),
   getFocusSessions: (limit = 20) => request(`/focus/sessions?limit=${limit}`),
 
+  // How long to suggest a session: their own median, or an openly-labelled
+  // fallback. There is no universally correct length, so nothing is hard-coded.
+  getSuggestedFocusMinutes: () => request('/focus/suggested-minutes'),
+
   // Focus Stats
   getFocusStats: (period = 'week') => request(`/stats/focus?period=${encodeURIComponent(period)}`),
   getFocusTrend: (granularity = 'day') =>

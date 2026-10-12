@@ -243,3 +243,35 @@ def test_tick_sends_one_nudge(sink):
     summary2 = _run(scheduler.run_tick(db=SessionLocal(), adapter_for=lambda d, u: None))
     assert summary2["nudges_sent"] == 0
     assert sink == []
+
+
+def test_the_words_sent_are_remembered_for_next_time(sink):
+    """Variety depends on Alfred seeing what he actually said last time, so the
+    scheduler must store the delivered text, not just the fact of sending."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        h = datetime.now(ZoneInfo("UTC")).hour
+        user = db.get(models.BatAccount, uid)
+        user.nudge_quiet_start = f"{(h + 2) % 24:02d}:00"
+        user.nudge_quiet_end = f"{(h + 3) % 24:02d}:00"
+        db.add(models.BatCountdown(owner_id=uid, title="Viva",
+                                   target_date=datetime.now(timezone.utc) + timedelta(days=3, hours=2)))
+        db.commit()
+    finally:
+        db.close()
+
+    assert _run(scheduler.run_tick(db=SessionLocal(),
+                                   adapter_for=lambda d, u: None))["nudges_sent"] >= 1
+
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        row = (db.query(models.BatNudgeLog)
+               .filter(models.BatNudgeLog.owner_id == uid).first())
+        assert row.sent_text and "Viva" in row.sent_text
+        # And it comes back out through the accessor the composer uses.
+        assert any("Viva" in t for t in
+                   nudges.recent_texts(db, user, datetime.now(ZoneInfo("UTC"))))
+    finally:
+        db.close()

@@ -12,6 +12,8 @@ from typing import Optional
 import secrets as secrets_lib
 
 import structlog
+from contextlib import asynccontextmanager
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
@@ -302,10 +304,21 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
             return
 
         # --- Normal Alfred turn (session-scoped) ---
-        active = alfred_agent.get_active_session(db, user)
-        session_id = active.id if active else None
+        # The lock serialises this user's turns; the typing indicator tells
+        # them something is happening while it runs. Both exist because a
+        # silent multi-step turn made people send the message again, and two
+        # concurrent turns then answered each other's messages.
         media = []
-        reply = await alfred_agent.run_turn(db, user, text, session_id=session_id, media_sink=media)
+        try:
+            async with alfred_agent.turn_lock(db, user):
+                async with _typing(chat_id):
+                    active = alfred_agent.get_active_session(db, user)
+                    session_id = active.id if active else None
+                    reply = await alfred_agent.run_turn(
+                        db, user, text, session_id=session_id, media_sink=media)
+        except alfred_agent.TurnBusyError:
+            _reply(chat_id, alfred_agent.STILL_WORKING_REPLY)
+            return
         _reply(chat_id, reply)
         _deliver_media(chat_id, media)
         # Memory review runs after the reply is already sent — never on
@@ -511,6 +524,34 @@ async def _handle_callback_query(db: Session, callback: dict) -> None:
     chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
     if chat_id:
         _reply(chat_id, f"Switched to: {session.title}")
+
+
+# Telegram clears the typing indicator after ~5s, so it is refreshed while a
+# turn runs. This is the whole of Alfred's "I am working on it" signal: before
+# it existed a multi-step turn was indistinguishable from a dead bot.
+TYPING_REFRESH_SECONDS = 4.0
+
+
+async def _keep_typing(chat_id: str) -> None:
+    """Hold the typing indicator open until cancelled."""
+    settings = get_settings()
+    while True:
+        telegram_service.send_chat_action(settings.telegram_bot_token, chat_id, "typing")
+        await asyncio.sleep(TYPING_REFRESH_SECONDS)
+
+
+@asynccontextmanager
+async def _typing(chat_id: str):
+    """Show "typing…" for as long as the block runs, whatever its outcome."""
+    task = asyncio.create_task(_keep_typing(chat_id))
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 def _deliver_media(chat_id: str, media: list) -> None:

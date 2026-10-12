@@ -48,8 +48,19 @@ Never run a dev server to "check" something; run the tests.
    is the single source of truth, and "off" must mean off everywhere.
 3. **Don't break existing users.** Columns are added nullable or with a default;
    no destructive migration without being told.
-4. Secrets come from env via `config.py`. Never log or return an API key.
-5. Tests are part of the change, not an afterthought — and a bug fix gets a test
+4. **Evidence, not folklore.** `services/alfred_principles.py` is the single
+   source of truth for how Alfred speaks and what he knows about people; it is
+   derived from `reports/Human behaviour science for Alfred.md`. Do not add a
+   productivity number to this codebase unless the report supports it. Banned
+   outright, because they are myths: 21 or 66 days to form a habit, 25-minute
+   work blocks (or 52/17, or 90), "never break the chain", "23 minutes to
+   refocus", 10,000 hours, learning styles, willpower as a daily battery.
+   Session length comes from `focus_service.suggested_focus_minutes` — the
+   user's own median — never a constant. Habit reward follows **recent
+   adherence**, never the consecutive streak: tying it to the streak punished a
+   missed day twice over. `best_streak` must never be reset.
+5. Secrets come from env via `config.py`. Never log or return an API key.
+6. Tests are part of the change, not an afterthought — and a bug fix gets a test
    that fails before the fix.
 
 ## If you are a delegated agent

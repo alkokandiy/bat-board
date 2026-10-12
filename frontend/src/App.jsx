@@ -116,7 +116,10 @@ export default function App() {
   const [workEnabled, setWorkEnabled] = useState(false);
 
   // Focus timer state - persists across tab switches
-  const [focusSessionLength, setFocusSessionLength] = useState(25);
+  // 25 is folklore — it came from the inventor's kitchen timer, and no study
+  // has ever compared it against anything. The real default is the user's own
+  // median session, fetched at boot; this is only the value before that lands.
+  const [focusSessionLength, setFocusSessionLength] = useState(30);
   const [focusTimeLeft, setFocusTimeLeft] = useState(25 * 60);
   const [focusRunning, setFocusRunning] = useState(false);
   const [focusSelectedMissionId, setFocusSelectedMissionId] = useState('');
@@ -155,6 +158,14 @@ export default function App() {
       api.getWorkStatus()
         .then((st) => setWorkEnabled(!!st.enabled))
         .catch(() => setWorkEnabled(false));
+
+      // Their own median session length, once they have enough history for
+      // one. Kept off the boot path: a failure here must not block the board.
+      api.getSuggestedFocusMinutes()
+        .then((s) => {
+          if (s?.basis === 'history' && s.minutes > 0) setFocusSessionLength(s.minutes);
+        })
+        .catch(() => {});
     } catch (err) {
       if (err.message.includes('Session expired')) {
         setIsAuthenticated(false);

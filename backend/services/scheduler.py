@@ -332,12 +332,21 @@ async def _fire_nudges(db: Session, user: models.BatAccount, chat_id: str,
     if not nudges.record(db, user, nudge, local_now):
         return  # another tick claimed it
     try:
-        text = await nudges.compose(user, nudge, adapter=adapter)
+        # His own recent phrasings go in so the new message can avoid them.
+        recent = nudges.recent_texts(db, user, local_now)
+        text = await nudges.compose(user, nudge, adapter=adapter, recent=recent)
+        if text is None:
+            # He considered it and judged it not worth saying. The claim row
+            # STAYS: the occasion is spent, which both honours the decision and
+            # stops him reconsidering the same thing on every tick all day.
+            summary["nudges_declined"] = summary.get("nudges_declined", 0) + 1
+            return
         ok = _send(db, user, chat_id, text)
     except Exception as exc:
         ok = False
         log.warning("nudge_send_failed", user_id=user.id, kind=nudge.kind, error=str(exc))
     if ok:
+        nudges.remember_text(db, user, nudge.key, text)
         summary["nudges_sent"] += 1
     else:
         # Release the claim so a later tick can try again.
@@ -358,7 +367,7 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
     summary = {"users": 0, "briefings_sent": 0, "briefings_failed": 0,
                "reminders_sent": 0, "reminders_failed": 0,
                "focus_autoended": 0, "focus_pings_sent": 0,
-               "focus_stale_closed": 0, "nudges_sent": 0,
+               "focus_stale_closed": 0, "nudges_sent": 0, "nudges_declined": 0,
                "work_reports_sent": 0}
 
     # Timed focus sessions auto-end on their own clock, for everyone.
