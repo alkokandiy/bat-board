@@ -288,9 +288,15 @@ def test_no_automatic_work_report_while_off(client, auth_headers, monkeypatch):
     track is off — the settings are kept, not acted on."""
     h = auth_headers("work_sched_off")
     _enable(client, h)
+    # The report time must be NOW, not a fixed 19:00: the scheduler refuses to
+    # back-fire a slot that had already passed when the profile was last
+    # edited, so a hard-coded hour made this test pass in the morning and fail
+    # every evening.
+    now = datetime.now(timezone.utc)
     client.put("/api/work/profile", headers=h,
                json={"work_days": "Mon,Tue,Wed,Thu,Fri", "work_start": "09:00",
-                     "work_end": "18:00", "report_time": "19:00", "daily_report": True})
+                     "work_end": "18:00", "report_time": now.strftime("%H:%M"),
+                     "daily_report": True})
     client.post("/api/work/tasks", headers=h, json={"title": "Did a thing"})
 
     sent = []
@@ -300,9 +306,8 @@ def test_no_automatic_work_report_while_off(client, auth_headers, monkeypatch):
     db = SessionLocal()
     try:
         user = db.query(models.BatAccount).filter_by(username="work_sched_off").first()
-        local_now = datetime.now(timezone.utc).replace(hour=19, minute=0, second=0,
-                                                       microsecond=0)
-        # With the track ON the report goes out at 19:00 ...
+        local_now = now
+        # With the track ON the report goes out at its scheduled time ...
         summary = {"work_reports_sent": 0}
         scheduler._fire_work_reports(db, user, "chat-sched-off", local_now, summary)
         assert summary["work_reports_sent"] == 1 and sent

@@ -107,6 +107,10 @@ def _habit_dict(h):
     return {
         "id": h.id, "name": h.name, "description": h.description,
         "frequency": h.frequency, "streak": h.streak,
+        # best_streak is here so a broken run can be spoken about without
+        # implying the achievement behind it was lost; cue is the if-then plan.
+        "best_streak": getattr(h, "best_streak", 0) or 0,
+        "cue": getattr(h, "cue", None),
         "last_completed": _iso(h.last_completed),
     }
 
@@ -225,6 +229,8 @@ READ_TOOLS = [
          "start_date": {"type": "string", "description": "ISO datetime lower bound."},
          "end_date": {"type": "string", "description": "ISO datetime upper bound."},
      }}},
+    {"name": "suggest_focus_length", "description": "How long to suggest this user focuses for, based on their OWN completed sessions. Returns {minutes, basis, sessions}: basis='history' means it is their real median, basis='default' means they have too little record yet and the number is only a starting point — say which it is. There is no universally correct session length, so never quote 25 minutes, 52/17, 90 minutes or any other stock figure as if it were established.",
+     "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_active_focus_session", "description": "Check whether a focus session is currently running, with elapsed and (for timed sessions) remaining minutes. Use for 'am I focusing?', 'how long left?'.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_focus_stats", "description": "Focus statistics for a period.",
@@ -304,20 +310,22 @@ WRITE_TOOLS = [
          "notes": {"type": "string"}, "subtasks": {"type": "string"},
          "is_pinned": {"type": "boolean"}, "is_dismissed": {"type": "boolean"},
      }, "required": ["mission_id"]}},
-    {"name": "create_habit", "description": "Create a new habit.",
+    {"name": "create_habit", "description": "Create a new habit. Ask for a `cue` if they have not given one — it matters more than any other field.",
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string"}, "description": {"type": "string"},
          "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+         "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window."},
      }, "required": ["name"]}},
     {"name": "check_in_habit", "description": "Check in to a habit (streak + points).",
      "parameters": {"type": "object", "properties": {
          "habit_id": {"type": "integer"},
      }, "required": ["habit_id"]}},
-    {"name": "update_habit", "description": "Update an existing habit's name, description, or frequency.",
+    {"name": "update_habit", "description": "Update an existing habit's name, description, frequency or cue. Shrinking a habit that keeps failing (a smaller version, a gentler frequency) is a legitimate fix — offer it, never impose it.",
      "parameters": {"type": "object", "properties": {
          "habit_id": {"type": "integer"},
          "name": {"type": "string"}, "description": {"type": "string"},
          "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+         "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window. Pass an empty string to clear it."},
          "target_date": {"type": "string", "description": "ISO datetime."},
      }, "required": ["habit_id"]}},
     {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
@@ -455,7 +463,7 @@ WRITE_TOOLS = [
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
      }, "required": ["reminder_id"]}},
-    {"name": "start_focus_session", "description": "Start a focus session, optionally timed. Set `planned_minutes` (5-180) for a timer that auto-ends after that long and pings the user on Telegram when complete — prefer this. If the user names no duration, default to 25 and say so. Optionally link a mission or habit. Only one session runs at a time.",
+    {"name": "start_focus_session", "description": "Start a focus session, optionally timed. Set `planned_minutes` (5-180) for a timer that auto-ends after that long and pings the user on Telegram when complete — prefer this. If the user names no duration, call suggest_focus_length first and use what it returns — never assume 25 minutes or any other stock figure. Optionally link a mission or habit. Only one session runs at a time.",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"}, "habit_id": {"type": "integer"},
          "planned_minutes": {"type": "integer", "description": "Timer length in minutes (5-180). Omit for an open-ended stopwatch the user must stop manually."},
@@ -761,7 +769,8 @@ def execute_tool(
     if name == "create_habit":
         h = habit_service.create_habit(
             db, current_user, name=args["name"],
-            description=args.get("description"), frequency=args.get("frequency") or "daily")
+            description=args.get("description"), frequency=args.get("frequency") or "daily",
+            cue=args.get("cue"))
         return {"habit": _habit_dict(h)}
     if name == "check_in_habit":
         h = habit_service.check_in_habit(db, current_user, int(args["habit_id"]))
@@ -772,7 +781,7 @@ def execute_tool(
         h = habit_service.update_habit(
             db, current_user, int(args["habit_id"]),
             name=args.get("name"), description=args.get("description"),
-            frequency=args.get("frequency"),
+            frequency=args.get("frequency"), cue=args.get("cue"),
             target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
         if h is None:
             return {"error": "Habit not found"}
@@ -1028,6 +1037,8 @@ def execute_tool(
             current_user.nudges_per_day = per_day
         db.commit()
         return execute_tool(db, current_user, "get_nudge_settings", {})
+    if name == "suggest_focus_length":
+        return focus_service.suggested_focus_minutes(db, current_user)
     if name == "get_active_focus_session":
         active = focus_service.active_focus_session(db, current_user)
         if active is None:

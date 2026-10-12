@@ -118,6 +118,15 @@ class BatHabit(Base):
     description = Column(String, nullable=True)
     frequency = Column(String, default="daily", nullable=False)
     streak = Column(Integer, default=0, nullable=False)
+    # The longest run ever reached. A counter that resets to zero is one you can
+    # only ever lose, and a broken streak measurably reduces willingness to
+    # continue even when the break was nobody's fault. The current run can go;
+    # this does not, so a miss costs the count and never the achievement.
+    best_streak = Column(Integer, default=0, server_default="0", nullable=False)
+    # An implementation intention: "after I put the kettle on", "at the desk
+    # before email". Naming when and where a habit happens is the strongest
+    # single lever in the habit literature, and there was nowhere to put it.
+    cue = Column(String, nullable=True)
     last_completed = Column(DateTime, nullable=True)
     focus_minutes = Column(Integer, default=0, nullable=False)
     target_date = Column(DateTime, nullable=True)
@@ -451,6 +460,28 @@ class BatReminderLog(Base):
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
 
 
+class BatAlfredTurnLock(Base):
+    """One row per user while a turn of theirs is being processed.
+
+    Telegram updates are handled in parallel threads, so two messages sent
+    seconds apart used to run as two concurrent turns: each loaded the
+    conversation history without seeing the other, both replied, and both
+    could arm the delete-confirmation gate — so the replies answered the wrong
+    messages and a YES could confirm something the user never saw. The primary
+    key is the owner, so claiming it is a single race-safe INSERT that works
+    across workers and on both SQLite and PostgreSQL.
+
+    `claimed_at` exists only so a crashed worker cannot wedge a user forever:
+    a lock older than the TTL is treated as abandoned and may be taken.
+    """
+
+    __tablename__ = "bat_alfred_turn_lock"
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"),
+                      primary_key=True)
+    claimed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
 class BatNudgeLog(Base):
     """One row per proactive check-in sent. `nudge_key` encodes the specific
     occasion (e.g. "countdown:12:7d", "drift:2026-10-08"), so the UNIQUE
@@ -465,6 +496,10 @@ class BatNudgeLog(Base):
     kind = Column(String, nullable=False)
     local_date = Column(String, nullable=False)   # YYYY-MM-DD in the owner's zone
     sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # The words actually sent. Alfred is shown his own recent phrasing before
+    # he speaks again, which is what stops the check-ins turning into a
+    # fortnightly loop of the same three sentences.
+    sent_text = Column(String, nullable=True)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
 

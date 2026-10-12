@@ -17,6 +17,7 @@ vi.mock('../utils/api', () => ({
     startFocusSession: vi.fn(),
     endFocusSession: vi.fn(),
     getWorkStatus: vi.fn(),
+    getSuggestedFocusMinutes: vi.fn(),
   },
 }));
 
@@ -51,6 +52,7 @@ describe('App focus session state machine', () => {
     api.refreshToken.mockResolvedValue({});
     api.startFocusSession.mockResolvedValue({ id: 101 });
     api.endFocusSession.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
   });
 

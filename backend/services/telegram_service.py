@@ -319,6 +319,28 @@ def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_mar
         return False
 
 
+def send_chat_action(bot_token: str, chat_id: str, action: str = "typing",
+                     timeout: float = 5.0) -> bool:
+    """Show "Alfred is typing…" in the chat. Best-effort, never raises.
+
+    A turn can run several model calls deep, which is a long silence with no
+    sign of life — users reasonably concluded the bot was dead and sent the
+    message again, which (before the turn lock) produced two interleaved
+    turns. Telegram clears the indicator after about five seconds, so callers
+    refresh it while they work.
+    """
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/sendChatAction",
+            json={"chat_id": chat_id, "action": action},
+            timeout=timeout,
+        )
+        return resp.status_code == 200
+    except Exception as exc:
+        logger.debug("telegram_chat_action_failed", error_type=type(exc).__name__)
+        return False
+
+
 def send_telegram_photo(bot_token: str, chat_id: str, png_bytes: bytes, caption: str = "", timeout: float = 20.0) -> bool:
     """Send a PNG image via sendPhoto (multipart). Returns True on success."""
     try:

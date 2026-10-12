@@ -4,7 +4,7 @@ Plain importable functions — no FastAPI request/response objects.
 Alfred's tool layer will call these directly later.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -27,11 +27,13 @@ def create_habit(
     name: str,
     description: Optional[str] = None,
     frequency: str = "daily",
+    cue: Optional[str] = None,
 ) -> models.BatHabit:
     habit = models.BatHabit(
         name=name,
         description=description,
         frequency=frequency,
+        cue=(cue or "").strip() or None,
         streak=0,
         owner_id=current_user.id,
     )
@@ -56,6 +58,46 @@ def _period_index(frequency: str, day: date) -> int:
     if frequency == "monthly":
         return day.year * 12 + day.month
     return day.toordinal()
+
+
+ADHERENCE_WINDOW_DAYS = 14
+
+
+def recent_adherence(db: Session, current_user: models.BatAccount,
+                     habit: models.BatHabit, days: int = ADHERENCE_WINDOW_DAYS) -> dict:
+    """How often this habit has actually happened lately.
+
+    Returns {"done", "window", "rate"}. This — not the consecutive streak — is
+    the honest headline measure: a run of 20 broken once is not worse than a run
+    of 3, and "5 of your last 7" survives a missed Tuesday where a chain does
+    not. Counted in the user's own days, so a late-night check-in lands on the
+    day they think it did.
+    """
+    tz = user_tz(current_user)
+    today = local_date(datetime.now(timezone.utc), tz)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        db.query(models.HabitCompletionLog.completed_at)
+        .filter(models.HabitCompletionLog.habit_id == habit.id,
+                models.HabitCompletionLog.completed_at >= since.replace(tzinfo=None))
+        .all()
+    )
+    # Distinct local periods, so two check-ins in one day count once.
+    periods = {
+        _period_index(habit.frequency, local_date(r[0], tz)) for r in rows if r[0]
+    }
+    window = max(1, _periods_in(habit.frequency, days))
+    done = min(len(periods), window)
+    return {"done": done, "window": window, "rate": round(done / window, 2)}
+
+
+def _periods_in(frequency: str, days: int) -> int:
+    """How many opportunities a habit of this frequency had in `days` days."""
+    if frequency == "weekly":
+        return max(1, days // 7)
+    if frequency == "monthly":
+        return max(1, days // 30)
+    return days
 
 
 def check_in_habit(
@@ -98,11 +140,21 @@ def check_in_habit(
             habit.streak += 1
         else:
             habit.streak = 1
+        # The run can break; the best run never does. A miss should cost the
+        # current count, not the achievement behind it.
+        if habit.streak > (habit.best_streak or 0):
+            habit.best_streak = habit.streak
 
         habit.last_completed = now
 
-        streak_bonus = min(habit.streak, 10)
-        reward = 5 + streak_bonus
+        # The bonus follows RECENT ADHERENCE, not the consecutive streak.
+        # Tying it to the streak punished a missed day twice over — the count
+        # reset AND the earning rate collapsed with it — which is precisely the
+        # pattern that makes people abandon a habit after one blameless gap.
+        # Same range as before (6-15 points), but it now degrades gently
+        # instead of falling off a cliff.
+        adherence = recent_adherence(db, current_user, habit)
+        reward = 5 + min(adherence["done"], 10)
 
         current_user.points += reward
         old_level = current_user.bat_level
@@ -121,6 +173,8 @@ def check_in_habit(
             "habit_id": habit.id,
             "name": habit.name,
             "streak": habit.streak,
+            "best_streak": habit.best_streak,
+            "adherence": f"{adherence['done']} of the last {adherence['window']}",
             "points_awarded": reward
         })
     else:
@@ -144,6 +198,7 @@ def update_habit(
     description: Optional[str] = None,
     frequency: Optional[str] = None,
     target_date: Optional[datetime] = None,
+    cue: Optional[str] = None,
 ) -> Optional[models.BatHabit]:
     """Update an existing habit. Returns None if not found."""
     habit = db.query(models.BatHabit).filter(
@@ -159,6 +214,9 @@ def update_habit(
         habit.description = description
     if frequency is not None:
         habit.frequency = frequency
+    if cue is not None:
+        # "" clears the cue rather than storing an empty string.
+        habit.cue = cue.strip() or None
     if target_date is not None:
         habit.target_date = target_date
 

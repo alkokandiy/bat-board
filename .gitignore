@@ -53,3 +53,7 @@ frontend/public/tracks/*.mp3
 # Local-only training material (never commit: third-party verbatim text)
 AlfredWords.txt
 
+
+# Deep-research working notes. The finished report is committed; the raw
+# per-topic notes behind it are large and only useful while writing it.
+research_notes/
