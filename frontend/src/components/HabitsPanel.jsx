@@ -5,6 +5,9 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [frequency, setFrequency] = useState('daily');
+  // The when-and-where. Naming a trigger that already happens is the
+  // strongest lever there is for a habit actually sticking.
+  const [cue, setCue] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -19,10 +22,12 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
       await api.createHabit({
         name,
         description: description.trim() || null,
-        frequency
+        frequency,
+        cue: cue.trim() || null
       });
       setName('');
       setDescription('');
+      setCue('');
       setFrequency('daily');
       await onRefreshHabits();
       await onRefreshAccount();
@@ -110,6 +115,24 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
             </div>
 
             <div>
+              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">
+                Trigger (Optional)
+              </label>
+              <input
+                type="text"
+                value={cue}
+                onChange={(e) => setCue(e.target.value)}
+                placeholder="After I put the kettle on"
+                maxLength={200}
+                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Tie it to something that already happens. It is the single
+                biggest thing that makes a habit stick.
+              </p>
+            </div>
+
+            <div>
               <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Frequency</label>
               <select
                 value={frequency}
@@ -186,6 +209,11 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                         </span>
                       </div>
                       
+                      {habit.cue && (
+                        <p className="text-[11px] text-slate-500 mt-1 italic">
+                          {habit.cue}
+                        </p>
+                      )}
                       {habit.description && (
                         <p className="text-xs text-slate-400">
                           {habit.description}

@@ -229,6 +229,8 @@ READ_TOOLS = [
          "start_date": {"type": "string", "description": "ISO datetime lower bound."},
          "end_date": {"type": "string", "description": "ISO datetime upper bound."},
      }}},
+    {"name": "review_loose_ends", "description": "Everything on the board that is missing the one field that gives it traction: open missions with no date, habits with no cue, notes gone cold. Returns the items, why each gap matters and the question worth asking. Use it when they ask what needs attention, when a list feels stale, or before offering to tidy up. These are offers, never demands — one kind at a time, named items, and 'leave it' is a complete answer.",
+     "input_schema": {"type": "object", "properties": {}}},
     {"name": "suggest_focus_length", "description": "How long to suggest this user focuses for, based on their OWN completed sessions. Returns {minutes, basis, sessions}: basis='history' means it is their real median, basis='default' means they have too little record yet and the number is only a starting point — say which it is. There is no universally correct session length, so never quote 25 minutes, 52/17, 90 minutes or any other stock figure as if it were established.",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_active_focus_session", "description": "Check whether a focus session is currently running, with elapsed and (for timed sessions) remaining minutes. Use for 'am I focusing?', 'how long left?'.",
@@ -1037,6 +1039,9 @@ def execute_tool(
             current_user.nudges_per_day = per_day
         db.commit()
         return execute_tool(db, current_user, "get_nudge_settings", {})
+    if name == "review_loose_ends":
+        from services import completeness
+        return completeness.review(db, current_user)
     if name == "suggest_focus_length":
         return focus_service.suggested_focus_minutes(db, current_user)
     if name == "get_active_focus_session":

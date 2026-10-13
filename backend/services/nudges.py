@@ -814,6 +814,42 @@ def sig_late_night_work(ctx: Ctx) -> Optional[Nudge]:
     )
 
 
+def sig_loose_ends(ctx: Ctx) -> Optional[Nudge]:
+    """Things on the board missing the one field that gives them traction.
+
+    Offered as a batch of ONE kind, because the point is to close a gap, not
+    to hand someone an audit of their own shortcomings.
+    """
+    from services import completeness
+
+    missions = [m for m in ctx.open_missions
+                if m.due_date is None and m.created_at
+                and _aware(m.created_at) < ctx.local_now.astimezone(timezone.utc)
+                - timedelta(days=completeness.MISSION_SETTLE_DAYS)]
+    if len(missions) < 3:
+        return None
+    names = ", ".join(m.title for m in missions[:3])
+    month = ctx.local_now.strftime("%Y-%m")
+    return Nudge(
+        key=f"loose:missions:{month}",
+        kind="offer_when",
+        priority=29,
+        draft=(f"{len(missions)} things on your board have no date on them, "
+               f"{ctx.address} — {names} among them. Shall we put a when "
+               f"against a few, or are they fine as they are?"),
+        facts=(f"{len(missions)} open missions have no due date and are more "
+               f"than {completeness.MISSION_SETTLE_DAYS} days old. The oldest "
+               f"are: {names}."),
+        warrant=("An open thing with no when keeps intruding on unrelated work, "
+                 "and giving it a specific date discharges that cost even "
+                 "before it is done — which is why this is worth a word at all. "
+                 "Offer to put dates against them, and say plainly that some "
+                 "things genuinely have no deadline so leaving them is a real "
+                 "answer. Name a few by title rather than only counting, and "
+                 "never imply the count itself is a failing."),
+    )
+
+
 SIGNALS: List[Callable[[Ctx], Optional[Nudge]]] = [
     sig_event_soon,
     sig_countdown_horizon,
@@ -825,6 +861,7 @@ SIGNALS: List[Callable[[Ctx], Optional[Nudge]]] = [
     sig_clear_board,
     # ...and what he can offer.
     sig_late_night_work,
+    sig_loose_ends,
     sig_habit_without_cue,
     sig_news_topic_offer,
     sig_first_briefing_offer,
@@ -924,6 +961,7 @@ KIND_MIN_GAP_DAYS: Dict[str, int] = {
     # A kind word about sleep, not a campaign: rarely, and never twice running.
     "care_sleep": 10,
     "offer_cue": 8,
+    "offer_when": 14,
     "offer_prune": 9,
     "offer_news": 12,
     "offer_note": 12,
