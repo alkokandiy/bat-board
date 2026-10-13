@@ -228,6 +228,19 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
                 db.delete(pending)
                 db.commit()
 
+            if text in ("/help", "/start", "/commands"):
+                # There was no way to discover these from inside Telegram at
+                # all; the owner had to read the source to find them.
+                _reply(chat_id, HELP_TEXT)
+                return
+
+            if text == "/cancel":
+                # The pending row was already cleared above for any /-command;
+                # this just makes it an explicit, discoverable action.
+                _reply(chat_id, "Cancelled. Nothing was changed."
+                                if pending else "Nothing was pending.")
+                return
+
             if text == "/new":
                 session = alfred_agent.create_session(db, user, "New conversation")
                 alfred_agent.set_active_session(db, user, session.id)
@@ -524,6 +537,22 @@ async def _handle_callback_query(db: Session, callback: dict) -> None:
     chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
     if chat_id:
         _reply(chat_id, f"Switched to: {session.title}")
+
+
+# Everything you can type at Alfred. Anything that is not one of these is
+# simply talked to him in plain language, which is the point of him.
+HELP_TEXT = """Commands, sir.
+
+/help — this list
+/new — start a fresh conversation (Alfred keeps the old one)
+/chats — list recent conversations and switch between them
+/chats <word> — search conversations by title
+/rename <title> — rename the current conversation
+/setkey — set up your AI provider, guided
+/setkey <provider> <model> <key> — set it in one line
+/cancel — call off anything awaiting your confirmation
+
+Everything else, just say it. He has the run of the board: missions, habits, focus sessions, notes, the calendar, countdowns, reminders, briefings and the work track. Ask for several things at once and he will do them at once."""
 
 
 # Telegram clears the typing indicator after ~5s, so it is refreshed while a

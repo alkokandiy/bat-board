@@ -295,3 +295,101 @@ def test_a_turn_asking_to_remove_four_missions_arms_all_four(monkeypatch):
         assert db.query(models.BatMission).filter_by(owner_id=uid).count() == 0
     finally:
         db.close()
+
+
+# --- "delete all my habits" ------------------------------------------------
+
+def test_deleting_every_habit_is_one_confirmation_not_a_march(monkeypatch):
+    """The reported misery: six habits meant twelve messages and three hours.
+
+    Alfred told the user he could only delete them individually, then asked
+    for his own confirmation before the system's — two YESes per habit.
+    """
+    from services import llm_provider
+
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        names = ["Memorization (1 page)", "Math", "Reading (30 mins)",
+                 "Exercise (30 mins)", "Write autobiography", "Rivojlanish Kundaligi"]
+        hids = []
+        for n in names:
+            h = models.BatHabit(owner_id=uid, name=n, frequency="daily", streak=0)
+            db.add(h)
+            db.flush()
+            hids.append(h.id)
+        db.commit()
+
+        class Adapter:
+            async def generate(self, messages, tools, system_instruction=None):
+                return llm_provider.LLMResponse(
+                    text="",
+                    tool_calls=[llm_provider.ToolCall(name="delete_habit",
+                                                      arguments={"habit_id": i})
+                                for i in hids],
+                )
+
+        monkeypatch.setattr(alfred_agent, "resolve_adapter_for_user",
+                            lambda db, user: Adapter())
+        reply = _run(alfred_agent.run_turn(db, user, "remove all habits"))
+    finally:
+        db.close()
+
+    for n in names:
+        assert n in reply, f"{n} missing from the single confirmation"
+
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        status, _ = alfred_agent.check_pending_action(db, user, "YES")
+        assert status == "handled"
+        assert db.query(models.BatHabit).filter_by(owner_id=uid).count() == 0, \
+            "one YES must clear every habit it listed"
+    finally:
+        db.close()
+
+
+def test_cancelling_a_gate_tells_the_model_nothing_was_deleted(monkeypatch):
+    """Alfred announced 'Deleted Math' for a habit that was never deleted.
+
+    He had armed it, the user replied with something other than YES, and he
+    then narrated the deletion as done. The cancellation must reach him.
+    """
+    from services import llm_provider
+
+    uid = _mk_user()
+    seen = {}
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        h = models.BatHabit(owner_id=uid, name="Math", frequency="daily", streak=0)
+        db.add(h)
+        db.commit()
+        alfred_agent.gate_destructive_tools(
+            db, user, [("delete_habit", {"habit_id": h.id})])
+
+        class Adapter:
+            async def generate(self, messages, tools, system_instruction=None):
+                seen["last_user"] = messages[-1]["content"]
+                return llm_provider.LLMResponse(text="Understood.", tool_calls=[])
+
+        monkeypatch.setattr(alfred_agent, "resolve_adapter_for_user",
+                            lambda db, user: Adapter())
+        _run(alfred_agent.run_turn(db, user, "and?"))
+
+        # The habit survived, and the model was told so in as many words.
+        assert db.query(models.BatHabit).filter_by(owner_id=uid).count() == 1
+        assert "CANCELLED" in seen["last_user"]
+        assert "NOTHING was deleted" in seen["last_user"]
+        assert "and?" in seen["last_user"]
+    finally:
+        db.close()
+
+
+def test_the_charter_tells_him_he_can_batch_and_must_not_pre_announce():
+    """He refused to batch-delete because nothing had told him he could."""
+    prompt = alfred_agent.IDENTITY_CORE.lower()
+    assert "delete several at once" in prompt
+    assert "do not ask first" in prompt
+    assert "nothing is deleted until the system says so" in prompt

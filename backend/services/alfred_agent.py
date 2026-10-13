@@ -140,9 +140,24 @@ does or does not exist, read it, and name the exact item. If they push back on s
 you claimed, check again before answering — and if you were wrong, correct the record \
 itself, not merely your sentence.
 {work_block}
-- Deleting any entity (mission, habit, note, event, countdown) goes through a \
-confirmation gate. Call the delete tool — the system will present a confirmation \
-template to the user. Wait for YES before proceeding. Never skip the gate.
+- DELETING. Call the delete tool and the SYSTEM asks the user to confirm. You \
+never ask first and you never announce the result. Three rules, and breaking any \
+of them has caused real damage:
+  1. DELETE SEVERAL AT ONCE. When they want more than one thing gone — "remove \
+these four", "delete all my habits" — issue a delete call for EVERY one of them \
+in the SAME reply. The system then raises ONE confirmation listing all of them, \
+and a single YES removes the lot. Never march through them one at a time, never \
+say you can only do them individually, and never ask them to repeat themselves \
+for each item. You can do this.
+  2. DO NOT ASK FIRST. Never "Shall I delete X?" — that makes them confirm twice, \
+once to you and once to the system. If they have asked for it to go, call the \
+tool. The gate is the asking.
+  3. NOTHING IS DELETED UNTIL THE SYSTEM SAYS SO. Calling a delete tool only \
+ARMS it. The item is still there. Never write "Deleted X", never say you have \
+removed something, and never move on to the next item as though the last one \
+were done — the system alone reports deletions, after the user confirms. If they \
+reply with anything other than YES the whole thing is cancelled and nothing was \
+removed; say so plainly rather than pretending it went ahead.
 - You keep your own private memory — small topic notes tagged alfred-memory, \
 separate from your employer's own notes. Before answering something prior context \
 could inform, call alfred_list_memory_topics to see what is already known, then \
@@ -681,11 +696,14 @@ def check_pending_action(
         return None, None
     if text.strip().lower() in CONFIRM_WORDS:
         return "handled", _execute_pending(db, user, row)
-    # Anything else clears the gate silently and the message is handled
-    # as a brand-new request in the same turn.
+    # Anything else cancels the gate and the message is handled as a brand-new
+    # request. The cancellation is reported back so the model can be TOLD
+    # nothing was deleted — left to infer it, it announced the deletion anyway
+    # and carried on to the next item.
+    cancelled = row.confirmation_message
     db.delete(row)
     db.commit()
-    return "fallthrough", None
+    return "fallthrough", cancelled
 
 
 def gate_destructive_tools(
@@ -937,6 +955,7 @@ async def run_turn(
     if status == "handled":
         store_turn(db, user, session_id, user_text, reply)
         return reply
+    cancelled_confirmation = reply if status == "fallthrough" else None
 
     try:
         adapter = resolve_adapter_for_user(db, user)
@@ -952,6 +971,16 @@ async def run_turn(
         return FREE_TIER_CAPPED_REPLY if free_tier else CAPPED_REPLY
 
     live_user = {"role": "user", "content": user_text}
+    if cancelled_confirmation:
+        # Stated outright, because the model otherwise treats a pending
+        # deletion as having gone through once the conversation moves on.
+        live_user["content"] = (
+            "[SYSTEM NOTE: a confirmation was outstanding and the user did not "
+            "say YES, so it was CANCELLED and NOTHING was deleted. The item "
+            "still exists. The cancelled prompt was: "
+            f"{cancelled_confirmation!r}. Do not claim anything was removed.]\n\n"
+            + user_text
+        )
     if images:
         live_user["images"] = images
     work_enabled = work_service.is_enabled(db, user)
@@ -1036,7 +1065,12 @@ async def _tool_loop(
                 result = dict(alfred_tools.WORK_OFF_RESULT)
             elif call.name in DESTRUCTIVE_TOOL_NAMES:
                 destructive.append((call.name, call.arguments or {}))
-                result = {"status": "awaiting user confirmation"}
+                # Worded for the model, which otherwise announced deletions
+                # that had only been armed and then skipped to the next item.
+                result = {"status": "NOT DELETED — only armed",
+                          "note": ("The item still exists. The system is asking "
+                                   "the user to confirm. Do not say it was "
+                                   "deleted and do not start on the next one.")}
             else:
                 result = _execute_tool_safely(db, user, call.name, call.arguments or {}, media_sink)
                 executions += 1

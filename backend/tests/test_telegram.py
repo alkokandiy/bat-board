@@ -209,3 +209,30 @@ def test_unlink_revokes_and_unlinks(client, auth_headers, monkeypatch):
     )
     assert r.status_code == 200
     assert any("I'm Alfred" in call[2] for call in sent)
+
+
+def test_help_lists_the_commands(client, monkeypatch):
+    """There was no way to discover these from inside Telegram at all —
+    the owner had to read the source to find out what Alfred accepts."""
+    sent = []
+    monkeypatch.setattr(telegram_service, "send_telegram_message",
+                        lambda *a, **kw: sent.append(a[2]) or True)
+    r = client.post("/api/telegram/webhook",
+                    json=_update(chat_id="tg-help", text="/help"),
+                    headers=SECRET_HEADER)
+    assert r.status_code == 200
+    body = "\n".join(sent)
+    for cmd in ("/new", "/chats", "/rename", "/setkey", "/cancel"):
+        assert cmd in body
+
+
+def test_cancel_calls_off_a_pending_confirmation(client, monkeypatch):
+    """A gate the user wants out of needs an obvious way out."""
+    sent = []
+    monkeypatch.setattr(telegram_service, "send_telegram_message",
+                        lambda *a, **kw: sent.append(a[2]) or True)
+    r = client.post("/api/telegram/webhook",
+                    json=_update(chat_id="tg-cancel", text="/cancel"),
+                    headers=SECRET_HEADER)
+    assert r.status_code == 200
+    assert any("Nothing was pending" in t or "Cancelled" in t for t in sent)
