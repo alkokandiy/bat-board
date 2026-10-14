@@ -41,6 +41,21 @@ def _log(db, uid, key, kind, when):
     db.commit()
 
 
+def _spoke(db, uid, when):
+    """A user message, so the two-strikes silence rule does not kick in.
+
+    Most of these tests log nudges and then expect another; without a reply in
+    between, `unanswered_run` correctly refuses to send a third.
+    """
+    session = models.BatAlfredSession(owner_id=uid, title="t")
+    db.add(session)
+    db.flush()
+    db.add(models.BatAlfredMessage(owner_id=uid, session_id=session.id,
+                                   role="user", content="ok",
+                                   created_at=when.replace(tzinfo=None)))
+    db.commit()
+
+
 def _nudge(kind="drift", priority=50, key="k1"):
     return nudges.Nudge(key=key, kind=kind, priority=priority,
                         draft="A draft.", facts="Some facts.")
@@ -156,6 +171,7 @@ def test_attention_moves_on_rather_than_grinding_the_same_groove():
         # Two recent habit remarks, both older than its 2-day gap.
         _log(db, uid, "habit:a", "habit", now - timedelta(days=3))
         _log(db, uid, "habit:b", "habit", now - timedelta(days=5))
+        _spoke(db, uid, now - timedelta(days=2))
         assert nudges.evaluate(db, user, now).kind == "overdue"
     finally:
         db.close()
@@ -394,6 +410,7 @@ def test_date_bound_signals_are_never_fatigued():
         user = db.get(models.BatAccount, uid)
         for i in range(5):
             _log(db, uid, f"countdown:x:{i}", "countdown", now - timedelta(days=i + 1))
+        _spoke(db, uid, now - timedelta(hours=2))
         # days_remaining_for() floors against the REAL clock, not `now`, so the
         # target is built from the real clock with an hour of margin. Deriving
         # it from the faked evening made the floor land on 6 after 20:00 and
@@ -407,3 +424,126 @@ def test_date_bound_signals_are_never_fatigued():
         db.close()
     assert n is not None and n.kind == "countdown"
     assert "Exam" in n.draft
+
+
+# --- silence as an answer --------------------------------------------------
+
+def test_a_third_message_is_not_sent_when_two_went_unanswered():
+    """The owner's own rule, and the alert-fatigue literature agrees: silence
+    is the clearest signal that the messages are not wanted right now."""
+    uid = _habit_at_risk_user()
+    now = _evening()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        # Two proactive messages, no reply from them afterwards.
+        _log(db, uid, "a", "countdown", now - timedelta(days=2))
+        _log(db, uid, "b", "event", now - timedelta(days=1))
+        assert nudges.unanswered_run(db, user) == nudges.UNANSWERED_LIMIT
+        assert nudges.may_nudge(db, user, now) is False
+    finally:
+        db.close()
+
+
+def test_one_unanswered_message_is_not_enough_to_stop_him():
+    uid = _habit_at_risk_user()
+    now = _evening()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        _log(db, uid, "only-one", "countdown", now - timedelta(days=1))
+        assert nudges.unanswered_run(db, user) == 1
+        assert nudges.may_nudge(db, user, now) is True
+    finally:
+        db.close()
+
+
+def test_saying_anything_at_all_clears_the_run():
+    """They need not acknowledge the nudge — only still be talking."""
+    uid = _habit_at_risk_user()
+    now = _evening()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        _log(db, uid, "a", "countdown", now - timedelta(days=3))
+        _log(db, uid, "b", "event", now - timedelta(days=2))
+        assert nudges.unanswered_run(db, user) == 2
+        _spoke(db, uid, now - timedelta(days=1))
+        assert nudges.unanswered_run(db, user) == 0
+        assert nudges.may_nudge(db, user, now) is True
+    finally:
+        db.close()
+
+
+def test_only_the_users_own_messages_count_as_a_reply():
+    """Alfred answering himself must never look like engagement."""
+    uid = _habit_at_risk_user()
+    now = _evening()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        _log(db, uid, "a", "countdown", now - timedelta(days=3))
+        _log(db, uid, "b", "event", now - timedelta(days=2))
+        session = models.BatAlfredSession(owner_id=uid, title="t")
+        db.add(session)
+        db.flush()
+        db.add(models.BatAlfredMessage(
+            owner_id=uid, session_id=session.id, role="assistant",
+            content="a nudge", created_at=(now - timedelta(days=1)).replace(tzinfo=None)))
+        db.commit()
+        assert nudges.unanswered_run(db, user) == 2
+    finally:
+        db.close()
+
+
+def test_the_gap_between_messages_is_hours_not_minutes():
+    """Three landing between breakfast and lunch reads as pestering."""
+    assert nudges.GLOBAL_COOLDOWN >= timedelta(hours=3)
+    assert nudges.DEFAULT_PER_DAY <= 2
+
+
+# --- a clear week is not automatically a restful one -----------------------
+
+def _calendar_user_with(open_missions):
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        # Used the calendar once, long ago; nothing in the week ahead.
+        db.add(models.CalendarEvent(
+            owner_id=uid, title="Past thing",
+            start_time=(datetime.now(timezone.utc) - timedelta(days=40)).replace(tzinfo=None)))
+        for i in range(open_missions):
+            db.add(models.BatMission(owner_id=uid, title=f"Open thing {i}",
+                                     status="pending"))
+        db.commit()
+    finally:
+        db.close()
+    return uid
+
+
+def test_a_loaded_board_gets_the_week_planned_not_a_suggestion_to_rest():
+    """Telling someone carrying a dozen missions to enjoy the quiet reads as
+    never having looked at their board."""
+    uid = _calendar_user_with(nudges.BUSY_BOARD_MISSIONS + 2)
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        ctx = nudges.build_context(db, user, _evening())
+        assert nudges.sig_empty_week(ctx) is None
+        plan = nudges.sig_place_the_week(ctx)
+        assert plan is not None and plan.kind == "offer_plan_week"
+        assert "Open thing 0" in plan.draft
+    finally:
+        db.close()
+
+
+def test_a_genuinely_quiet_board_still_gets_the_offer_of_rest():
+    uid = _calendar_user_with(1)
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        ctx = nudges.build_context(db, user, _evening())
+        assert nudges.sig_place_the_week(ctx) is None
+        assert nudges.sig_empty_week(ctx) is not None
+    finally:
+        db.close()
