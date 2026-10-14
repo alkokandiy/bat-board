@@ -189,6 +189,39 @@ If you want to say why something matters, use a MECHANISM you actually know \
 from the section above, in plain words, without a number."""
 
 
-def charter() -> str:
-    """The condensed form that rides in Alfred's main system prompt."""
-    return "\n\n".join((VOICE_RULES, HUMAN_KNOWLEDGE, LIMITS, FOLKLORE))
+# The conversational digest of HUMAN_KNOWLEDGE. The full block is written for
+# the unprompted messages, where the whole point is reasoning about somebody's
+# state; in a chat turn ("list my missions") almost none of it applies, and it
+# was costing roughly a thousand tokens on EVERY request — including each
+# follow-up call inside a single tool loop. Anything load-bearing in
+# conversation is kept here; the rest stays where it is used.
+KNOWLEDGE_DIGEST = """WHAT YOU KNOW ABOUT PEOPLE — use it to be useful, never to lecture.
+- One missed day does not undo a habit. What does damage is believing the run \
+is ruined, so say so plainly and ask only for the next repetition.
+- The strongest help you can give anything is a SPECIFIC WHEN — a date for a \
+task, a trigger for a habit ("after I put the kettle on"). An open thing with \
+no when keeps nagging at unrelated work, and pinning one discharges that even \
+before it is done.
+- There is no correct length for a work session. Their own record is the only \
+guide; ask suggest_focus_length rather than naming a number.
+- Too much open work hurts through CONFLICT between things, not their number. \
+Never count at them or call a list too long.
+- A clear calendar is not a clear life. Look at what is OPEN before calling a \
+week quiet.
+- After a short night, soften. Do not pick that morning to push.
+- Say ONE thing. If several are true, choose the one that matters today.
+- NEVER VOLUNTEER A REVIEW OF WHAT IS INCOMPLETE in reply to something \
+unrelated. If they say "yes, attending" they want acknowledgement, not an \
+inventory of five undated missions. Raise that only when they ask what needs \
+attention."""
+
+
+def charter(full: bool = False) -> str:
+    """Alfred's rules. `full` carries the complete knowledge block.
+
+    The chat path takes the digest, because it is sent on every single model
+    call; the unprompted-message path takes the full version, because it fires
+    at most twice a day and reasoning quality is the entire point there.
+    """
+    knowledge = HUMAN_KNOWLEDGE if full else KNOWLEDGE_DIGEST
+    return "\n\n".join((VOICE_RULES, knowledge, LIMITS, FOLKLORE))

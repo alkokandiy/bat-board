@@ -408,16 +408,38 @@ def test_the_charter_rules_out_the_physical_world():
 
 
 def test_the_charter_stops_him_answering_with_an_inventory():
-    """"Yes, attending" earned a list of five undated missions."""
+    """"Yes, attending" earned a list of five undated missions.
+
+    Checked on the CHAT charter specifically: this is a conversational
+    failure, so the rule has to survive the trimmed version that every model
+    call carries, not just the full one used for unprompted messages.
+    """
     from services import alfred_principles
 
-    charter = alfred_principles.charter().lower()
-    assert "say one thing" in charter
-    assert "never volunteer a review of what is incomplete" in charter
+    for charter in (alfred_principles.charter().lower(),
+                    alfred_principles.charter(full=True).lower()):
+        assert "say one thing" in charter
+        assert "never volunteer a review of what is incomplete" in charter
 
 
 def test_the_charter_reads_the_whole_board_before_offering_rest():
     from services import alfred_principles
 
-    charter = alfred_principles.charter().lower()
-    assert "a clear calendar does not mean a clear life" in charter
+    for charter in (alfred_principles.charter().lower(),
+                    alfred_principles.charter(full=True).lower()):
+        assert "clear calendar is not a clear life" in charter \
+            or "clear calendar does not mean a clear life" in charter
+
+
+def test_the_chat_charter_is_markedly_smaller_than_the_full_one():
+    """It rides on every model call, including each step of a tool loop."""
+    from services import alfred_principles
+
+    chat = alfred_principles.charter()
+    full = alfred_principles.charter(full=True)
+    assert len(chat) < len(full) * 0.8
+    # The rules that must never be trimmed away to save room.
+    low = chat.lower()
+    assert "you have no hands and no world" in low
+    assert "describe, do not diagnose" in low
+    assert "21 days" in low and "25 minutes" in low

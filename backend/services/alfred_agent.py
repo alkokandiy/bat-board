@@ -370,7 +370,11 @@ SETUP_REPLY = (
 )
 SNAG_REPLY = "Alfred hit a snag — try again in a moment."
 RATE_LIMIT_REPLY = "Alfred's thinking engine is rate-limited right now — give it a minute and try again."
-SERVICE_DOWN_REPLY = "Alfred's thinking engine is temporarily overloaded — try again in a moment."
+SERVICE_DOWN_REPLY = (
+    "Your AI provider is not answering just now, sir — that is their end, not "
+    "the board's. Nothing you asked for has been lost. Try again in a minute, "
+    "or switch provider with /setkey if it keeps happening."
+)
 CAPPED_REPLY = "Alfred's had a lot to think about today — back tomorrow."
 FREE_TIER_CAPPED_REPLY = (
     "That's today's free allowance with me, sir. It resets tomorrow — or, for "

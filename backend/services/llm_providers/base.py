@@ -18,6 +18,11 @@ MAX_RETRIES_5XX = 5  # 500/502/503/504 get a longer budget: overloaded models
 # that outlasted 3 attempts over ~7s of backoff)
 RETRY_BASE_DELAY = 1.0  # seconds; doubles each attempt
 REQUEST_TIMEOUT = 30.0  # seconds per API attempt
+# Ceiling on the WHOLE retry sequence. Five 5xx attempts plus backoff came to
+# 165 seconds, and somebody waiting in a chat read that as the bot being dead
+# long before the apology arrived. Failing honestly at a minute beats
+# succeeding at three, and the retry counts below still apply within it.
+MAX_TOTAL_SECONDS = 60.0
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
 _RETRYABLE_5XX = frozenset({500, 502, 503, 504})
 
@@ -115,6 +120,11 @@ async def run_with_retries(fn: Callable[[], Awaitable[T]], provider: str) -> T:
     tries = 0
     five_xx_strikes = 0
     other_strikes = 0
+    started = asyncio.get_event_loop().time()
+
+    def _elapsed() -> float:
+        return asyncio.get_event_loop().time() - started
+
     while True:
         try:
             return await asyncio.wait_for(fn(), timeout=REQUEST_TIMEOUT)
@@ -142,7 +152,14 @@ async def run_with_retries(fn: Callable[[], Awaitable[T]], provider: str) -> T:
         tries += 1
         if five_xx_strikes >= MAX_RETRIES_5XX or other_strikes >= MAX_RETRIES:
             break
-        await asyncio.sleep(RETRY_BASE_DELAY * (2 ** (tries - 1)))
+        delay = RETRY_BASE_DELAY * (2 ** (tries - 1))
+        # Stop if another full attempt could not finish inside the budget —
+        # better to report the failure than to keep someone waiting for one.
+        if _elapsed() + delay + REQUEST_TIMEOUT > MAX_TOTAL_SECONDS:
+            logger.warning("llm_retry_budget_spent", provider=provider,
+                           attempts=tries, elapsed=round(_elapsed(), 1))
+            break
+        await asyncio.sleep(delay)
 
     status = extract_status(last_exc) if last_exc else None
     if status == 429:
