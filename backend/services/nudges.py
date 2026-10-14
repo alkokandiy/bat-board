@@ -37,9 +37,16 @@ log = structlog.get_logger(__name__)
 
 DEFAULT_QUIET_START = "22:00"
 DEFAULT_QUIET_END = "08:00"
-DEFAULT_PER_DAY = 3
-# Minimum gap between any two proactive messages.
-GLOBAL_COOLDOWN = timedelta(minutes=90)
+DEFAULT_PER_DAY = 2
+# Minimum gap between any two proactive messages. Ninety minutes meant three
+# could land between breakfast and lunch, which reads as pestering however
+# good each one is on its own.
+GLOBAL_COOLDOWN = timedelta(hours=4)
+# If this many proactive messages in a row drew no reply at all, stop. The
+# owner put it plainly: do not send a third when the last two went unanswered.
+# Silence is the clearest signal there is that the messages are not wanted
+# right now, and ignoring it is how a companion becomes a notification.
+UNANSWERED_LIMIT = 2
 # If they've just been talking to Alfred, don't interrupt with a nudge.
 RECENT_CHAT_QUIET = timedelta(minutes=60)
 
@@ -628,9 +635,52 @@ def sig_first_briefing_offer(ctx: Ctx) -> Optional[Nudge]:
         )
 
 
-def sig_empty_week(ctx: Ctx) -> Optional[Nudge]:
-    """A calendar user with a completely clear week ahead."""
+# Below this much open work, an empty week really is quiet. At or above it,
+# the same empty week means the opposite and offering rest reads as not having
+# looked at the board at all.
+BUSY_BOARD_MISSIONS = 4
+
+
+def sig_place_the_week(ctx: Ctx) -> Optional[Nudge]:
+    """A free week and a loaded board — offer to put the work INTO the days.
+
+    The inverse of sig_empty_week, and the reason that one was wrong: telling
+    somebody carrying a dozen open missions that they have "a rare opportunity
+    for genuine rest" ignores everything they are actually holding.
+    """
     if not ctx.has_used_calendar or ctx.events_this_week > 0:
+        return None
+    if len(ctx.open_missions) < BUSY_BOARD_MISSIONS:
+        return None
+    week = ctx.local_now.isocalendar()
+    names = ", ".join(m.title for m in ctx.open_missions[:3])
+    return Nudge(
+        key=f"placeweek:{week[0]}-{week[1]}",
+        kind="offer_plan_week",
+        priority=33,
+        draft=(f"{len(ctx.open_missions)} things open and a clear week ahead, "
+               f"{ctx.address}. Shall we give a few of them actual days — "
+               f"{names} to begin with?"),
+        facts=(f"{len(ctx.open_missions)} open missions and no calendar events "
+               f"in the next 7 days. The oldest open ones are: {names}."),
+        warrant=("Free days plus a loaded board is an opportunity to PLACE the "
+                 "work, not to rest — suggesting rest here reads as not having "
+                 "looked at what they are carrying. Giving an open thing a "
+                 "specific day discharges the background nagging it causes even "
+                 "before it is done, which is the real reason to offer. Name two "
+                 "or three by title and offer to put them in. Do not list "
+                 "everything, do not imply the pile is a failing, and accept a "
+                 "no at once."),
+    )
+
+
+def sig_empty_week(ctx: Ctx) -> Optional[Nudge]:
+    """A calendar user with a clear week ahead AND little waiting on them."""
+    if not ctx.has_used_calendar or ctx.events_this_week > 0:
+        return None
+    # A clear calendar is not a clear life. With real work waiting, an offer of
+    # rest is tone-deaf — sig_place_the_week handles that case instead.
+    if len(ctx.open_missions) >= BUSY_BOARD_MISSIONS:
         return None
     week = ctx.local_now.isocalendar()
     return Nudge(
@@ -862,6 +912,7 @@ SIGNALS: List[Callable[[Ctx], Optional[Nudge]]] = [
     # ...and what he can offer.
     sig_late_night_work,
     sig_loose_ends,
+    sig_place_the_week,
     sig_habit_without_cue,
     sig_news_topic_offer,
     sig_first_briefing_offer,
@@ -932,7 +983,44 @@ def may_nudge(db, user: models.BatAccount, local_now: datetime) -> bool:
     )
     if last_msg is not None and now_utc - _aware(last_msg.created_at) < RECENT_CHAT_QUIET:
         return False
+
+    if unanswered_run(db, user) >= UNANSWERED_LIMIT:
+        return False
     return True
+
+
+def unanswered_run(db, user: models.BatAccount) -> int:
+    """How many proactive messages in a row have drawn no reply.
+
+    A reply is any message from the user after the nudge was sent — they need
+    not acknowledge it, only still be talking. Resets to zero the moment they
+    say anything, so this quietens a bad stretch without ever silencing him
+    for good.
+    """
+    recent = (
+        db.query(models.BatNudgeLog)
+        .filter(models.BatNudgeLog.owner_id == user.id)
+        .order_by(models.BatNudgeLog.sent_at.desc())
+        .limit(UNANSWERED_LIMIT)
+        .all()
+    )
+    if not recent:
+        return 0
+    last_user_msg = (
+        db.query(models.BatAlfredMessage.created_at)
+        .filter(models.BatAlfredMessage.owner_id == user.id,
+                models.BatAlfredMessage.role == "user")
+        .order_by(models.BatAlfredMessage.created_at.desc())
+        .first()
+    )
+    spoke_at = _aware(last_user_msg[0]) if last_user_msg else None
+    run = 0
+    for row in recent:
+        sent = _aware(row.sent_at)
+        if spoke_at is not None and spoke_at > sent:
+            break        # they answered after this one; the run ends here
+        run += 1
+    return run
 
 
 def already_sent(db, user: models.BatAccount, key: str) -> bool:
@@ -962,6 +1050,7 @@ KIND_MIN_GAP_DAYS: Dict[str, int] = {
     "care_sleep": 10,
     "offer_cue": 8,
     "offer_when": 14,
+    "offer_plan_week": 10,
     "offer_prune": 9,
     "offer_news": 12,
     "offer_note": 12,

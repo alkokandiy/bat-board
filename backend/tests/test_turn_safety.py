@@ -393,3 +393,31 @@ def test_the_charter_tells_him_he_can_batch_and_must_not_pre_announce():
     assert "delete several at once" in prompt
     assert "do not ask first" in prompt
     assert "nothing is deleted until the system says so" in prompt
+
+
+# --- he has no hands -------------------------------------------------------
+
+def test_the_charter_rules_out_the_physical_world():
+    """He offered to make a pot of tea. He is software with a database."""
+    from services import alfred_principles
+
+    charter = alfred_principles.charter().lower()
+    assert "you have no hands and no world" in charter
+    for impossible in ("tea", "fetch", "cook", "drive", "door"):
+        assert impossible in charter, impossible
+
+
+def test_the_charter_stops_him_answering_with_an_inventory():
+    """"Yes, attending" earned a list of five undated missions."""
+    from services import alfred_principles
+
+    charter = alfred_principles.charter().lower()
+    assert "say one thing" in charter
+    assert "never volunteer a review of what is incomplete" in charter
+
+
+def test_the_charter_reads_the_whole_board_before_offering_rest():
+    from services import alfred_principles
+
+    charter = alfred_principles.charter().lower()
+    assert "a clear calendar does not mean a clear life" in charter

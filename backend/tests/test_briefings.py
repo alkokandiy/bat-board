@@ -503,3 +503,35 @@ def test_polish_instructions_forbid_markdown_and_bullets():
     assert "no markdown" in lowered
     assert "bullet" in lowered
     assert "asterisk" in lowered
+
+
+# --- news worth reading ----------------------------------------------------
+
+def test_video_and_filler_headlines_are_dropped():
+    """A "Video:" headline in a text briefing is noise — nothing to read."""
+    assert not briefings._is_worth_reporting(
+        "Video: Why A.I. Has This Mathematician in Tears - The New York Times")
+    assert not briefings._is_worth_reporting("Watch: the whole thing - BBC")
+    assert not briefings._is_worth_reporting("Podcast: the week in tech - Verge")
+    assert not briefings._is_worth_reporting(
+        "Cybersecurity research at UH Manoa earns national recognition - UH System")
+    assert not briefings._is_worth_reporting(
+        "Comcast Cybersecurity Experts Recognized with Industry Awards - Comcast")
+
+
+def test_real_headlines_survive_the_filter():
+    for good in (
+        "AI is steamrolling through math. Why does that matter? - WBUR",
+        "Lawmakers look to close cybersecurity gaps - WLBT",
+        "Anthropic breaches trigger White House reporting rules - Reuters",
+    ):
+        assert briefings._is_worth_reporting(good), good
+
+
+def test_the_filter_runs_inside_the_rss_parse():
+    xml = """<rss><channel>
+      <item><title>Video: a clip - NYT</title></item>
+      <item><title>Lawmakers look to close cybersecurity gaps - WLBT</title></item>
+    </channel></rss>"""
+    titles = briefings._parse_rss_titles(xml, 5)
+    assert titles == ["Lawmakers look to close cybersecurity gaps - WLBT"]

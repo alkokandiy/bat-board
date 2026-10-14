@@ -59,6 +59,32 @@ def _rss_url(topic: str) -> str:
     return f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
 
+# Google News mixes articles with video clips, podcasts and live blogs. The
+# format prefix is the only reliable marker, and a "Video:" headline in a text
+# briefing is noise — there is nothing to read.
+_FORMAT_PREFIXES = (
+    "video:", "watch:", "watch live:", "live:", "live updates:", "podcast:",
+    "listen:", "photos:", "in pictures:", "gallery:", "slideshow:",
+    "opinion video:", "wtach:",
+)
+# Press-release and awards filler that reads as news but tells you nothing.
+_FILLER_MARKERS = (
+    "earns national recognition", "recognized with industry awards",
+    "named to the", "announces the appointment", "wins award",
+    "named a leader in", "ranked among", "celebrates",
+)
+
+
+def _is_worth_reporting(title: str) -> bool:
+    """Drop clips, galleries and corporate self-congratulation."""
+    low = title.strip().lower()
+    if any(low.startswith(p) for p in _FORMAT_PREFIXES):
+        return False
+    # The publisher half is after the last " - "; judge only the headline.
+    head = low.rpartition(" - ")[0] or low
+    return not any(m in head for m in _FILLER_MARKERS)
+
+
 def _parse_rss_titles(xml_text: str, limit: int) -> List[str]:
     import xml.etree.ElementTree as ET
 
@@ -70,7 +96,9 @@ def _parse_rss_titles(xml_text: str, limit: int) -> List[str]:
     for item in root.iter("item"):
         t = item.findtext("title")
         if t and t.strip():
-            titles.append(" ".join(t.split()))
+            cleaned = " ".join(t.split())
+            if _is_worth_reporting(cleaned):
+                titles.append(cleaned)
         if len(titles) >= limit:
             break
     return titles
