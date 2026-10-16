@@ -480,37 +480,37 @@ WRITE_TOOLS = [
 
 DESTRUCTIVE_TOOLS = [
     {"name": "delete_note", "description": "Delete a note. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "note_id": {"type": "integer"},
-     }, "required": ["note_id"]}},
+     }, "required": ["note_id", "expected_title"]}},
     {"name": "delete_countdown", "description": "Delete a countdown. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "countdown_id": {"type": "integer"},
-     }, "required": ["countdown_id"]}},
+     }, "required": ["countdown_id", "expected_title"]}},
     {"name": "delete_mission", "description": "Delete a mission. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "mission_id": {"type": "integer"},
-     }, "required": ["mission_id"]}},
+     }, "required": ["mission_id", "expected_title"]}},
     {"name": "delete_habit", "description": "Delete a habit and its completion history. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "habit_id": {"type": "integer"},
-     }, "required": ["habit_id"]}},
+     }, "required": ["habit_id", "expected_title"]}},
     {"name": "delete_event", "description": "Delete a calendar event. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "event_id": {"type": "integer"},
-     }, "required": ["event_id"]}},
+     }, "required": ["event_id", "expected_title"]}},
     {"name": "delete_briefing", "description": "Delete (turn off and remove) a morning or night briefing. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "kind": {"type": "string", "enum": ["morning", "night"]},
-     }, "required": ["kind"]}},
+     }, "required": ["kind", "expected_title"]}},
     {"name": "delete_work_task", "description": "Delete a corporate/work task. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "task_id": {"type": "integer"},
-     }, "required": ["task_id"]}},
+     }, "required": ["task_id", "expected_title"]}},
     {"name": "delete_reminder", "description": "Delete a reminder. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "reminder_id": {"type": "integer"},
-     }, "required": ["reminder_id"]}},
+     }, "required": ["reminder_id", "expected_title"]}},
 ]
 
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + DESTRUCTIVE_TOOLS
@@ -535,6 +535,30 @@ WORK_OFF_RESULT = {
                   "set_work_track(enabled=true) and then do what they asked. "
                   "Otherwise say the work track is off and leave it off."),
 }
+
+
+# The tools worth carrying when the provider has already refused a full-sized
+# request. Deliberately the everyday board: what somebody is most likely to
+# have been asking for when it failed. Briefings, reminders, the work track,
+# nudge settings, memory and provider setup are all left out — losing them for
+# one retry costs a follow-up message; keeping them costs the retry.
+LEAN_TOOL_NAMES = {
+    "list_missions", "create_mission", "create_missions", "update_mission",
+    "complete_mission", "delete_mission",
+    "list_habits", "create_habit", "update_habit", "check_in_habit", "delete_habit",
+    "list_notes", "create_note", "update_note", "delete_note",
+    "list_upcoming_events", "create_event", "update_event", "delete_event",
+    "list_countdowns", "create_countdown",
+    "start_focus_session", "stop_focus_session", "get_active_focus_session",
+}
+
+
+assert LEAN_TOOL_NAMES <= TOOL_NAMES, LEAN_TOOL_NAMES - TOOL_NAMES
+
+
+def lean_tools(db: Session, current_user: models.BatAccount) -> list:
+    """A smaller tool set for the retry after a provider failure."""
+    return [t for t in tools_for(db, current_user) if t["name"] in LEAN_TOOL_NAMES]
 
 
 def tools_for(db: Session, current_user: models.BatAccount) -> list:
