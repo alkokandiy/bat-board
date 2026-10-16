@@ -151,6 +151,17 @@ does or does not exist, read it, and name the exact item. If they push back on s
 you claimed, check again before answering — and if you were wrong, correct the record \
 itself, not merely your sentence.
 {work_block}
+- DO IT IN ONE REPLY. Every tool call you need for a request goes in the SAME \
+reply — reading three things, creating one and deleting two is one turn, not \
+six. Each extra round trip is another chance for the provider to fail \
+mid-request and lose the lot, so batching is not tidiness, it is what makes \
+you reliable. Never call one tool, wait for the result, then call the obvious \
+next one when you could have issued both at once.
+- COMBINING THINGS. "Merge these into one", "turn these three into a single \
+task" — you can do this already: create the merged item and delete the \
+originals in the SAME reply. The system raises one confirmation naming every \
+original, and a single YES completes it. Carry across anything the originals \
+held that still matters, and say in one line what the merged item is called.
 - DELETING. Call the delete tool and the SYSTEM asks the user to confirm. You \
 never ask first and you never announce the result. Three rules, and breaking any \
 of them has caused real damage:
@@ -163,7 +174,12 @@ for each item. You can do this.
   2. DO NOT ASK FIRST. Never "Shall I delete X?" — that makes them confirm twice, \
 once to you and once to the system. If they have asked for it to go, call the \
 tool. The gate is the asking.
-  3. NOTHING IS DELETED UNTIL THE SYSTEM SAYS SO. Calling a delete tool only \
+  3. NEVER GUESS AN ID. Ids are not something you remember between turns. \
+Before any delete, read the list so you have the real id for the item they \
+actually named, and pass `expected_title` exactly as that list gave it. The \
+system compares the two and refuses outright if they disagree — which has \
+already caught a delete aimed at a completely unrelated mission.
+  4. NOTHING IS DELETED UNTIL THE SYSTEM SAYS SO. Calling a delete tool only \
 ARMS it. The item is still there. Never write "Deleted X", never say you have \
 removed something, and never move on to the next item as though the last one \
 were done — the system alone reports deletions, after the user confirms. If they \
@@ -721,6 +737,66 @@ def check_pending_action(
     return "fallthrough", cancelled
 
 
+# --- the wrong-target interlock -------------------------------------------
+# Alfred once armed the deletion of "Fix Calendar, better view, start from
+# Monday." during a conversation about two Quran missions, and "Read Kafh
+# surah" during the next one. The gate itself worked perfectly — it resolved
+# the id it was given and asked about THAT. The id was simply invented.
+#
+# So a delete call must now declare WHAT it believes it is deleting, and the
+# system checks that belief against the record before anything is armed. A
+# model that is guessing gets told to go and read the list; a model that has
+# read the list passes without noticing this exists.
+
+import difflib
+
+TITLE_MATCH_RATIO = 0.6
+
+
+def _normalise_title(text: str) -> str:
+    return " ".join((text or "").lower().replace("'", "'").split()).strip(" .!?,;:")
+
+
+def titles_match(expected: str, actual: str) -> bool:
+    """Is `expected` plausibly the same item as `actual`?
+
+    Deliberately forgiving about punctuation, case and truncation — the model
+    retyping a title slightly differently is normal, and refusing those would
+    make deletion impossible. Catching a WHOLLY different item is the job.
+    """
+    exp, act = _normalise_title(expected), _normalise_title(actual)
+    if not exp or not act:
+        return True          # nothing to check against; the gate still asks
+    if exp == act or exp in act or act in exp:
+        return True
+    return difflib.SequenceMatcher(None, exp, act).ratio() >= TITLE_MATCH_RATIO
+
+
+def wrong_target(db: Session, user: models.BatAccount, name: str,
+                 args: dict) -> Optional[dict]:
+    """An error result when the model's stated target is not what that id is.
+
+    None means it checks out (or there is nothing to check).
+    """
+    expected = (args or {}).get("expected_title")
+    if not expected:
+        return None
+    actual = describe_tool_target(db, user, name, args)
+    if actual is None or titles_match(str(expected), actual):
+        return None
+    logger.warning("alfred_wrong_delete_target", user_id=user.id, tool=name,
+                   expected=str(expected)[:80], actual=actual[:80])
+    return {
+        "error": "WRONG TARGET — nothing was armed.",
+        "you_said_you_were_deleting": str(expected),
+        "what_that_id_actually_is": actual,
+        "next_step": ("You are working from a remembered or guessed id. Call the "
+                      "matching list tool now, find the real id for the item the "
+                      "user actually named, and try again. Do not apologise at "
+                      "length; just fetch the right one."),
+    }
+
+
 def gate_destructive_tools(
     db: Session, user: models.BatAccount, calls: List[Tuple[str, dict]]
 ) -> Optional[str]:
@@ -879,6 +955,101 @@ def user_on_free_tier(db: Session, user: models.BatAccount) -> bool:
     return provider_config_service.build_system_adapter() is not None
 
 
+# --- resilience ------------------------------------------------------------
+# A provider that will not answer is the single most common way Alfred fails,
+# and it is entirely outside this codebase's control. What IS controllable is
+# what happens next: try smaller, and if that fails too, still be useful.
+
+# How much conversation a lean retry carries. Enough for "merge them" to still
+# refer to something, far less than the full window.
+LEAN_HISTORY_TURNS = 4
+
+LEAN_PROMPT = """You are Alfred Pennyworth, butler and chief of staff to {address}, \
+working their bat-board. Dry, composed, formal British. Plain text only — no \
+Markdown, no asterisks, no bullet symbols.
+
+The previous attempt at this request failed because the AI provider did not \
+answer, so this one is deliberately small. Do the thing they asked using the \
+tools you have, in as FEW tool calls as possible — issue every call you need in \
+ONE reply rather than one at a time. Keep the answer to a sentence or two.
+
+CURRENT DATE/TIME: {current_time}
+
+Never claim to have deleted anything: a delete tool only arms a confirmation, \
+and the system asks the user. You have no hands and no world — you cannot make \
+tea, fetch, browse or buy. Never invent a fact about their board; read it."""
+
+
+async def _lean_retry(db: Session, user: models.BatAccount, user_text: str,
+                      session_id: int, adapter=None, media_sink=None) -> str:
+    """One smaller attempt at the same request."""
+    messages = (
+        [{"role": "system", "content": LEAN_PROMPT.format(
+            address=form_of_address(user),
+            current_time=_format_local(local_now(user)))}]
+        + get_history(db, user, session_id, limit=LEAN_HISTORY_TURNS)
+        + [{"role": "user", "content": user_text}]
+    )
+    return await _tool_loop(db, user, messages, adapter=adapter,
+                            media_sink=media_sink, max_model_calls=3, lean=True)
+
+
+def degraded_reply(db: Session, user: models.BatAccount) -> str:
+    """What Alfred can say with no model at all.
+
+    An apology on its own wastes the fact that the board is right here. Most
+    of what gets asked — what is due, what is open, what is unticked — is a
+    database read, so answer that much and be honest about the rest.
+    """
+    address = form_of_address(user)
+    lines = [
+        f"Your AI provider is not answering, {address} — that is their end, not "
+        f"the board's, and nothing you asked for has been lost."
+    ]
+    try:
+        from services.timezones import local_today
+        today = local_today(user)
+        open_missions = (
+            db.query(models.BatMission)
+            .filter(models.BatMission.owner_id == user.id,
+                    models.BatMission.status == "pending",
+                    models.BatMission.is_dismissed.is_(False))
+            .all()
+        )
+        due_cut = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+        overdue = [m for m in open_missions
+                   if m.due_date is not None and _as_aware(m.due_date) < due_cut]
+        habits = db.query(models.BatHabit).filter(
+            models.BatHabit.owner_id == user.id).all()
+        from services.timezones import local_date, user_tz
+        tz = user_tz(user)
+        unticked = [h for h in habits
+                    if not (h.last_completed
+                            and local_date(h.last_completed, tz) == today)]
+
+        def _plural(n: int, word: str) -> str:
+            return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+        facts = []
+        if open_missions:
+            facts.append(_plural(len(open_missions), "mission") + " open"
+                         + (f", {len(overdue)} of them overdue" if overdue else ""))
+        if unticked:
+            facts.append(_plural(len(unticked), "habit") + " unticked today")
+        if facts:
+            lines.append("What I can still tell you without it: "
+                         + ", and ".join(facts) + ".")
+        else:
+            lines.append("For what it is worth, the board itself is clear.")
+    except Exception as exc:        # a broken fallback must never replace a reply
+        logger.warning("degraded_reply_failed", error_type=type(exc).__name__,
+                       error=str(exc))
+
+    lines.append("Try again in a minute, or switch provider with /setkey if it "
+                 "keeps happening.")
+    return " ".join(lines)
+
+
 def resolve_adapter_for_user(db: Session, user: models.BatAccount):
     """Per-user adapter selection. Prefers the user's own key (BYOK, unlimited);
     falls back to the operator-funded free-tier adapter when one is configured;
@@ -1012,7 +1183,22 @@ async def run_turn(
     except llm_provider.LLMLimitError:
         final_text = RATE_LIMIT_REPLY
     except llm_provider.LLMServiceError:
-        final_text = SERVICE_DOWN_REPLY
+        # The provider failed on a full-sized request. Rather than apologise at
+        # once, try again with a much smaller one: a short prompt, a handful of
+        # recent turns, and only the tools that could plausibly be wanted. A
+        # big tool-calling request is slow enough to time out on a loaded
+        # model, and a lean one often goes through when the fat one will not.
+        try:
+            final_text = await _lean_retry(db, user, user_text, session_id,
+                                           adapter=adapter, media_sink=media_sink)
+            logger.info("alfred_lean_retry_succeeded", user_id=user.id)
+        except Exception as exc:
+            logger.warning("alfred_lean_retry_failed", user_id=user.id,
+                           error_type=type(exc).__name__)
+            # Still nothing. Say what is actually on the board rather than
+            # only apologising — the answer to most questions is already in
+            # the database and needs no model at all.
+            final_text = degraded_reply(db, user)
     except Exception as exc:
         logger.error("alfred_turn_failed", error_type=type(exc).__name__, error=str(exc))
         final_text = SNAG_REPLY
@@ -1033,6 +1219,8 @@ async def _tool_loop(
     messages: List[dict],
     adapter: Optional["LLMProviderAdapter"] = None,
     media_sink: Optional[list] = None,
+    max_model_calls: Optional[int] = None,
+    lean: bool = False,
 ) -> str:
     executions = 0
     last_text = None
@@ -1041,10 +1229,11 @@ async def _tool_loop(
     # Model calls are bounded separately from tool executions: unknown or
     # missing-target calls don't execute anything, and a model that keeps
     # emitting them used to spin this loop (and the provider bill) forever.
-    for _ in range(MAX_MODEL_CALLS_PER_TURN):
+    for _ in range(max_model_calls or MAX_MODEL_CALLS_PER_TURN):
         if executions >= MAX_TOOL_CALLS_PER_TURN:
             break
-        tools = alfred_tools.tools_for(db, user)
+        tools = (alfred_tools.lean_tools(db, user) if lean
+                 else alfred_tools.tools_for(db, user))
         if adapter is None:
             response = await llm_provider.generate(messages, tools)
         else:
@@ -1079,6 +1268,14 @@ async def _tool_loop(
             elif alfred_tools.work_blocked(db, user, call.name):
                 result = dict(alfred_tools.WORK_OFF_RESULT)
             elif call.name in DESTRUCTIVE_TOOL_NAMES:
+                mismatch = wrong_target(db, user, call.name, call.arguments or {})
+                if mismatch is not None:
+                    # Hand it straight back so the model can go and read the
+                    # list, rather than asking the user to confirm the wrong
+                    # thing and hoping they notice.
+                    result = mismatch
+                    messages.append({"role": "tool", "name": call.name, "result": result})
+                    continue
                 destructive.append((call.name, call.arguments or {}))
                 # Worded for the model, which otherwise announced deletions
                 # that had only been armed and then skipped to the next item.

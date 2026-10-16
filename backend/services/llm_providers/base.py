@@ -22,7 +22,7 @@ REQUEST_TIMEOUT = 30.0  # seconds per API attempt
 # 165 seconds, and somebody waiting in a chat read that as the bot being dead
 # long before the apology arrived. Failing honestly at a minute beats
 # succeeding at three, and the retry counts below still apply within it.
-MAX_TOTAL_SECONDS = 60.0
+MAX_TOTAL_SECONDS = 45.0
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
 _RETRYABLE_5XX = frozenset({500, 502, 503, 504})
 
