@@ -238,3 +238,92 @@ def test_backfilling_onto_someone_elses_record_is_refused():
         assert "not found" in str(exc.value).lower()
     finally:
         db.close()
+
+
+# --- time that cannot have happened ----------------------------------------
+
+def test_two_blocks_cannot_share_the_same_hours():
+    """Logging 2h from 14:00 and 4h from 15:00 reported six hours for five.
+
+    Nobody focuses on two things at once, so an overlap means one of the two
+    entries is wrong — and silently accepting both makes every total a guess.
+    """
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        start = datetime.now(timezone.utc) - timedelta(hours=8)
+        focus_service.log_past_session(db, user, minutes=120, when=start)
+        with pytest.raises(ValueError) as exc:
+            focus_service.log_past_session(db, user, minutes=120,
+                                           when=start + timedelta(hours=1))
+        assert "overlaps" in str(exc.value)
+    finally:
+        db.close()
+
+
+def test_blocks_placed_end_to_end_are_accepted():
+    """The correct way to record a long day, and it must stay easy."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        start = datetime.now(timezone.utc) - timedelta(hours=9)
+        focus_service.log_past_session(db, user, minutes=120, when=start)
+        focus_service.log_past_session(db, user, minutes=180,
+                                       when=start + timedelta(hours=2))
+        total = sum(f.duration_minutes for f in
+                    db.query(models.BatFocus).filter_by(owner_id=uid).all())
+        assert total == 300
+    finally:
+        db.close()
+
+
+def test_a_block_may_not_run_into_the_future():
+    """Starting two hours ago and running for four records work not yet done."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        with pytest.raises(ValueError) as exc:
+            focus_service.log_past_session(
+                db, user, minutes=240,
+                when=datetime.now(timezone.utc) - timedelta(hours=2))
+        assert "into the future" in str(exc.value)
+    finally:
+        db.close()
+
+
+def test_omitting_the_time_places_the_block_ending_now():
+    """"I just did two hours" must not land on an arbitrary hour."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        s = focus_service.log_past_session(db, user, minutes=90)
+        ended = s.end_time.replace(tzinfo=timezone.utc)
+        assert abs((datetime.now(timezone.utc) - ended).total_seconds()) < 120
+        assert s.duration_minutes == 90
+    finally:
+        db.close()
+
+
+def test_an_overlap_with_a_live_timed_session_is_also_caught():
+    """A running session has no end_time yet; it must not be double-booked
+    once it finishes either."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        start = datetime.now(timezone.utc) - timedelta(hours=3)
+        db.add(models.BatFocus(owner_id=uid,
+                               start_time=start.replace(tzinfo=None),
+                               end_time=(start + timedelta(hours=2)).replace(tzinfo=None),
+                               duration_minutes=120))
+        db.commit()
+        with pytest.raises(ValueError) as exc:
+            focus_service.log_past_session(db, user, minutes=60,
+                                           when=start + timedelta(minutes=30))
+        assert "overlaps" in str(exc.value)
+    finally:
+        db.close()

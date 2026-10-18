@@ -465,10 +465,10 @@ WRITE_TOOLS = [
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
      }, "required": ["reminder_id"]}},
-    {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the same reply. `when` is when that block STARTED, in the user's own timezone. Attach it to a mission, a habit or a work task by id (one of the three, never more). No Bat Points are awarded for backfilled time.",
+    {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the SAME reply. Blocks may not overlap each other (nobody focuses on two things at once) and may not run into the future — if either happens the call is refused and tells you why, so place consecutive blocks end-to-end rather than all at the same hour. Attach it to a mission, a habit or a work task by id, one of the three. No Bat Points for backfilled time.",
      "input_schema": {"type": "object", "properties": {
          "minutes": {"type": "integer", "description": "Length of that block in minutes."},
-         "when": {"type": "string", "description": "ISO datetime when the block started, e.g. 2026-10-17T14:00. If they give only a date, pick a sensible hour and say which you assumed."},
+         "when": {"type": "string", "description": "ISO datetime when the block STARTED, in the user's own timezone, e.g. 2026-10-17T14:00. Omit it and the block is placed ending now, which is right for 'I just did two hours'. If they name only a day, place it inside their working hours and say which hours you assumed."},
          "mission_id": {"type": "integer"},
          "habit_id": {"type": "integer"},
          "work_task_id": {"type": "integer"},
@@ -1172,7 +1172,8 @@ def execute_tool(
             session = focus_service.log_past_session(
                 db, current_user,
                 minutes=int(args["minutes"]),
-                when=_parse_dt(args.get("when"), "when"),
+                when=(_parse_dt(args.get("when"), "when") if args.get("when")
+                      else None),
                 mission_id=args.get("mission_id"),
                 habit_id=args.get("habit_id"),
                 work_task_id=args.get("work_task_id"))

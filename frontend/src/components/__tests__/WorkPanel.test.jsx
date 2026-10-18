@@ -103,11 +103,20 @@ describe('WorkPanel', () => {
   it('moves a task between columns without reloading the board', async () => {
     api.updateWorkTask.mockResolvedValue(task({ status: 'blocked' }));
     await renderPanel();
+    // One tap on the status pill, rather than a select on every card.
     await act(async () => {
-      fireEvent.change(screen.getByDisplayValue('To do'), { target: { value: 'blocked' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Blocked' }));
     });
     expect(api.updateWorkTask).toHaveBeenCalledWith(1, { status: 'blocked' });
     expect(api.getWorkTasks).toHaveBeenCalledTimes(1);      // the initial load only
+  });
+
+  it('marks the column a task is already in rather than offering it again', async () => {
+    await renderPanel();
+    const current = screen.getByRole('button', { name: 'To do' });
+    expect(current.getAttribute('aria-current')).toBe('true');
+    expect(current.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Blocked' }).disabled).toBe(false);
   });
 
   it('offers the schedule setup in one step when it is missing', async () => {
