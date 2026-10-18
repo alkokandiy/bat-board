@@ -525,6 +525,64 @@ ALL_TOOLS = READ_TOOLS + WRITE_TOOLS + DESTRUCTIVE_TOOLS
 DESTRUCTIVE_TOOL_NAMES = {t["name"] for t in DESTRUCTIVE_TOOLS}
 TOOL_NAMES = {t["name"] for t in ALL_TOOLS}
 
+# --- what he can actually do ----------------------------------------------
+# Alfred kept refusing things he was perfectly able to do — "I cannot delete
+# them all at once", when deleting six is six calls. A hand-written list of
+# abilities would drift away from the registry within a release, so this is
+# GENERATED from the live tools and cannot go stale. If a tool is added and
+# not placed in a group, the assert below fails the import rather than letting
+# him quietly lose track of it.
+
+CAPABILITY_GROUPS = [
+    ("Missions (their own work)", [
+        "list_missions", "create_mission", "create_missions", "update_mission",
+        "complete_mission", "delete_mission"]),
+    ("Habits", [
+        "list_habits", "create_habit", "update_habit", "check_in_habit",
+        "delete_habit"]),
+    ("Focus sessions", [
+        "start_focus_session", "stop_focus_session", "end_focus_session",
+        "get_active_focus_session", "log_past_focus", "suggest_focus_length",
+        "get_focus_stats", "show_focus_chart"]),
+    ("Notes", ["list_notes", "create_note", "update_note", "delete_note", "toggle_pin"]),
+    ("Calendar and countdowns", [
+        "list_upcoming_events", "create_event", "update_event", "delete_event",
+        "list_countdowns", "create_countdown", "update_countdown", "delete_countdown"]),
+    ("Briefings and reminders (scheduled, over Telegram)", [
+        "get_briefings", "set_briefing", "delete_briefing",
+        "list_reminders", "create_reminder", "update_reminder", "delete_reminder",
+        "show_daily_brief"]),
+    ("The corporate/work track", [
+        "list_work_tasks", "create_work_task", "create_work_tasks",
+        "update_work_task", "complete_work_task", "delete_work_task",
+        "list_work_notes", "log_work_note", "work_report",
+        "get_work_profile", "set_work_profile", "set_work_track"]),
+    ("Himself and the board at large", [
+        "alfred_remember", "alfred_recall", "alfred_list_memory_topics",
+        "get_profile", "list_recent_logs", "review_loose_ends",
+        "get_nudge_settings", "set_nudge_settings"]),
+]
+
+_GROUPED = {n for _, names in CAPABILITY_GROUPS for n in names}
+assert _GROUPED == TOOL_NAMES, (
+    f"ungrouped tools: {TOOL_NAMES - _GROUPED}; unknown in groups: {_GROUPED - TOOL_NAMES}")
+
+
+def capability_summary(available: Optional[set] = None) -> str:
+    """A compact, always-accurate inventory for the system prompt.
+
+    `available` filters to the tools this user actually has, so someone with
+    the work track switched off is never told he can do work things.
+    """
+    names = available if available is not None else TOOL_NAMES
+    lines = []
+    for heading, group in CAPABILITY_GROUPS:
+        present = [n for n in group if n in names]
+        if present:
+            lines.append(f"- {heading}: {', '.join(present)}")
+    return "\n".join(lines)
+
+
 # Tools that only make sense when the corporate track is switched on. Listed
 # by hand rather than matched on the name "work", so adding a tool can never
 # silently opt it in or out — and `set_work_track` itself is deliberately
