@@ -4,11 +4,27 @@ import { api } from '../utils/api';
 
 // The work side is deliberately steel-coloured, never bat-yellow: yellow is the
 // points ledger, and work earns none. That is a design rule, not decoration.
+// Cyan is to the work track what bat-yellow is to the personal board: the one
+// accent, used consistently, so the two sides are told apart at a glance
+// rather than the work side merely looking unfinished. Work still earns no
+// Bat Points — that is the reason it is never yellow.
 const STATUS_META = {
-  todo: { label: 'To do', tone: 'text-slate-300', box: 'border-slate-800' },
-  doing: { label: 'In hand', tone: 'text-sky-300', box: 'border-sky-900/40' },
-  blocked: { label: 'Blocked', tone: 'text-amber-300', box: 'border-amber-900/40' },
-  done: { label: 'Done', tone: 'text-emerald-300', box: 'border-emerald-900/40' },
+  todo: {
+    label: 'To do', tone: 'text-slate-300', box: 'border-slate-800',
+    rail: 'bg-slate-600', head: 'text-slate-400 border-slate-700',
+  },
+  doing: {
+    label: 'In hand', tone: 'text-sky-300', box: 'border-sky-900/40',
+    rail: 'bg-sky-400', head: 'text-sky-300 border-sky-800/60',
+  },
+  blocked: {
+    label: 'Blocked', tone: 'text-amber-300', box: 'border-amber-900/40',
+    rail: 'bg-amber-400', head: 'text-amber-300 border-amber-800/60',
+  },
+  done: {
+    label: 'Done', tone: 'text-emerald-300', box: 'border-emerald-900/40',
+    rail: 'bg-emerald-400', head: 'text-emerald-300 border-emerald-800/60',
+  },
 };
 const OPEN_STATUSES = ['todo', 'doing', 'blocked'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -165,7 +181,9 @@ function SetupCard({ status, onSaved }) {
 function TaskCard({ task, onMove, onComplete, onDelete, busy }) {
   const meta = STATUS_META[task.status] || STATUS_META.todo;
   return (
-    <div className={`bg-matte-obsidian rounded border ${meta.box} p-3 space-y-2`}>
+    <div className={`relative bg-matte-obsidian rounded border ${meta.box} p-3 pl-4 space-y-2 overflow-hidden`}>
+      {/* The status is readable from the edge of the card, before reading a word. */}
+      <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${meta.rail}`} aria-hidden="true" />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className={`text-sm ${task.status === 'done' ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
@@ -203,16 +221,29 @@ function TaskCard({ task, onMove, onComplete, onDelete, busy }) {
           </button>
         </div>
       </div>
-      <select
-        value={task.status}
-        onChange={(e) => onMove(task, e.target.value)}
-        disabled={busy}
-        className="w-full bg-dark-slate border border-slate-800 rounded px-2 py-1 text-[11px] font-mono text-slate-300 focus:outline-none focus:border-sky-600 disabled:opacity-40"
-      >
-        {Object.entries(STATUS_META).map(([id, m]) => (
-          <option key={id} value={id}>{m.label}</option>
-        ))}
-      </select>
+      {/* One tap to move a task, instead of opening a select on every card.
+          The current column is marked rather than offered again. */}
+      <div className="flex flex-wrap gap-1 pt-0.5">
+        {OPEN_STATUSES.map((id) => {
+          const m = STATUS_META[id];
+          const active = task.status === id;
+          return (
+            <button
+              key={id}
+              onClick={() => !active && onMove(task, id)}
+              disabled={busy || active}
+              aria-current={active ? 'true' : undefined}
+              className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border transition
+                ${active
+                  ? `${m.tone} ${m.box} bg-dark-slate cursor-default`
+                  : 'text-slate-500 border-slate-800 hover:text-slate-300 hover:border-slate-600'}
+                disabled:opacity-100`}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -286,7 +317,11 @@ function ReportCard({ onSavedReflection }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { label: 'Finished', value: report.completed.length },
-              { label: 'Logged', value: fmtHm(report.minutes) },
+              {
+                label: 'Logged',
+                value: fmtHm(report.minutes),
+                hint: report.minutes === 0 ? 'no focus recorded yet' : null,
+              },
               {
                 label: 'Days worked',
                 value: report.expected_days
@@ -295,9 +330,20 @@ function ReportCard({ onSavedReflection }) {
               },
               { label: 'Still open', value: report.open_total },
             ].map((s) => (
-              <div key={s.label} className="bg-matte-obsidian rounded border border-slate-800 p-2.5">
-                <div className="text-[9px] font-mono uppercase tracking-wider text-slate-500">{s.label}</div>
-                <div className="text-lg font-bold text-slate-200 mt-0.5">{s.value}</div>
+              <div
+                key={s.label}
+                className="relative bg-matte-obsidian rounded border border-slate-800 p-3 overflow-hidden"
+              >
+                <span className="absolute left-0 top-0 bottom-0 w-[2px] bg-sky-500/50" aria-hidden="true" />
+                <div className="text-[9px] font-mono uppercase tracking-widest text-slate-500">{s.label}</div>
+                {/* Monospace and tabular so four tiles read as one instrument
+                    panel rather than four differently-sized numbers. */}
+                <div className="text-2xl font-mono font-bold text-sky-200 tabular-nums mt-1 leading-none">
+                  {s.value}
+                </div>
+                {s.hint && (
+                  <div className="text-[9px] font-mono text-slate-600 mt-1">{s.hint}</div>
+                )}
               </div>
             ))}
           </div>
@@ -575,11 +621,16 @@ export default function WorkPanel({ onStatusChange }) {
               const items = tasks.filter((t) => t.status === s);
               return (
                 <div key={s} className={`bg-dark-slate rounded border ${meta.box} p-3 space-y-2`}>
-                  <div className={`text-[10px] font-mono uppercase tracking-widest ${meta.tone} border-b border-slate-800 pb-1`}>
-                    {meta.label} <span className="text-slate-500">({items.length})</span>
+                  <div className={`flex items-baseline justify-between text-[10px] font-mono uppercase tracking-widest ${meta.head} border-b pb-1.5`}>
+                    <span>{meta.label}</span>
+                    <span className="tabular-nums">{String(items.length).padStart(2, '0')}</span>
                   </div>
                   {items.length === 0 ? (
-                    <div className="text-[10px] text-slate-600 italic">Nothing here</div>
+                    /* A dashed well reads as "room for one", where flat grey
+                       italic text read as something failing to load. */
+                    <div className="rounded border border-dashed border-slate-800 py-5 text-center text-[10px] font-mono uppercase tracking-wider text-slate-600">
+                      Empty
+                    </div>
                   ) : items.map((t) => (
                     <TaskCard
                       key={t.id}

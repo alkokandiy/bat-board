@@ -72,8 +72,29 @@ MAX_BACKFILL_MINUTES = 16 * 60      # a day's work is the ceiling for one entry
 MAX_BACKFILL_AGE_DAYS = 60
 
 
+def _as_utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _overlapping_session(db: Session, current_user: models.BatAccount,
+                         start: datetime, end: datetime):
+    """An existing session sharing any of this block's time, or None."""
+    naive_start = start.astimezone(timezone.utc).replace(tzinfo=None)
+    naive_end = end.astimezone(timezone.utc).replace(tzinfo=None)
+    rows = (
+        db.query(models.BatFocus)
+        .filter(models.BatFocus.owner_id == current_user.id,
+                models.BatFocus.end_time.isnot(None),
+                models.BatFocus.start_time < naive_end,
+                models.BatFocus.end_time > naive_start)
+        .order_by(models.BatFocus.start_time.asc())
+        .all()
+    )
+    return rows[0] if rows else None
+
+
 def log_past_session(db: Session, current_user: models.BatAccount, *,
-                     minutes: int, when: datetime,
+                     minutes: int, when: Optional[datetime] = None,
                      mission_id: Optional[int] = None,
                      habit_id: Optional[int] = None,
                      work_task_id: Optional[int] = None) -> models.BatFocus:
@@ -97,10 +118,22 @@ def log_past_session(db: Session, current_user: models.BatAccount, *,
             f"That is more than {MAX_BACKFILL_MINUTES // 60} hours in one entry — "
             "split it across the days it actually happened.")
 
-    when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
+    # No time given means "I have just finished", so the block ends now rather
+    # than landing on an arbitrary hour somebody has to correct later.
+    if when is None:
+        when = now - timedelta(minutes=minutes)
+    when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    ends = when + timedelta(minutes=minutes)
     if when > now + timedelta(minutes=5):
         raise ValueError("That is in the future — focus is recorded after it happens.")
+    # The END matters too: starting two hours ago and running for four would
+    # record work that has not happened yet, and the report would believe it.
+    if ends > now + timedelta(minutes=5):
+        over = int((ends - now).total_seconds() // 60)
+        raise ValueError(
+            f"That block would run {over} minutes into the future. Either it "
+            f"started earlier than given, or it is shorter than {minutes} minutes.")
     if when < now - timedelta(days=MAX_BACKFILL_AGE_DAYS):
         raise ValueError(f"That is further back than {MAX_BACKFILL_AGE_DAYS} days.")
 
@@ -113,6 +146,20 @@ def log_past_session(db: Session, current_user: models.BatAccount, *,
         raise ValueError("Habit not found.")
     if work_task_id and not _owns(db, models.BatWorkTask, work_task_id, current_user):
         raise ValueError("Work task not found.")
+
+    # Nobody focuses on two things at once, so an overlap means one of the two
+    # entries is wrong. Accepting both silently inflated the total — logging
+    # 2h from 14:00 and 4h from 15:00 reported six hours for five hours of
+    # day. Refusing names the clash so it can be corrected rather than buried.
+    clash = _overlapping_session(db, current_user, when, ends)
+    if clash is not None:
+        c_start = _as_utc(clash.start_time)
+        c_end = _as_utc(clash.end_time) if clash.end_time else c_start
+        raise ValueError(
+            f"That overlaps focus already recorded from "
+            f"{c_start.strftime('%H:%M')} to {c_end.strftime('%H:%M')} UTC "
+            f"({clash.duration_minutes or 0} minutes). Two blocks cannot share "
+            f"the same time — move one, shorten it, or say which is correct.")
 
     session = models.BatFocus(
         owner_id=current_user.id,
