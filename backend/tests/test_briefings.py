@@ -497,12 +497,17 @@ def test_headlines_are_never_rewritten_by_the_polish_pass(monkeypatch):
 
 def test_polish_instructions_forbid_markdown_and_bullets():
     """A future edit must not quietly drop the rules that keep briefings readable."""
-    system = briefings._POLISH_SYSTEM.format(addr="Master Wayne")
+    from services.alfred_principles import VOICE_RULES
+
+    system = briefings._POLISH_SYSTEM.format(addr="Master Wayne", voice=VOICE_RULES)
     lowered = system.lower()
     assert "plain text only" in lowered
     assert "no markdown" in lowered
     assert "bullet" in lowered
     assert "asterisk" in lowered
+    # The briefing is the message he sends most often, which is exactly where
+    # orders and obligation do the most damage — it said "You must" before.
+    assert "no orders and no obligation" in lowered
 
 
 # --- news worth reading ----------------------------------------------------

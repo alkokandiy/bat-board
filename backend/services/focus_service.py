@@ -7,7 +7,7 @@ End semantics mirror the original route exactly (wall-clock duration,
 mission/habit fan-out, point rewards); the route delegates here.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -66,6 +66,79 @@ def suggested_focus_minutes(db: Session, current_user: models.BatAccount) -> dic
               else (lengths[mid - 1] + lengths[mid]) // 2)
     return {"minutes": max(MIN_FOCUS_MINUTES, int(median)), "basis": "history",
             "sessions": len(lengths)}
+
+
+MAX_BACKFILL_MINUTES = 16 * 60      # a day's work is the ceiling for one entry
+MAX_BACKFILL_AGE_DAYS = 60
+
+
+def log_past_session(db: Session, current_user: models.BatAccount, *,
+                     minutes: int, when: datetime,
+                     mission_id: Optional[int] = None,
+                     habit_id: Optional[int] = None,
+                     work_task_id: Optional[int] = None) -> models.BatFocus:
+    """Record focus that already happened.
+
+    Someone who worked for two hours yesterday has a real fact about their
+    week, and refusing to record it does not make the board more honest — it
+    makes it wrong in the other direction, with every report reading zero. The
+    entry is marked `logged_manually` so a measured session and a remembered
+    one stay distinguishable.
+
+    No Bat Points are awarded. Points track the person's own missions and
+    habits through live sessions; minting them from a typed number would turn
+    the ledger into a claim rather than a record.
+    """
+    minutes = int(minutes)
+    if minutes < MIN_FOCUS_MINUTES:
+        raise ValueError(f"A session needs at least {MIN_FOCUS_MINUTES} minutes.")
+    if minutes > MAX_BACKFILL_MINUTES:
+        raise ValueError(
+            f"That is more than {MAX_BACKFILL_MINUTES // 60} hours in one entry — "
+            "split it across the days it actually happened.")
+
+    when = when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if when > now + timedelta(minutes=5):
+        raise ValueError("That is in the future — focus is recorded after it happens.")
+    if when < now - timedelta(days=MAX_BACKFILL_AGE_DAYS):
+        raise ValueError(f"That is further back than {MAX_BACKFILL_AGE_DAYS} days.")
+
+    targets = [t for t in (mission_id, habit_id, work_task_id) if t]
+    if len(targets) > 1:
+        raise ValueError("A session belongs to one thing: a mission, a habit, or a work task.")
+    if mission_id and not _owns(db, models.BatMission, mission_id, current_user):
+        raise ValueError("Mission not found.")
+    if habit_id and not _owns(db, models.BatHabit, habit_id, current_user):
+        raise ValueError("Habit not found.")
+    if work_task_id and not _owns(db, models.BatWorkTask, work_task_id, current_user):
+        raise ValueError("Work task not found.")
+
+    session = models.BatFocus(
+        owner_id=current_user.id,
+        start_time=when.astimezone(timezone.utc).replace(tzinfo=None),
+        end_time=(when + timedelta(minutes=minutes)).astimezone(timezone.utc).replace(tzinfo=None),
+        duration_minutes=minutes,
+        logged_manually=True,
+        mission_id=mission_id or None,
+        habit_id=habit_id or None,
+        work_task_id=work_task_id or None,
+    )
+    db.add(session)
+
+    # Keep the target's own running total in step, exactly as a live session does.
+    if mission_id:
+        m = db.get(models.BatMission, mission_id)
+        if m is not None:
+            m.focus_minutes = (m.focus_minutes or 0) + minutes
+    if habit_id:
+        h = db.get(models.BatHabit, habit_id)
+        if h is not None:
+            h.focus_minutes = (h.focus_minutes or 0) + minutes
+
+    db.commit()
+    db.refresh(session)
+    return session
 
 
 def _owns(db: Session, model, row_id, current_user: models.BatAccount) -> bool:

@@ -299,11 +299,11 @@ WRITE_TOOLS = [
              }, "required": ["title"]}},
      }, "required": ["missions"]}},
     {"name": "complete_mission", "description": "Mark a mission completed (awards points).",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "mission_id": {"type": "integer"},
      }, "required": ["mission_id"]}},
     {"name": "update_mission", "description": "Update an existing mission's fields (due date, priority, title, etc).",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "mission_id": {"type": "integer"},
          "title": {"type": "string"}, "description": {"type": "string"},
          "due_date": {"type": "string", "description": "ISO datetime."},
@@ -319,11 +319,11 @@ WRITE_TOOLS = [
          "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window."},
      }, "required": ["name"]}},
     {"name": "check_in_habit", "description": "Check in to a habit (streak + points).",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
      }, "required": ["habit_id"]}},
     {"name": "update_habit", "description": "Update an existing habit's name, description, frequency or cue. Shrinking a habit that keeps failing (a smaller version, a gentler frequency) is a legitimate fix — offer it, never impose it.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
          "name": {"type": "string"}, "description": {"type": "string"},
          "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
@@ -350,7 +350,7 @@ WRITE_TOOLS = [
          "category": {"type": "string"}, "tags": {"type": "string", "description": "Comma-separated."},
      }, "required": ["title"]}},
     {"name": "update_note", "description": "Partially update a note.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "note_id": {"type": "integer"}, "title": {"type": "string"},
          "body": {"type": "string"}, "category": {"type": "string"},
          "tags": {"type": "string", "description": "Comma-separated."},
@@ -421,7 +421,7 @@ WRITE_TOOLS = [
          }, "required": ["title"]}},
      }, "required": ["tasks"]}},
     {"name": "update_work_task", "description": "Change a work task — most often its status as it moves (todo → doing → blocked → done). Setting status 'done' completes it.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "task_id": {"type": "integer"},
          "title": {"type": "string"}, "detail": {"type": "string"},
          "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
@@ -429,7 +429,7 @@ WRITE_TOOLS = [
          "due_date": {"type": "string", "description": "ISO datetime."},
      }, "required": ["task_id"]}},
     {"name": "complete_work_task", "description": "Mark a work task finished. Awards NO Bat Points — deliberately, this is the job, not the person.",
-     "parameters": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "task_id": {"type": "integer"},
      }, "required": ["task_id"]}},
     {"name": "log_work_note", "description": "Write to the WORK journal, kept apart from personal notes. kind 'learning' for something learned at work, 'reflection' for an answer to a report's reflection question (save these whenever they answer one), 'note' for anything else worth recording about the job.",
@@ -465,6 +465,14 @@ WRITE_TOOLS = [
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
      }, "required": ["reminder_id"]}},
+    {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the same reply. `when` is when that block STARTED, in the user's own timezone. Attach it to a mission, a habit or a work task by id (one of the three, never more). No Bat Points are awarded for backfilled time.",
+     "input_schema": {"type": "object", "properties": {
+         "minutes": {"type": "integer", "description": "Length of that block in minutes."},
+         "when": {"type": "string", "description": "ISO datetime when the block started, e.g. 2026-10-17T14:00. If they give only a date, pick a sensible hour and say which you assumed."},
+         "mission_id": {"type": "integer"},
+         "habit_id": {"type": "integer"},
+         "work_task_id": {"type": "integer"},
+     }, "required": ["minutes", "when"]}},
     {"name": "start_focus_session", "description": "Start a focus session, optionally timed. Set `planned_minutes` (5-180) for a timer that auto-ends after that long and pings the user on Telegram when complete — prefer this. If the user names no duration, call suggest_focus_length first and use what it returns — never assume 25 minutes or any other stock figure. Optionally link a mission or habit. Only one session runs at a time.",
      "parameters": {"type": "object", "properties": {
          "mission_id": {"type": "integer"}, "habit_id": {"type": "integer"},
@@ -622,7 +630,35 @@ def _describe_tool_target(
     if name == "delete_work_task":
         t = work_service.get_task(db, current_user, int(args.get("task_id")))
         return t.title if t else None
+
+    # Mutations that are not deletions but still act on ONE record. Completing
+    # or rewriting the wrong row is quieter than deleting it and just as wrong:
+    # a task vanished from a list because "mark it done" landed on a neighbour.
+    if name in ("complete_mission", "update_mission"):
+        m = mission_service.list_missions(db, current_user)
+        match = next((x for x in m if x.id == int(args.get("mission_id"))), None)
+        return match.title if match else None
+    if name in ("check_in_habit", "update_habit"):
+        h = habit_service.list_habits(db, current_user)
+        match = next((x for x in h if x.id == int(args.get("habit_id"))), None)
+        return match.name if match else None
+    if name in ("complete_work_task", "update_work_task"):
+        t = work_service.get_task(db, current_user, int(args.get("task_id")))
+        return t.title if t else None
+    if name == "update_note":
+        note = notes_service.get_note(db, current_user, int(args.get("note_id")))
+        return note.title if note else None
     return None
+
+
+# Tools that act on one existing record and must say which one they mean.
+# Deletes are covered by DESTRUCTIVE_TOOL_NAMES and go through the same check.
+TARGETED_TOOL_NAMES = {
+    "complete_mission", "update_mission",
+    "check_in_habit", "update_habit",
+    "complete_work_task", "update_work_task",
+    "update_note",
+}
 
 
 def execute_tool(
@@ -1073,6 +1109,20 @@ def execute_tool(
         if active is None:
             return {"active": None, "note": "No focus session is currently running."}
         return {"active": _active_session_dict(active)}
+    if name == "log_past_focus":
+        try:
+            session = focus_service.log_past_session(
+                db, current_user,
+                minutes=int(args["minutes"]),
+                when=_parse_dt(args.get("when"), "when"),
+                mission_id=args.get("mission_id"),
+                habit_id=args.get("habit_id"),
+                work_task_id=args.get("work_task_id"))
+        except ValueError as exc:
+            return {"error": str(exc), "logged": False}
+        return {"logged": True, "minutes": session.duration_minutes,
+                "started_at": _iso(session.start_time),
+                "note": "Recorded as manually logged. No Bat Points for backfilled time."}
     if name == "start_focus_session":
         existing = focus_service.active_focus_session(db, current_user)
         if existing is not None:
