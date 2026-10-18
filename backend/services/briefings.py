@@ -430,13 +430,20 @@ _POLISH_SYSTEM = (
     "- Join the facts up where they genuinely connect. One observation that shows you "
     "were paying attention is worth more than a tidy inventory.\n"
     "- Keep it under about 120 words, and end with at most one short question or "
-    "offer, only if one is actually earned."
+    "offer, only if one is actually earned.\n\n"
+    "{voice}"
 )
 
 
 async def polish_with_provider(adapter, user: models.BatAccount, draft: str) -> str:
     """Rephrase the template through the user's provider. Caller handles failure."""
-    system = _POLISH_SYSTEM.format(addr=_address(user))
+    # The briefing had its own prompt and so never carried the voice rules —
+    # which is how a morning summary came to say "You must". Orders and
+    # obligation produce resistance precisely for the thing mentioned most
+    # often, and a daily briefing is the most often there is.
+    from services.alfred_principles import VOICE_RULES
+
+    system = _POLISH_SYSTEM.format(addr=_address(user), voice=VOICE_RULES)
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": draft},

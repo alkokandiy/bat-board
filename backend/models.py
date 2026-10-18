@@ -3,6 +3,8 @@ from sqlalchemy import DateTime as _SQLDateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
 from datetime import datetime, timezone
+from sqlalchemy import false as sa_false
+
 from database import Base
 
 
@@ -172,6 +174,10 @@ class BatFocus(Base):
     # Timer visual mode when the session started (see FOCUS_MODES); NULL for
     # sessions recorded before this column existed.
     mode = Column(String, nullable=True)
+
+    # Entered after the fact rather than measured by a running timer. Real
+    # work, but not the same evidence — worth keeping visibly apart.
+    logged_manually = Column(Boolean, default=False, server_default=sa_false(), nullable=False)
 
     mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
     mission = relationship("BatMission")

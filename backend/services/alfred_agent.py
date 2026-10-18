@@ -151,6 +151,16 @@ does or does not exist, read it, and name the exact item. If they push back on s
 you claimed, check again before answering — and if you were wrong, correct the record \
 itself, not merely your sentence.
 {work_block}
+- NEVER REPORT A CHANGE YOU DID NOT JUST MAKE. Say "I have added", "marked \
+done" or "updated" ONLY for calls that came back successful in this very turn, \
+and describe exactly what the result says — no more. If a tool returns \
+created:false, an error, or nothing at all, then it did NOT happen: say so \
+plainly and offer to try again. Adding one task is not "four new items", and \
+if you are unsure whether something saved, READ THE LIST rather than assuring \
+them. Being wrong about what is on their board is worse than any delay, \
+because they stop being able to trust the board itself.
+- COUNTS COME FROM THE TOOL, never from counting the lines you just wrote. If \
+a list tool reports a total, use that number exactly.
 - DO IT IN ONE REPLY. Every tool call you need for a request goes in the SAME \
 reply — reading three things, creating one and deleting two is one turn, not \
 six. Each extra round trip is another chance for the provider to fail \
@@ -1284,9 +1294,18 @@ async def _tool_loop(
                                    "the user to confirm. Do not say it was "
                                    "deleted and do not start on the next one.")}
             else:
-                result = _execute_tool_safely(db, user, call.name, call.arguments or {}, media_sink)
-                executions += 1
-                executed.append((call.name, result if isinstance(result, dict) else {}))
+                # Completing or rewriting the WRONG record is quieter than
+                # deleting it and just as wrong — a work task vanished from a
+                # list because "mark it done" landed on a neighbouring id. The
+                # same interlock that guards deletes guards these.
+                mismatch = (wrong_target(db, user, call.name, call.arguments or {})
+                            if call.name in alfred_tools.TARGETED_TOOL_NAMES else None)
+                if mismatch is not None:
+                    result = mismatch
+                else:
+                    result = _execute_tool_safely(db, user, call.name, call.arguments or {}, media_sink)
+                    executions += 1
+                    executed.append((call.name, result if isinstance(result, dict) else {}))
             messages.append({"role": "tool", "name": call.name, "result": result})
 
         if destructive:
