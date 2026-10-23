@@ -101,6 +101,31 @@ def undated_countdowns_or_events(db: Session, user: models.BatAccount) -> list:
     return []
 
 
+# Alfred's own memory notes accumulate and never leave. Some are durable
+# ("their name is Al-Kokandiy"); some were only ever true for a week ("once
+# bro arrives we do these jobs together"). He cannot tell which from age
+# alone, and he must never decide alone — so this hands him the candidates
+# and the rule, and the user keeps the final word.
+MEMORY_STALE_DAYS = 21
+
+
+def stale_memory(db: Session, user: models.BatAccount) -> List[models.BatNote]:
+    """Alfred's own memory notes he has not revisited in a while."""
+    from services.notes_service import ALFRED_MEMORY_TAG
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=MEMORY_STALE_DAYS)
+    rows = (
+        db.query(models.BatNote)
+        .filter(models.BatNote.owner_id == user.id,
+                models.BatNote.updated_at < cutoff.replace(tzinfo=None))
+        .order_by(models.BatNote.updated_at.asc())
+        .limit(MAX_PER_KIND * 3)
+        .all()
+    )
+    return [n for n in rows
+            if ALFRED_MEMORY_TAG in (n.tags or "").lower()][:MAX_PER_KIND]
+
+
 def review(db: Session, user: models.BatAccount) -> dict:
     """Every loose end on this board, with the question worth asking for each.
 
@@ -140,6 +165,28 @@ def review(db: Session, user: models.BatAccount) -> dict:
             "question": "Still worth keeping, or has it done its job?",
             "fix": "a reminder to revisit it, or delete it",
         },
+    }
+    memory = stale_memory(db, user)
+    out["my_memory_worth_pruning"] = {
+        "items": [{"id": n.id, "title": n.title,
+                   "days_since_touched": (datetime.now(timezone.utc)
+                                          - _aware(n.updated_at)).days}
+                  for n in memory],
+        "why": ("Things you recorded about them that may have stopped being "
+                "true. Carrying a finished arrangement forever makes your "
+                "recall worse, not better."),
+        "question": "Does this still matter, or has it served its purpose?",
+        "fix": "delete_note, but only once they have said so",
+        "rule": (
+            "KEEP anything describing something not yet started or still "
+            "intended — a habit they mean to begin, a plan with a date ahead "
+            "of it, a standing preference. Those are not stale merely because "
+            "they are old; they are waiting. PROPOSE REMOVING only what was "
+            "tied to an occasion that has passed: a visit that happened, a "
+            "one-off arrangement, a list for a trip already taken. Name the "
+            "specific note and say why you think it is spent. NEVER delete a "
+            "memory on your own judgement — ask, and accept 'keep it' without "
+            "argument."),
     }
     out["total"] = sum(len(v["items"]) for k, v in out.items() if isinstance(v, dict))
     out["note"] = (

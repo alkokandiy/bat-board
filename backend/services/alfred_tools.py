@@ -231,6 +231,12 @@ READ_TOOLS = [
      }}},
     {"name": "review_loose_ends", "description": "Everything on the board that is missing the one field that gives it traction: open missions with no date, habits with no cue, notes gone cold. Returns the items, why each gap matters and the question worth asking. Use it when they ask what needs attention, when a list feels stale, or before offering to tidy up. These are offers, never demands — one kind at a time, named items, and 'leave it' is a complete answer.",
      "input_schema": {"type": "object", "properties": {}}},
+    {"name": "find_on_board", "description": "Find anything the user has, by whatever they called it — a mission, habit, note, work task, event or countdown. Matching is generous about wording, articles, typos and language, so use this whenever they refer to something by name instead of listing everything and matching by eye. Returns id, kind, exact stored title and a match score. ALWAYS use the returned exact title as expected_title when you then act on it. If nothing matches, list that kind of item and read the titles yourself before telling them it does not exist.",
+     "input_schema": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "What the user called it, in their words."},
+         "kinds": {"type": "array", "items": {"type": "string", "enum": ["mission", "habit", "note", "work_task", "event", "countdown"]},
+                   "description": "Optional filter. Omit to search everything."},
+     }, "required": ["query"]}},
     {"name": "suggest_focus_length", "description": "How long to suggest this user focuses for, based on their OWN completed sessions. Returns {minutes, basis, sessions}: basis='history' means it is their real median, basis='default' means they have too little record yet and the number is only a starting point — say which it is. There is no universally correct session length, so never quote 25 minutes, 52/17, 90 minutes or any other stock figure as if it were established.",
      "input_schema": {"type": "object", "properties": {}}},
     {"name": "get_active_focus_session", "description": "Check whether a focus session is currently running, with elapsed and (for timed sessions) remaining minutes. Use for 'am I focusing?', 'how long left?'.",
@@ -558,7 +564,7 @@ CAPABILITY_GROUPS = [
         "list_work_notes", "log_work_note", "work_report",
         "get_work_profile", "set_work_profile", "set_work_track"]),
     ("Himself and the board at large", [
-        "alfred_remember", "alfred_recall", "alfred_list_memory_topics",
+        "find_on_board", "alfred_remember", "alfred_recall", "alfred_list_memory_topics",
         "get_profile", "list_recent_logs", "review_loose_ends",
         "get_nudge_settings", "set_nudge_settings"]),
 ]
@@ -603,21 +609,22 @@ WORK_OFF_RESULT = {
 }
 
 
-# The tools worth carrying when the provider has already refused a full-sized
-# request. Deliberately the everyday board: what somebody is most likely to
-# have been asking for when it failed. Briefings, reminders, the work track,
-# nudge settings, memory and provider setup are all left out — losing them for
-# one retry costs a follow-up message; keeping them costs the retry.
-LEAN_TOOL_NAMES = {
-    "list_missions", "create_mission", "create_missions", "update_mission",
-    "complete_mission", "delete_mission",
-    "list_habits", "create_habit", "update_habit", "check_in_habit", "delete_habit",
-    "list_notes", "create_note", "update_note", "delete_note",
-    "list_upcoming_events", "create_event", "update_event", "delete_event",
-    "list_countdowns", "create_countdown",
-    "start_focus_session", "stop_focus_session", "get_active_focus_session",
+# The tools carried when the provider has already refused a full-sized
+# request. EVERY READ stays in: a read is what people ask for most, its schema
+# is small, and a missing read is the worst possible saving — asked to "list
+# all work tasks" with no work tool available, Alfred invented eight generic
+# office tasks rather than admitting he could not look. Only the rarer WRITES
+# are dropped, and losing one of those for a single retry costs a follow-up
+# message, not the truth.
+_LEAN_DROPPED = {
+    # Configuration and setup — never urgent, and wordy schemas.
+    "set_briefing", "delete_briefing", "set_work_profile", "set_work_track",
+    "set_nudge_settings", "create_reminder", "update_reminder", "delete_reminder",
+    # Alfred's own bookkeeping, which can wait for the next turn.
+    "alfred_remember", "show_daily_brief", "show_focus_chart", "toggle_pin",
+    "update_countdown", "delete_countdown", "log_work_note",
 }
-
+LEAN_TOOL_NAMES = TOOL_NAMES - _LEAN_DROPPED
 
 assert LEAN_TOOL_NAMES <= TOOL_NAMES, LEAN_TOOL_NAMES - TOOL_NAMES
 
@@ -1160,6 +1167,10 @@ def execute_tool(
     if name == "review_loose_ends":
         from services import completeness
         return completeness.review(db, current_user)
+    if name == "find_on_board":
+        from services import board_search
+        return board_search.search(db, current_user, str(args.get("query") or ""),
+                                   kinds=args.get("kinds"))
     if name == "suggest_focus_length":
         return focus_service.suggested_focus_minutes(db, current_user)
     if name == "get_active_focus_session":
