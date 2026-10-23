@@ -449,3 +449,93 @@ def test_the_guards_themselves():
     assert not setup_wizard.looks_like_key("hey")
     assert not setup_wizard.looks_like_key("my key is here")
     assert setup_wizard.looks_like_key("AQ.Ab8RN6IR7ie2htw5wWQy0nnwlZYE")
+
+
+def test_provider_errors_are_sentences_not_json_dumps():
+    """A setup screen showed the raw SDK envelope:
+    "ClientError: 404 NOT_FOUND. {'error': {'code': 404, 'message':
+    'models/gemini is not found for API version v1beta'...}}" """
+    from services import setup_wizard as w
+
+    not_found = w.humanise_provider_error(
+        "gemini", "gemini",
+        "ClientError: 404 NOT_FOUND. {'error': {'code': 404, 'message': "
+        "'models/gemini is not found for API version v1beta'}}")
+    assert "no model called" in not_found and '"gemini"' in not_found
+    assert "{" not in not_found and "ClientError" not in not_found
+
+    bad_key = w.humanise_provider_error(
+        "gemini", "gemini-3.1-flash-lite",
+        "400 INVALID_ARGUMENT {'reason': 'API_KEY_INVALID'}")
+    assert "refused" in bad_key and "copied whole" in bad_key
+    assert "{" not in bad_key
+
+    assert "quota" in w.humanise_provider_error("openai", "gpt-5.6", "429 rate limit").lower()
+    assert "billing" in w.humanise_provider_error("openai", "gpt-5.6", "403 permission denied")
+
+    long = w.humanise_provider_error("kimi", "m", "x" * 400)
+    assert len(long) <= 161
+
+
+def test_a_mistyped_model_does_not_cost_the_key_again(client, auth_headers, monkeypatch):
+    """Being made to paste a secret again because a model name was wrong is a
+    poor apology."""
+    h = auth_headers("wiz_retry")
+    sent = _mock_send(monkeypatch)
+    _mock_scrub(monkeypatch)
+    _link_chat(client, h, "595959")
+
+    calls = []
+
+    async def _fail_then_ok(provider, model, key):
+        calls.append(model)
+        if model == "gemini-9.9-nonexistent":
+            return False, "404 NOT_FOUND models/gemini-9.9-nonexistent is not found"
+        return True, "ok"
+    monkeypatch.setattr(provider_config_service, "test_config", _fail_then_ok)
+
+    client.post("/api/telegram/webhook", json=_update("595959", "/setkey"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(595959, "wprov:gemini"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(595959, "wmodel:other"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook",
+                json=_update("595959", "gemini-9.9-nonexistent"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook",
+                json=_update("595959", "AIzaSyTESTKEY0123456789", message_id=71),
+                headers=SECRET_HEADER)
+
+    # It failed, and said so like a person.
+    body = " ".join(a[2] for a, kw in sent)
+    assert "no model called" in body
+
+    # Now a second model choice alone finishes it — no second key.
+    sent.clear()
+    client.post("/api/telegram/webhook",
+                json=_callback(595959, "wmodel:gemini-3.1-flash-lite"), headers=SECRET_HEADER)
+    after = " ".join(a[2] for a, kw in sent)
+    assert "paste your API key" not in after.lower(), "the key was already given"
+    assert "saved" in after.lower()
+    assert calls == ["gemini-9.9-nonexistent", "gemini-3.1-flash-lite"]
+
+
+def test_typing_the_provider_name_as_a_model_is_caught_without_a_round_trip(
+        client, auth_headers, monkeypatch):
+    h = auth_headers("wiz_provname")
+    sent = _mock_send(monkeypatch)
+    _mock_scrub(monkeypatch)
+    _link_chat(client, h, "606060")
+    called = []
+
+    async def _never(provider, model, key):
+        called.append(model)
+        return True, "ok"
+    monkeypatch.setattr(provider_config_service, "test_config", _never)
+
+    client.post("/api/telegram/webhook", json=_update("606060", "/setkey"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(606060, "wprov:gemini"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(606060, "wmodel:other"), headers=SECRET_HEADER)
+    sent.clear()
+    client.post("/api/telegram/webhook", json=_update("606060", "gemini"), headers=SECRET_HEADER)
+
+    body = " ".join(a[2] for a, kw in sent)
+    assert "is the provider, not a model" in body
+    assert called == [], "no pointless call to the provider"
