@@ -130,13 +130,31 @@ def test_a_turn_that_works_first_time_is_never_retried(monkeypatch):
     assert len(calls) == 1
 
 
-def test_the_lean_tool_set_is_a_real_subset_that_still_covers_the_board():
-    """Losing a tool for one retry costs a follow-up; keeping them costs the retry."""
+def test_the_lean_retry_keeps_every_way_of_LOOKING_at_the_board():
+    """The worst possible saving, and it really happened.
+
+    With the work tools dropped from the lean set, "list all work tasks"
+    reached a retry that had no way to look — and Alfred answered with eight
+    invented office tasks instead of saying he could not. A read is what
+    people ask for most and costs the least, so every read stays.
+    """
     assert alfred_tools.LEAN_TOOL_NAMES <= alfred_tools.TOOL_NAMES
-    assert len(alfred_tools.LEAN_TOOL_NAMES) < len(alfred_tools.TOOL_NAMES) / 2
-    for essential in ("list_missions", "create_mission", "delete_mission",
-                      "list_habits", "check_in_habit", "list_notes"):
-        assert essential in alfred_tools.LEAN_TOOL_NAMES
+    assert alfred_tools.LEAN_TOOL_NAMES < alfred_tools.TOOL_NAMES   # still a subset
+    reads = {t for t in alfred_tools.TOOL_NAMES
+             if t.startswith(("list_", "get_"))
+             or t in ("work_report", "review_loose_ends", "alfred_recall",
+                      "suggest_focus_length")}
+    assert reads <= alfred_tools.LEAN_TOOL_NAMES, reads - alfred_tools.LEAN_TOOL_NAMES
+    for essential in ("list_work_tasks", "list_missions", "list_habits",
+                      "list_notes", "complete_work_task", "delete_mission"):
+        assert essential in alfred_tools.LEAN_TOOL_NAMES, essential
+
+
+def test_the_lean_prompt_forbids_filling_a_gap_from_memory():
+    """A missing tool must produce a blank, never a plausible invention."""
+    lean = alfred_agent.LEAN_PROMPT.lower()
+    assert "never invent anything on their board" in lean
+    assert "cannot reach it" in lean
 
 
 # --- still useful with no model at all -------------------------------------

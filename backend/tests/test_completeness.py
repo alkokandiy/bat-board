@@ -206,3 +206,66 @@ def test_a_long_list_is_capped_so_it_is_never_an_audit():
         assert len(items) == completeness.MAX_PER_KIND
     finally:
         db.close()
+
+
+# --- memory that has served its purpose ------------------------------------
+
+def test_alfreds_own_stale_memory_is_offered_for_review():
+    """Memory notes accumulate and never leave. "Once bro arrives we do these
+    jobs" stays true for a week and then is simply clutter."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        db.add(models.BatNote(owner_id=uid, title="Bro Tasks", tags="alfred-memory",
+                              created_at=_old(60), updated_at=_old(40)))
+        db.commit()
+        out = completeness.review(db, user)["my_memory_worth_pruning"]
+        assert [i["title"] for i in out["items"]] == ["Bro Tasks"]
+    finally:
+        db.close()
+
+
+def test_a_recently_used_memory_is_left_alone():
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        db.add(models.BatNote(owner_id=uid, title="Identity", tags="alfred-memory",
+                              created_at=_old(90), updated_at=_old(2)))
+        db.commit()
+        assert completeness.review(db, user)["my_memory_worth_pruning"]["items"] == []
+    finally:
+        db.close()
+
+
+def test_the_users_own_notes_are_not_treated_as_alfreds_memory():
+    """Their writing is theirs; it belongs in the cold-notes offer, not in a
+    proposal to prune his own records."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.get(models.BatAccount, uid)
+        db.add(models.BatNote(owner_id=uid, title="Films to watch",
+                              created_at=_old(90), updated_at=_old(40)))
+        db.commit()
+        out = completeness.review(db, user)
+        assert out["my_memory_worth_pruning"]["items"] == []
+        assert [i["title"] for i in out["notes_gone_cold"]["items"]] == ["Films to watch"]
+    finally:
+        db.close()
+
+
+def test_the_rule_keeps_what_is_merely_waiting_and_asks_before_deleting():
+    """A habit not yet begun is waiting, not spent — and nothing is deleted
+    on Alfred's own judgement."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        rule = completeness.review(db, db.get(models.BatAccount, uid))[
+            "my_memory_worth_pruning"]["rule"].lower()
+        assert "not yet started or still intended" in rule
+        assert "never delete a memory on your own judgement" in rule
+        assert "keep it" in rule
+    finally:
+        db.close()
