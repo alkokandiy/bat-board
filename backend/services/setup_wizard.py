@@ -190,6 +190,21 @@ def looks_like_key(text: str) -> bool:
     return len(t) >= 16 and " " not in t and "\n" not in t
 
 
+async def _choose_model(db: Session, user: models.BatAccount, chat_id: str,
+                        row: models.BatPendingAlfredAction, args: dict,
+                        model: str) -> None:
+    """Model settled. Finish now if the key is already in hand, else ask.
+
+    After a failed attempt the key is still held, and making somebody paste a
+    secret again because they mistyped a model name is a poor apology.
+    """
+    held = args.get("key_encrypted")
+    if held:
+        await _finalize(db, user, chat_id, row, args.get("provider"), model, held)
+        return
+    _ask_for_key(db, user, chat_id, args.get("provider"), model)
+
+
 def _ask_for_key(db: Session, user: models.BatAccount, chat_id: str,
                  provider: Optional[str], model: str) -> None:
     """Last step: ask for the secret, having already settled what it is for."""
@@ -262,7 +277,7 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
         # like a model identifier is taken; anything else re-offers the menu.
         typed = (text or "").strip()
         if looks_like_model(typed):
-            _ask_for_key(db, user, chat_id, args.get("provider"), typed[:128])
+            await _choose_model(db, user, chat_id, row, args, typed[:128])
             return True
         _send_keyboard(
             chat_id,
@@ -272,12 +287,22 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
         return True
 
     if stage == STAGE_MODEL_TEXT:
-        # They asked to type one, so take them at their word.
+        # They asked to type one, so take them at their word — with one
+        # exception, because typing the PROVIDER's name here is the obvious
+        # slip and costs a pointless round trip to the provider to discover.
         model = (text or "").strip()
         if not model:
             _send(chat_id, "Send the model name, or /cancel to stop.")
             return True
-        _ask_for_key(db, user, chat_id, args.get("provider"), model[:128])
+        if model.lower() in PROVIDERS:
+            _send_keyboard(
+                chat_id,
+                f"\"{model}\" is the provider, not a model. Tap one below, or "
+                f"send a full model name such as "
+                f"{RECOMMENDED_MODELS.get(model.lower(), 'gemini-3.1-flash-lite')}.",
+                _model_keyboard(args.get("provider", "")))
+            return True
+        await _choose_model(db, user, chat_id, row, args, model[:128])
         return True
 
     return False
@@ -332,8 +357,36 @@ async def handle_callback(db: Session, user: models.BatAccount, callback: dict) 
         _save_row(db, user, STAGE_MODEL_TEXT, provider=args.get("provider"))
         _send(chat_id, "Send the model name.")
         return True
-    _ask_for_key(db, user, chat_id, args.get("provider"), choice[:128])
+    await _choose_model(db, user, chat_id, row, args, choice[:128])
     return True
+
+
+# Provider SDKs raise with their whole JSON envelope attached. Dumping that
+# into a chat window ("ClientError: 404 NOT_FOUND. {'error': {'code': 404,
+# 'message': 'models/gemini is not found for API version v1beta'...") tells
+# somebody setting up their account nothing they can act on.
+
+def humanise_provider_error(provider: str, model: str, raw: str) -> str:
+    """One plain sentence about what to do next."""
+    low = (raw or "").lower()
+    if "not found" in low or "404" in low or "does not exist" in low:
+        return (f"{provider} has no model called \"{model}\". Pick one from the "
+                f"list below, or check the exact name on their site.")
+    if "api key not valid" in low or "api_key_invalid" in low or "401" in low \
+            or "unauthorized" in low or "incorrect api key" in low:
+        return ("That key was refused. Check it was copied whole, and that it "
+                "belongs to this provider.")
+    if "permission" in low or "403" in low:
+        return (f"That key is valid but not allowed to use {model}. It may need "
+                f"billing enabled, or a different model.")
+    if "quota" in low or "429" in low or "rate" in low:
+        return ("That key is over its quota or rate limit just now. It should "
+                "work once that clears.")
+    # Anything unrecognised: keep it short rather than paste an envelope.
+    cleaned = " ".join((raw or "").split())
+    if len(cleaned) > 160:
+        cleaned = cleaned[:157].rstrip() + "..."
+    return cleaned or "The provider refused it, without saying why."
 
 
 async def _finalize(db: Session, user: models.BatAccount, chat_id: str,
@@ -363,6 +416,9 @@ async def _finalize(db: Session, user: models.BatAccount, chat_id: str,
         _clear_row(db, row)
         _send(chat_id, f"Provider key saved: {provider} / {model}. Alfred is at your service.")
     else:
-        # Keep the wizard at the model step so only that answer needs redoing.
+        # Keep the wizard at the model step AND keep the key, so only the
+        # answer that was wrong needs redoing — being made to paste a secret
+        # again because a model name was mistyped is a poor apology.
         _save_row(db, user, STAGE_MODEL, key_encrypted=key_encrypted, provider=provider)
-        _send_keyboard(chat_id, f"Key test failed — not saved. {msg}", _model_keyboard(provider))
+        _send_keyboard(chat_id, humanise_provider_error(provider, model or "", msg),
+                       _model_keyboard(provider))
