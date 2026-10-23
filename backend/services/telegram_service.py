@@ -319,6 +319,38 @@ def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_mar
         return False
 
 
+# Telegram only offers a command menu for commands the bot has REGISTERED
+# with it. Without this call, typing "/" showed nothing at all and the only
+# way to discover /chats or /cancel was to be told.
+BOT_COMMANDS = [
+    ("help", "What Alfred can do"),
+    ("new", "Start a fresh conversation"),
+    ("chats", "Switch between conversations"),
+    ("rename", "Rename this conversation"),
+    ("setkey", "Set up your AI provider"),
+    ("cancel", "Call off whatever is pending"),
+]
+
+
+def set_bot_commands(bot_token: str, timeout: float = 10.0) -> bool:
+    """Publish the command menu. Best-effort: never blocks startup."""
+    try:
+        resp = httpx.post(
+            f"https://api.telegram.org/bot{bot_token}/setMyCommands",
+            json={"commands": [{"command": c, "description": d}
+                               for c, d in BOT_COMMANDS]},
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            logger.warning("telegram_setmycommands_failed", status_code=resp.status_code)
+            return False
+        logger.info("telegram_commands_registered", count=len(BOT_COMMANDS))
+        return True
+    except Exception as exc:
+        logger.warning("telegram_setmycommands_error", error_type=type(exc).__name__)
+        return False
+
+
 def send_chat_action(bot_token: str, chat_id: str, action: str = "typing",
                      timeout: float = 5.0) -> bool:
     """Show "Alfred is typing…" in the chat. Best-effort, never raises.

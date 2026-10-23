@@ -249,12 +249,21 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
 
             if text.startswith("/setkey"):
                 parts = text.split(None, 3)
-                if len(parts) == 1:
-                    # Guided wizard — same destination as the one-shot below.
-                    setup_wizard.start(db, user, chat_id)
-                    return
                 if len(parts) < 4:
-                    _reply(chat_id, "Usage: /setkey <provider> <model> <key>\nProviders: gemini, anthropic, openai, deepseek, kimi\nOr send /setkey alone for guided setup.")
+                    # ANY incomplete form opens the guided wizard. Printing a
+                    # usage line instead was both unhelpful and unsafe: someone
+                    # who pasted "/setkey <key>" got a syntax lecture while
+                    # their secret stayed in the chat forever, because the
+                    # scrub only ran on the full four-part command.
+                    if len(parts) > 1:
+                        try:
+                            message_id = message.get("message_id")
+                            if message_id is not None:
+                                telegram_service.delete_telegram_message(
+                                    get_settings().telegram_bot_token, chat_id, message_id)
+                        except Exception as exc:
+                            logger.warning("setkey_partial_scrub_failed", error=str(exc))
+                    setup_wizard.start(db, user, chat_id)
                     return
                 _, provider, model_name, raw_key = parts
                 provider = provider.strip().lower()
