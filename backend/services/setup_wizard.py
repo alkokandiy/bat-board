@@ -32,6 +32,35 @@ STAGE_MODEL_TEXT = "awaiting_model_text"
 
 PROVIDERS = ("gemini", "anthropic", "openai", "deepseek", "kimi")
 
+# Shown on the buttons. People know these by the company, not the slug.
+PROVIDER_LABELS = {
+    "gemini": "Google — Gemini",
+    "anthropic": "Anthropic — Claude",
+    "openai": "OpenAI — GPT",
+    "deepseek": "DeepSeek",
+    "kimi": "Kimi — Moonshot",
+}
+
+# A short, current menu per provider; the recommended one is marked and comes
+# first. "Other" stays available for anything not listed, so a new model never
+# needs a release here.
+MODEL_CHOICES = {
+    "gemini": ["gemini-3.1-flash-lite", "gemini-3.1-flash", "gemini-3.1-pro"],
+    "anthropic": ["claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"],
+    "openai": ["gpt-5.6-mini", "gpt-5.6"],
+    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "kimi": ["kimi-k2-turbo-preview", "moonshot-v1-32k"],
+}
+
+# Where to get a key, so nobody has to go hunting mid-setup.
+KEY_SOURCES = {
+    "gemini": "aistudio.google.com/apikey",
+    "anthropic": "console.anthropic.com",
+    "openai": "platform.openai.com/api-keys",
+    "deepseek": "platform.deepseek.com",
+    "kimi": "platform.moonshot.ai",
+}
+
 
 def _utcnow():
     return datetime.now(timezone.utc)
@@ -60,7 +89,8 @@ def _get_row(db: Session, user: models.BatAccount) -> Optional[models.BatPending
 
 def _save_row(db: Session, user: models.BatAccount, stage: str,
               key_encrypted: Optional[str] = None,
-              provider: Optional[str] = None) -> models.BatPendingAlfredAction:
+              provider: Optional[str] = None,
+              model: Optional[str] = None) -> models.BatPendingAlfredAction:
     db.query(models.BatPendingAlfredAction).filter(
         models.BatPendingAlfredAction.owner_id == user.id,
         models.BatPendingAlfredAction.action_type == WIZARD_TYPE,
@@ -70,6 +100,8 @@ def _save_row(db: Session, user: models.BatAccount, stage: str,
         args["key_encrypted"] = key_encrypted
     if provider is not None:
         args["provider"] = provider
+    if model is not None:
+        args["model"] = model
     row = models.BatPendingAlfredAction(
         owner_id=user.id,
         action_type=WIZARD_TYPE,
@@ -119,21 +151,43 @@ def _scrub(chat_id: str, message_id) -> None:
 
 
 def _provider_keyboard():
-    return [[{"text": p, "callback_data": f"wprov:{p}"}] for p in PROVIDERS]
+    return [[{"text": PROVIDER_LABELS.get(p, p), "callback_data": f"wprov:{p}"}]
+            for p in PROVIDERS]
 
 
 def _model_keyboard(provider: str):
     rec = RECOMMENDED_MODELS.get(provider, "")
-    return [
-        [{"text": f"{rec} (recommended)", "callback_data": f"wmodel:{rec}"}],
-        [{"text": "Other — I'll type one", "callback_data": "wmodel:other"}],
-    ]
+    rows = []
+    for m in MODEL_CHOICES.get(provider, []):
+        label = f"{m} — recommended" if m == rec else m
+        rows.append([{"text": label, "callback_data": f"wmodel:{m}"}])
+    if rec and not any(rec in r[0]["callback_data"] for r in rows):
+        rows.insert(0, [{"text": f"{rec} — recommended", "callback_data": f"wmodel:{rec}"}])
+    rows.append([{"text": "Other — I'll type the name", "callback_data": "wmodel:other"}])
+    return rows
+
+
+def _ask_for_key(db: Session, user: models.BatAccount, chat_id: str,
+                 provider: Optional[str], model: str) -> None:
+    """Last step: ask for the secret, having already settled what it is for."""
+    _save_row(db, user, STAGE_KEY, provider=provider, model=model)
+    where = KEY_SOURCES.get(provider or "")
+    hint = f"\n\nYou can get one at {where}" if where else ""
+    _send(chat_id,
+          f"{PROVIDER_LABELS.get(provider, provider)} / {model}.\n\n"
+          f"Now paste your API key. It is encrypted the moment it arrives and "
+          f"your message is deleted straight away.{hint}")
 
 
 def start(db: Session, user: models.BatAccount, chat_id: str) -> None:
-    """Begin (or restart) the wizard. Caller clears other pendings first."""
-    _save_row(db, user, STAGE_KEY)
-    _send(chat_id, "Paste your API key. It will be encrypted immediately and your message deleted.")
+    """Begin (or restart) the wizard. Caller clears other pendings first.
+
+    Provider, then model, then key. The old order asked for the secret first,
+    which meant pasting it before knowing what was being set up — and anyone
+    who mistyped the command left their key sitting in the chat.
+    """
+    _save_row(db, user, STAGE_PROVIDER)
+    _send_keyboard(chat_id, "Who provides your AI? Tap one.", _provider_keyboard())
 
 
 async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
@@ -153,47 +207,32 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
         if not raw:
             _send(chat_id, "That came through empty — paste your API key.")
             return True
-        key_encrypted = provider_config_service.encrypt_key(raw)
+        # Scrub FIRST: whatever happens next, the secret must not stay in the
+        # chat. A failed key test used to leave it sitting there in plain view.
         _scrub(chat_id, message_id)
-        provider = provider_config_service.detect_provider_from_key(raw)
-        if provider is not None:
-            _save_row(db, user, STAGE_MODEL, key_encrypted=key_encrypted, provider=provider)
-            _send_keyboard(chat_id, f"Key secured. Provider detected: {provider}. Choose a model:",
-                           _model_keyboard(provider))
-        else:
-            _save_row(db, user, STAGE_PROVIDER, key_encrypted=key_encrypted)
-            _send_keyboard(chat_id, "Key secured. Which provider is it for?", _provider_keyboard())
+        key_encrypted = provider_config_service.encrypt_key(raw)
+        await _finalize(db, user, chat_id, row, args.get("provider"),
+                        args.get("model"), key_encrypted)
         return True
 
     if stage == STAGE_PROVIDER:
         choice = (text or "").strip().lower()
         if choice in PROVIDERS:
-            args["provider"] = choice
-            _save_row(db, user, STAGE_MODEL,
-                      key_encrypted=args.get("key_encrypted"), provider=choice)
-            _send_keyboard(chat_id, f"Provider: {choice}. Choose a model:", _model_keyboard(choice))
+            _save_row(db, user, STAGE_MODEL, provider=choice)
+            _send_keyboard(chat_id, f"{PROVIDER_LABELS.get(choice, choice)}. Which model?",
+                           _model_keyboard(choice))
         else:
             _send_keyboard(chat_id, "Tap your provider below.", _provider_keyboard())
         return True
 
-    if stage == STAGE_MODEL:
-        # Free text at the model step = custom model name.
+    if stage in (STAGE_MODEL, STAGE_MODEL_TEXT):
+        # Free text at the model step = a model name they typed themselves.
         model = (text or "").strip()
         if not model:
-            _send_keyboard(chat_id, "Send a model name, or tap below.",
+            _send_keyboard(chat_id, "Send a model name, or tap one below.",
                            _model_keyboard(args.get("provider", "")))
             return True
-        await _finalize(db, user, chat_id, row, args.get("provider"),
-                        model[:128], args.get("key_encrypted"))
-        return True
-
-    if stage == STAGE_MODEL_TEXT:
-        model = (text or "").strip()
-        if not model:
-            _send(chat_id, "Send the model name (e.g. gpt-5.6).")
-            return True
-        await _finalize(db, user, chat_id, row, args.get("provider"),
-                        model[:128], args.get("key_encrypted"))
+        _ask_for_key(db, user, chat_id, args.get("provider"), model[:128])
         return True
 
     return False
@@ -233,9 +272,9 @@ async def handle_callback(db: Session, user: models.BatAccount, callback: dict) 
             _answer("Expired — send /setkey to start over.")
             return True
         _answer()
-        _save_row(db, user, STAGE_MODEL,
-                  key_encrypted=args.get("key_encrypted"), provider=provider)
-        _send_keyboard(chat_id, f"Provider: {provider}. Choose a model:", _model_keyboard(provider))
+        _save_row(db, user, STAGE_MODEL, provider=provider)
+        _send_keyboard(chat_id, f"{PROVIDER_LABELS.get(provider, provider)}. Which model?",
+                       _model_keyboard(provider))
         return True
 
     # wmodel:
@@ -245,12 +284,10 @@ async def handle_callback(db: Session, user: models.BatAccount, callback: dict) 
         return True
     _answer()
     if choice == "other":
-        _save_row(db, user, STAGE_MODEL_TEXT,
-                  key_encrypted=args.get("key_encrypted"), provider=args.get("provider"))
+        _save_row(db, user, STAGE_MODEL_TEXT, provider=args.get("provider"))
         _send(chat_id, "Send the model name.")
         return True
-    await _finalize(db, user, chat_id, row, args.get("provider"),
-                    choice[:128], args.get("key_encrypted"))
+    _ask_for_key(db, user, chat_id, args.get("provider"), choice[:128])
     return True
 
 

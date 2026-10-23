@@ -38,6 +38,7 @@ from routers.alfred import router as alfred_router
 from routers.cron import router as cron_router
 from routers.admin import router as admin_router
 from routers.work import router as work_router
+from services import telegram_service
 from services import (
     calendar_service,
     focus_service,
@@ -100,6 +101,19 @@ app = FastAPI(
     docs_url="/api/docs" if settings.environment != "production" else None,
     redoc_url="/api/redoc" if settings.environment != "production" else None,
 )
+
+@app.on_event("startup")
+def _register_telegram_commands() -> None:
+    """Publish the bot's command menu so typing "/" actually lists them.
+
+    Telegram only offers commands a bot has registered; without this the menu
+    was empty and the only way to find /chats or /cancel was to be told. Safe
+    to repeat on every boot — setMyCommands replaces the list.
+    """
+    token = getattr(settings, "telegram_bot_token", None)
+    if token:
+        telegram_service.set_bot_commands(token)
+
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

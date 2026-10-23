@@ -107,34 +107,69 @@ def test_detect_provider_from_key():
     assert provider_config_service.detect_provider_from_key("  AIzaSyABC123  ") == "gemini"
 
 
-def test_autodetect_gemini_skips_provider_question(client, auth_headers, monkeypatch):
-    h = auth_headers("wiz_auto")
+def test_the_wizard_asks_provider_first_then_model_then_the_key(client, auth_headers, monkeypatch):
+    """Provider, model, key — in that order.
+
+    The old flow asked for the secret first, which meant pasting it before
+    knowing what was being configured, and anyone who mistyped the command
+    left their key sitting in the chat.
+    """
+    h = auth_headers("wiz_order")
     sent = _mock_send(monkeypatch)
     deleted, _ = _mock_scrub(monkeypatch)
-    _link_chat(client, h, "wiz-auto")
+    _link_chat(client, h, "515151")
 
-    client.post("/api/telegram/webhook", json=_update("wiz-auto", "/setkey"), headers=SECRET_HEADER)
-    assert any("Paste your API key" in a[2] for a, kw in sent)
+    # 1. /setkey offers providers, and asks for no secret yet.
+    client.post("/api/telegram/webhook", json=_update("515151", "/setkey"), headers=SECRET_HEADER)
+    text, markup = _last_markup(sent)
+    datas = [b["callback_data"] for row in markup["inline_keyboard"] for b in row]
+    assert all(d.startswith("wprov:") for d in datas)
+    assert "gemini" in " ".join(datas)
+    assert not any("API key" in a[2] for a, kw in sent)
+
+    # 2. Tapping a provider offers real model choices.
+    sent.clear()
+    client.post("/api/telegram/webhook", json=_callback(515151, "wprov:gemini"), headers=SECRET_HEADER)
+    text, markup = _last_markup(sent)
+    datas = [b["callback_data"] for row in markup["inline_keyboard"] for b in row]
+    assert sum(1 for d in datas if d.startswith("wmodel:")) >= 2, "a real menu, not one option"
+    assert "wmodel:other" in datas
+
+    # 3. Tapping a model asks for the key, and says where to get one.
+    sent.clear()
+    client.post("/api/telegram/webhook",
+                json=_callback(515151, "wmodel:gemini-3.1-flash-lite"), headers=SECRET_HEADER)
+    asked = " ".join(a[2] for a, kw in sent)
+    assert "paste your api key" in asked.lower()
+    assert "aistudio.google.com" in asked
+    args = json.loads(_wizard_row("wiz_order").action_args)
+    assert args["stage"] == "awaiting_key"
+    assert args["provider"] == "gemini" and args["model"] == "gemini-3.1-flash-lite"
+
+
+def test_the_key_message_is_scrubbed_even_when_the_key_is_rejected(client, auth_headers, monkeypatch):
+    """A failed key test used to leave the secret visible in the chat."""
+    h = auth_headers("wiz_scrub")
+    sent = _mock_send(monkeypatch)
+    deleted, _ = _mock_scrub(monkeypatch)
+    _link_chat(client, h, "525252")
+
+    async def _reject(provider, model, key):
+        return False, "API key not valid"
+    monkeypatch.setattr(provider_config_service, "test_config", _reject)
+
+    client.post("/api/telegram/webhook", json=_update("525252", "/setkey"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(525252, "wprov:gemini"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook",
+                json=_callback(525252, "wmodel:gemini-3.1-flash-lite"), headers=SECRET_HEADER)
 
     sent.clear()
-    client.post(
-        "/api/telegram/webhook", json=_update("wiz-auto", "AIzaSyABCDEF123456", message_id=11),
-        headers=SECRET_HEADER,
-    )
-    # Raw key message scrubbed.
-    assert len(deleted) == 1 and deleted[0][0][2] == 11
-    # Provider question skipped → model keyboard shown.
-    text, markup = _last_markup(sent)
-    assert "gemini" in text
-    datas = [b["callback_data"] for row in markup["inline_keyboard"] for b in row]
-    assert any(d.startswith("wmodel:") for d in datas)
-    assert not any(d.startswith("wprov:") for d in datas)
+    client.post("/api/telegram/webhook",
+                json=_update("525252", "AQ.Ab8RN6IR7ie2htw5wWQy0nnwlZYE", message_id=31),
+                headers=SECRET_HEADER)
 
-    row = _wizard_row("wiz_auto")
-    args = json.loads(row.action_args)
-    assert args["stage"] == "awaiting_model" and args["provider"] == "gemini"
-    assert "AIzaSyABCDEF123456" not in row.action_args
-    assert provider_config_service.decrypt_key(args["key_encrypted"]) == "AIzaSyABCDEF123456"
+    assert any(d[0][2] == 31 for d in deleted), "the pasted key must be deleted"
+    assert not any("AQ.Ab8RN6IR7ie2htw5" in a[2] for a, kw in sent)
 
 
 def test_ambiguous_key_asks_provider(client, auth_headers, monkeypatch):
@@ -167,13 +202,14 @@ def test_full_flow_across_calls_saves(client, auth_headers, monkeypatch):
     _mock_test_ok(monkeypatch)
     _link_chat(client, h, "424242")
 
+    # provider -> model -> key, which is the order the wizard now asks in.
     client.post("/api/telegram/webhook", json=_update("424242", "/setkey"), headers=SECRET_HEADER)
-    client.post("/api/telegram/webhook", json=_update("424242", "sk-ds-testkey", message_id=13), headers=SECRET_HEADER)
     client.post("/api/telegram/webhook", json=_callback(424242, "wprov:deepseek", cb_id="cb-a"), headers=SECRET_HEADER)
     client.post(
         "/api/telegram/webhook", json=_callback(424242, "wmodel:deepseek-chat", cb_id="cb-b"),
         headers=SECRET_HEADER,
     )
+    client.post("/api/telegram/webhook", json=_update("424242", "sk-ds-testkey", message_id=13), headers=SECRET_HEADER)
 
     db = _db()
     try:
@@ -227,7 +263,8 @@ def test_expired_wizard_ignored_then_fresh_start(client, auth_headers, monkeypat
     # Fresh /setkey works after the abandoned one.
     sent.clear()
     client.post("/api/telegram/webhook", json=_update("wiz-exp", "/setkey"), headers=SECRET_HEADER)
-    assert any("Paste your API key" in a[2] for a, kw in sent)
+    # A fresh wizard now opens with the provider question, not the secret.
+    assert any("Who provides your AI" in a[2] for a, kw in sent)
 
 
 def test_setkey_clears_destructive_and_vice_versa(client, auth_headers, monkeypatch):
@@ -302,3 +339,41 @@ def test_regression_tools_bearing_validation(monkeypatch):
     )
     assert ok is False
     assert "400" in msg
+
+
+def test_a_pasted_key_opens_the_wizard_and_is_deleted_not_lectured(client, auth_headers, monkeypatch):
+    """"/setkey <key>" used to print a usage line and leave the secret in the
+    chat, because the scrub only ran on the full four-part command."""
+    h = auth_headers("wiz_paste")
+    sent = _mock_send(monkeypatch)
+    deleted, _ = _mock_scrub(monkeypatch)
+    _link_chat(client, h, "535353")
+
+    client.post("/api/telegram/webhook",
+                json=_update("535353", "/setkey AQ.Ab8RN6IR7ie2htw5wWQy0nnwl", message_id=41),
+                headers=SECRET_HEADER)
+
+    assert any(d[0][2] == 41 for d in deleted), "the pasted key must be deleted"
+    body = " ".join(a[2] for a, kw in sent)
+    assert "AQ.Ab8RN6IR" not in body
+    assert "Usage:" not in body, "a syntax lecture is not an answer"
+    assert "Who provides your AI" in body
+
+
+def test_an_unknown_provider_word_also_opens_the_wizard(client, auth_headers, monkeypatch):
+    h = auth_headers("wiz_word")
+    sent = _mock_send(monkeypatch)
+    _mock_scrub(monkeypatch)
+    _link_chat(client, h, "545454")
+    client.post("/api/telegram/webhook", json=_update("545454", "/setkey gemini"),
+                headers=SECRET_HEADER)
+    assert any("Who provides your AI" in a[2] for a, kw in sent)
+
+
+def test_the_command_menu_is_registered_with_telegram():
+    """Typing "/" showed nothing, because Telegram only lists commands a bot
+    has registered with setMyCommands."""
+    names = {c for c, _ in telegram_service.BOT_COMMANDS}
+    assert {"help", "new", "chats", "rename", "setkey", "cancel"} <= names
+    for _, description in telegram_service.BOT_COMMANDS:
+        assert description and len(description) <= 256
