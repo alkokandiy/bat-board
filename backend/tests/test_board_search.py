@@ -148,3 +148,11 @@ def test_find_on_board_is_registered_and_listed_as_a_capability():
     assert "find_on_board" in alfred_tools.TOOL_NAMES
     assert "find_on_board" in alfred_tools.capability_summary()
     assert "find_on_board" in alfred_tools.LEAN_TOOL_NAMES
+
+
+def test_a_bare_ok_is_not_treated_as_consent_to_an_old_suggestion():
+    """Told "ok" about a university-lesson reminder, he replied "shall I begin
+    the focus session for the movie bot?" — an agenda from an hour earlier."""
+    prompt = alfred_agent.IDENTITY_CORE.lower()
+    assert "a short reply answers the last thing said" in prompt
+    assert "not your agenda" in prompt
