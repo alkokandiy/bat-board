@@ -209,14 +209,14 @@ def test_full_flow_across_calls_saves(client, auth_headers, monkeypatch):
         "/api/telegram/webhook", json=_callback(424242, "wmodel:deepseek-chat", cb_id="cb-b"),
         headers=SECRET_HEADER,
     )
-    client.post("/api/telegram/webhook", json=_update("424242", "sk-ds-testkey", message_id=13), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_update("424242", "sk-ds-testkey-0123456789", message_id=13), headers=SECRET_HEADER)
 
     db = _db()
     try:
         user = db.query(models.BatAccount).filter_by(username="wiz_full").first()
         row = provider_config_service.get_config_row(db, user)
         assert row.provider == "deepseek" and row.model_name == "deepseek-chat"
-        assert provider_config_service.get_decrypted_key(db, user) == "sk-ds-testkey"
+        assert provider_config_service.get_decrypted_key(db, user) == "sk-ds-testkey-0123456789"
         assert (
             db.query(models.BatPendingAlfredAction).filter_by(owner_id=user.id).first() is None
         )
@@ -377,3 +377,75 @@ def test_the_command_menu_is_registered_with_telegram():
     assert {"help", "new", "chats", "rename", "setkey", "cancel"} <= names
     for _, description in telegram_service.BOT_COMMANDS:
         assert description and len(description) <= 256
+
+
+def test_an_ordinary_message_is_not_taken_as_a_model_name(client, auth_headers, monkeypatch):
+    """Typing "hey" mid-setup was submitted as a model: "models/hey is not
+    found". A wizard that swallows whatever arrives next is a trap."""
+    h = auth_headers("wiz_hey")
+    sent = _mock_send(monkeypatch)
+    _mock_scrub(monkeypatch)
+    _link_chat(client, h, "565656")
+
+    client.post("/api/telegram/webhook", json=_update("565656", "/setkey"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(565656, "wprov:gemini"), headers=SECRET_HEADER)
+
+    sent.clear()
+    client.post("/api/telegram/webhook", json=_update("565656", "hey"), headers=SECRET_HEADER)
+
+    body = " ".join(a[2] for a, kw in sent)
+    assert "not found" not in body.lower(), "it must not be submitted as a model"
+    assert "/cancel" in body, "and the way out must be offered"
+    args = json.loads(_wizard_row("wiz_hey").action_args)
+    assert args["stage"] == "awaiting_model", "still waiting, not advanced"
+
+
+def test_a_real_model_name_typed_by_hand_is_accepted(client, auth_headers, monkeypatch):
+    h = auth_headers("wiz_typed")
+    sent = _mock_send(monkeypatch)
+    _mock_scrub(monkeypatch)
+    _link_chat(client, h, "575757")
+
+    client.post("/api/telegram/webhook", json=_update("575757", "/setkey"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(575757, "wprov:openai"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_update("575757", "gpt-5.6-mini"), headers=SECRET_HEADER)
+
+    args = json.loads(_wizard_row("wiz_typed").action_args)
+    assert args["stage"] == "awaiting_key" and args["model"] == "gpt-5.6-mini"
+
+
+def test_chat_at_the_key_step_is_not_treated_as_a_secret(client, auth_headers, monkeypatch):
+    """It must neither be sent to the provider nor deleted as though it were
+    a key — removing someone's ordinary message for no reason is its own harm."""
+    h = auth_headers("wiz_chat")
+    sent = _mock_send(monkeypatch)
+    deleted, _ = _mock_scrub(monkeypatch)
+    _link_chat(client, h, "585858")
+
+    client.post("/api/telegram/webhook", json=_update("585858", "/setkey"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook", json=_callback(585858, "wprov:gemini"), headers=SECRET_HEADER)
+    client.post("/api/telegram/webhook",
+                json=_callback(585858, "wmodel:gemini-3.1-flash-lite"), headers=SECRET_HEADER)
+
+    sent.clear()
+    deleted.clear()
+    client.post("/api/telegram/webhook",
+                json=_update("585858", "what is this", message_id=61), headers=SECRET_HEADER)
+
+    assert deleted == [], "an ordinary message must not be deleted"
+    body = " ".join(a[2] for a, kw in sent)
+    assert "does not look like an API key" in body
+    assert "/cancel" in body
+
+
+def test_the_guards_themselves():
+    from services import setup_wizard
+
+    assert not setup_wizard.looks_like_model("hey")
+    assert not setup_wizard.looks_like_model("ok thanks")
+    assert setup_wizard.looks_like_model("gemini-3.1-flash-lite")
+    assert setup_wizard.looks_like_model("claude-opus-5-5")
+
+    assert not setup_wizard.looks_like_key("hey")
+    assert not setup_wizard.looks_like_key("my key is here")
+    assert setup_wizard.looks_like_key("AQ.Ab8RN6IR7ie2htw5wWQy0nnwlZYE")

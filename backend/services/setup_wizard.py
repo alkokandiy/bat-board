@@ -9,6 +9,7 @@ never holds plaintext. Rows expire via the established PENDING_TTL.
 """
 
 import json
+import re
 import structlog
 from datetime import datetime, timezone
 from typing import Optional
@@ -167,6 +168,28 @@ def _model_keyboard(provider: str):
     return rows
 
 
+# A wizard that swallows whatever arrives next is a trap: an ordinary message
+# sent mid-setup became a model name ("models/hey is not found"), and would
+# have become an API key just as easily. These two guards decide whether what
+# arrived is plausibly the thing being asked for.
+
+_MODEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._:\-]{4,}$")
+
+
+def looks_like_model(text: str) -> bool:
+    """Model names are a single token with a digit or a separator in them."""
+    t = (text or "").strip()
+    if not _MODEL_RE.match(t):
+        return False
+    return any(ch.isdigit() for ch in t) or "-" in t or "." in t or "/" in t
+
+
+def looks_like_key(text: str) -> bool:
+    """API keys are long, unbroken, and not sentences."""
+    t = (text or "").strip()
+    return len(t) >= 16 and " " not in t and "\n" not in t
+
+
 def _ask_for_key(db: Session, user: models.BatAccount, chat_id: str,
                  provider: Optional[str], model: str) -> None:
     """Last step: ask for the secret, having already settled what it is for."""
@@ -207,6 +230,13 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
         if not raw:
             _send(chat_id, "That came through empty — paste your API key.")
             return True
+        if not looks_like_key(raw):
+            # Not scrubbed: it is ordinary chat, not a secret, and deleting
+            # someone's message for no reason is worse than leaving it.
+            _send(chat_id,
+                  "That does not look like an API key — they are long and have "
+                  "no spaces. Paste the key, or /cancel to stop setting up.")
+            return True
         # Scrub FIRST: whatever happens next, the secret must not stay in the
         # chat. A failed key test used to leave it sitting there in plain view.
         _scrub(chat_id, message_id)
@@ -225,12 +255,27 @@ async def handle_text(db: Session, user: models.BatAccount, chat_id: str,
             _send_keyboard(chat_id, "Tap your provider below.", _provider_keyboard())
         return True
 
-    if stage in (STAGE_MODEL, STAGE_MODEL_TEXT):
-        # Free text at the model step = a model name they typed themselves.
+    if stage == STAGE_MODEL:
+        # Buttons are on screen, so stray chat is almost certainly NOT a model
+        # name. Somebody typed "hey" mid-setup and it was submitted as one,
+        # producing "models/hey is not found". Only text that actually looks
+        # like a model identifier is taken; anything else re-offers the menu.
+        typed = (text or "").strip()
+        if looks_like_model(typed):
+            _ask_for_key(db, user, chat_id, args.get("provider"), typed[:128])
+            return True
+        _send_keyboard(
+            chat_id,
+            "Tap one of these, or /cancel to stop setting up." if typed
+            else "Tap a model below, or /cancel to stop setting up.",
+            _model_keyboard(args.get("provider", "")))
+        return True
+
+    if stage == STAGE_MODEL_TEXT:
+        # They asked to type one, so take them at their word.
         model = (text or "").strip()
         if not model:
-            _send_keyboard(chat_id, "Send a model name, or tap one below.",
-                           _model_keyboard(args.get("provider", "")))
+            _send(chat_id, "Send the model name, or /cancel to stop.")
             return True
         _ask_for_key(db, user, chat_id, args.get("provider"), model[:128])
         return True
