@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../utils/api';
+import { PageHeader, EmptyState } from './ui';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -65,6 +66,39 @@ export default function CalendarPanel() {
   const sortedEvents = useMemo(() => {
     return [...events].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
   }, [events]);
+
+  // "Upcoming" was every event ever, sorted — which is how a dentist
+  // appointment three weeks past showed up under that word. An event still
+  // running counts as upcoming, so judge by its end where it has one.
+  const upcomingEvents = useMemo(() => {
+    const now = Date.now();
+    return sortedEvents.filter(
+      (e) => new Date(e.end_time || e.start_time).getTime() >= now);
+  }, [sortedEvents]);
+
+  const eventsThisMonth = useMemo(
+    () => events.filter((e) => {
+      const d = new Date(e.start_time);
+      return d.getFullYear() === year && d.getMonth() === month;
+    }).length,
+    [events, year, month]);
+
+  const headerStats = useMemo(() => {
+    const out = [{ label: `in ${MONTHS[month]}`, value: eventsThisMonth }];
+    const next = upcomingEvents[0];
+    if (next) {
+      const when = new Date(next.start_time);
+      const days = Math.round((when - new Date()) / 86400000);
+      out.push({
+        label: days <= 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`,
+        value: next.title.length > 28 ? next.title.slice(0, 27) + '…' : next.title,
+        tone: days <= 1 ? 'warn' : undefined,
+      });
+    } else {
+      out.push({ label: 'nothing scheduled ahead', value: '' });
+    }
+    return out;
+  }, [eventsThisMonth, month, upcomingEvents]);
 
   const openAddForm = useCallback((date) => {
     setEditEvent(null);
@@ -146,47 +180,75 @@ export default function CalendarPanel() {
 
   return (
     <div className="h-full flex flex-col gap-3">
-      <div className="shrink-0 flex items-center justify-between">
-        <h1 className="text-xl font-bold tracking-wider">CALENDAR</h1>
-        <button onClick={() => { setEditEvent(null); setForm({ title: '', description: '', start_time: toLocalDatetimeString(now), end_time: '', color: '#eab308' }); setShowForm(true); }} className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono text-xs tracking-widest">
-          + EVENT
-        </button>
+      <div className="shrink-0">
+        <PageHeader
+          title="CALENDAR"
+          stats={headerStats}
+          action={(
+            <button
+              onClick={() => { setEditEvent(null); setForm({ title: '', description: '', start_time: toLocalDatetimeString(now), end_time: '', color: '#eab308' }); setShowForm(true); }}
+              className="px-4 py-2 bg-signal-self text-bat-bg font-bold rounded-lg hover:brightness-110 transition font-mono text-xs tracking-widest"
+            >
+              + EVENT
+            </button>
+          )}
+        />
       </div>
 
-      <div className="flex-1 min-h-0 bg-dark-slate rounded border border-slate-800 flex flex-col overflow-hidden">
-        <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-slate-800">
+      <div className="flex-1 min-h-0 bg-bat-surface rounded-lg border border-bat-line flex flex-col overflow-hidden">
+        <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-bat-line">
           <button onClick={prevMonth} className="text-slate-400 hover:text-slate-200 text-sm font-mono px-2 py-1">&larr;</button>
           <div className="flex items-center gap-4">
-            <h2 className="text-base font-bold tracking-wider text-slate-200">{MONTHS[month]} {year}</h2>
+            <h2 className="font-display text-xl tracking-wide text-ink">{MONTHS[month]} {year}</h2>
             {!isCurrentMonthView && (
-              <button onClick={goToToday} className="text-xs font-mono text-electric-bat-yellow hover:text-yellow-400 underline underline-offset-2">Today</button>
+              <button onClick={goToToday} className="text-[10px] font-mono uppercase tracking-wider text-signal-self hover:brightness-110 underline underline-offset-2">Today</button>
             )}
           </div>
           <button onClick={nextMonth} className="text-slate-400 hover:text-slate-200 text-sm font-mono px-2 py-1">&rarr;</button>
         </div>
 
-        <div className="shrink-0 grid grid-cols-7 text-center border-b border-slate-800">
-          {DAYS.map(d => <div key={d} className="text-xs font-mono text-slate-500 py-2">{d}</div>)}
+        {/* Red chips and coloured chips sat side by side with nothing to say
+            they were different kinds of thing. */}
+        <div className="shrink-0 flex items-center gap-4 px-5 py-2 border-b border-bat-line text-[10px] font-mono uppercase tracking-wider text-ink-faint">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm bg-signal-late/40 border border-signal-late/60" aria-hidden="true" />
+            Mission due
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm bg-signal-self/40 border border-signal-self/60" aria-hidden="true" />
+            Event
+          </span>
+        </div>
+
+        <div className="shrink-0 grid grid-cols-7 text-center border-b border-bat-line">
+          {DAYS.map(d => <div key={d} className="text-[10px] font-mono uppercase tracking-wider text-ink-faint py-2">{d}</div>)}
         </div>
 
         <div className="flex-1 grid grid-cols-7 auto-rows-fr">
           {days.map((d, i) => (
             <div key={i}
-              className={`border-b border-r border-slate-800 p-2 ${d ? 'cursor-pointer hover:bg-slate-800/50 transition' : ''} ${isToday(d) ? 'bg-yellow-900/10' : ''} ${!d ? 'bg-slate-900/30' : ''}`}
+              className={`border-b border-r border-bat-line p-2 transition-colors duration-150
+                ${d ? 'cursor-pointer hover:bg-bat-raised' : 'bg-bat-bg/60'}
+                ${isToday(d) ? 'bg-signal-self/[0.07] ring-1 ring-inset ring-signal-self/30' : ''}`}
               onClick={() => d && openAddForm(d)}
             >
               {d && (
                 <div className="h-full flex flex-col">
-                  <div className={`text-sm font-mono mb-1 leading-none ${isToday(d) ? 'text-electric-bat-yellow font-bold' : isCurrentMonth(d) ? 'text-slate-300' : 'text-slate-600'}`}>
+                  <div className={`text-xs font-mono mb-1.5 leading-none tabular-nums ${isToday(d) ? 'text-signal-self font-bold' : isCurrentMonth(d) ? 'text-ink-muted' : 'text-ink-faint/50'}`}>
                     {d.getDate()}
                   </div>
                   <div className="flex-1 space-y-[2px] overflow-hidden">
                     {getMissionsForDay(d).slice(0, 4).map(m => (
-                      <div key={m.id} className="text-[10px] bg-red-950/40 text-red-400 px-1.5 py-0.5 rounded truncate leading-tight">{m.title}</div>
+                      <div key={m.id} title={m.title}
+                        className="text-[10px] bg-signal-late/15 text-signal-late border-l-2 border-signal-late/70 px-1.5 py-0.5 rounded-sm truncate leading-tight">
+                        {m.title}
+                      </div>
                     ))}
                     {getEventsForDay(d).slice(0, 4).map(evt => (
-                      <div key={evt.id} onClick={evtClick => { evtClick.stopPropagation(); openEditForm(evt); }} className="text-[10px] px-1.5 py-0.5 rounded truncate leading-tight cursor-pointer hover:opacity-80"
-                        style={{ backgroundColor: evt.color + '30', color: evt.color }}>
+                      <div key={evt.id} title={evt.title}
+                        onClick={evtClick => { evtClick.stopPropagation(); openEditForm(evt); }}
+                        className="text-[10px] px-1.5 py-0.5 rounded-sm truncate leading-tight cursor-pointer border-l-2 hover:brightness-125 transition"
+                        style={{ backgroundColor: evt.color + '26', color: evt.color, borderColor: evt.color }}>
                         {evt.title}
                       </div>
                     ))}
@@ -201,12 +263,14 @@ export default function CalendarPanel() {
         </div>
       </div>
 
-      <div className="shrink-0 bg-dark-slate px-4 py-2.5 rounded border border-slate-800 flex items-center gap-4 overflow-x-auto">
+      <div className="shrink-0 bg-bat-surface px-4 py-2.5 rounded-lg border border-bat-line flex items-center gap-4 overflow-x-auto">
         <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 shrink-0">Upcoming</span>
-        {sortedEvents.length === 0 ? (
-          <span className="text-xs text-slate-500 italic shrink-0">No scheduled events.</span>
+        {upcomingEvents.length === 0 ? (
+          <span className="text-xs text-ink-faint shrink-0">
+            {sortedEvents.length ? 'Nothing ahead — everything on the calendar has passed.' : 'No scheduled events.'}
+          </span>
         ) : (
-          sortedEvents.slice(0, 6).map(e => (
+          upcomingEvents.slice(0, 6).map(e => (
             <div key={e.id} className="flex items-center gap-1.5 text-xs bg-matte-obsidian px-2 py-1 rounded border border-slate-700 shrink-0 hover:border-slate-600 transition cursor-pointer"
               onClick={() => openEditForm(e)}>
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: e.color }} />
