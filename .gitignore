@@ -57,3 +57,6 @@ AlfredWords.txt
 # Deep-research working notes. The finished report is committed; the raw
 # per-topic notes behind it are large and only useful while writing it.
 research_notes/
+
+# Local preview config for the frontend dev server lives at the repo root.
+frontend/.claude/

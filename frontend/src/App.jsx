@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
 import HabitsPanel from './components/HabitsPanel';
@@ -9,6 +9,7 @@ import NotesPanel from './components/NotesPanel';
 import WorkPanel from './components/WorkPanel';
 import ProfileSettings from './components/ProfileSettings';
 import StatsPanel from './components/StatsPanel';
+import { PageHeader, StatTile, EmptyState, Panel } from './components/ui';
 import AlfredWidget from './components/AlfredWidget';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
@@ -409,6 +410,72 @@ export default function App() {
     }
   };
 
+  // --- what the dashboard actually reports -----------------------------
+  // Computed once, in one place, so the header strip and the tiles can never
+  // disagree with each other about the same board.
+  const openMissions = useMemo(
+    () => missions.filter((m) => m.status === 'pending' && !m.is_dismissed),
+    [missions]);
+
+  const overdueMissions = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    return openMissions.filter((m) => m.due_date && new Date(m.due_date) < startOfToday);
+  }, [openMissions]);
+
+  const dueTodayMissions = useMemo(() => {
+    const d = new Date();
+    const key = d.toDateString();
+    return openMissions.filter((m) => m.due_date && new Date(m.due_date).toDateString() === key);
+  }, [openMissions]);
+
+  const bestStreak = useMemo(
+    () => habits.reduce((max, h) => Math.max(max, h.streak || 0), 0), [habits]);
+
+  // null means "no habits at all", which is a different thing from "none left".
+  const habitsLeftToday = useMemo(() => {
+    if (!habits.length) return null;
+    const today = new Date().toDateString();
+    return habits.filter(
+      (h) => !(h.last_completed && new Date(h.last_completed).toDateString() === today)).length;
+  }, [habits]);
+
+  const dashboardStats = useMemo(() => {
+    const out = [{ label: 'open', value: openMissions.length }];
+    if (overdueMissions.length) out.push({ label: 'overdue', value: overdueMissions.length, tone: 'late' });
+    if (dueTodayMissions.length) out.push({ label: 'due today', value: dueTodayMissions.length, tone: 'warn' });
+    if (habitsLeftToday) out.push({ label: 'habits left', value: habitsLeftToday, tone: 'warn' });
+    return out;
+  }, [openMissions, overdueMissions, dueTodayMissions, habitsLeftToday]);
+
+  const todayLabel = useMemo(
+    () => new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }), []);
+
+  const operationalLines = useMemo(() => {
+    const lines = [];
+    if (overdueMissions.length) {
+      lines.push({
+        dot: 'bg-signal-late',
+        text: `${overdueMissions.length} mission${overdueMissions.length === 1 ? '' : 's'} past ${overdueMissions.length === 1 ? 'its' : 'their'} date — oldest: ${overdueMissions[0].title}`,
+      });
+    }
+    if (dueTodayMissions.length) {
+      lines.push({
+        dot: 'bg-signal-warn',
+        text: `Due today: ${dueTodayMissions.slice(0, 3).map((m) => m.title).join(', ')}`,
+      });
+    }
+    if (habitsLeftToday) {
+      lines.push({ dot: 'bg-signal-warn', text: `${habitsLeftToday} habit${habitsLeftToday === 1 ? '' : 's'} still to keep today` });
+    } else if (habitsLeftToday === 0) {
+      lines.push({ dot: 'bg-signal-good', text: 'Every habit kept today' });
+    }
+    if (!overdueMissions.length && openMissions.length) {
+      lines.push({ dot: 'bg-signal-good', text: 'Nothing overdue' });
+    }
+    return lines;
+  }, [overdueMissions, dueTodayMissions, habitsLeftToday, openMissions]);
+
   if (loading && localStorage.getItem('bat_access_token')) {
     return (
       <div className="min-h-screen bg-matte-obsidian text-slate-100 flex flex-col items-center justify-center font-sans">
@@ -514,69 +581,73 @@ export default function App() {
         return (
           <div className="space-y-6">
             <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
-              <h1 className="text-2xl font-bold tracking-wider">BATCAVE COMMAND CENTER</h1>
-              <p className="text-xs text-slate-400">Tactical overview of ongoing Gotham defense protocols.</p>
+              {/* The header carries facts now. "Tactical overview of ongoing
+                  Gotham defense protocols" occupied the most valuable line on
+                  the screen and said nothing about the board. */}
+              <PageHeader
+                title="BATCAVE COMMAND CENTER"
+                stats={dashboardStats}
+              />
             </div>
-            <div className={`grid grid-cols-1 gap-6 ${workEnabled ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
-              <button
+            <div className={`grid grid-cols-1 gap-4 ${workEnabled ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
+              {/* Only the tile that needs a decision is emphasised. Four
+                  identical tiles told the eye nothing about where to look. */}
+              <StatTile
+                label="Active Missions"
+                value={openMissions.length}
+                hint={overdueMissions.length
+                  ? `${overdueMissions.length} past their date`
+                  : 'nothing overdue'}
+                tone="late"
+                attention={overdueMissions.length > 0}
                 onClick={() => setCurrentView('missions')}
-                className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
-              >
-                <div>
-                  <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Active Missions</span>
-                  <div className="text-3xl font-bold mt-2 text-slate-100">
-                    {missions.filter(m => m.status === 'pending').length}
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500">Missions queued for tactical execution.</div>
-              </button>
-              <button
+              />
+              <StatTile
+                label="Habit Streaks"
+                value={bestStreak ? `${bestStreak}d` : '—'}
+                hint={habitsLeftToday === null
+                  ? 'no habits yet'
+                  : habitsLeftToday === 0
+                    ? 'all kept today'
+                    : `${habitsLeftToday} still to keep today`}
+                tone={habitsLeftToday ? 'warn' : 'good'}
+                attention={!!habitsLeftToday}
                 onClick={() => setCurrentView('habits')}
-                className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
-              >
-                <div>
-                  <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Habit Streaks</span>
-                  <div className="text-3xl font-bold mt-2 text-electric-bat-yellow">
-                    {habits.reduce((max, h) => Math.max(max, h.streak || 0), 0)} Day Max
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500">Highest ritual continuity metric.</div>
-              </button>
-              <button
+              />
+              <StatTile
+                label="Bat Level"
+                value={account?.bat_level || '—'}
+                hint={account ? `${account.points} BP` : null}
+                tone="self"
                 onClick={() => setCurrentView('focus')}
-                className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-electric-bat-yellow/40 transition"
-              >
-                <div>
-                  <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Current Bat Level</span>
-                  <div className="text-lg font-bold mt-2 text-electric-bat-yellow font-mono truncate">
-                    {account?.bat_level}
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500">Level upgrade triggers automatically at points tier.</div>
-              </button>
+              />
               {workEnabled && (
-                <button
+                <StatTile
+                  label="Corporate Track"
+                  value="THE JOB"
+                  hint="earns no Bat Points, by design"
+                  tone="work"
                   onClick={() => setCurrentView('work')}
-                  className="bg-dark-slate p-5 rounded border border-slate-800 flex flex-col justify-between h-36 text-left hover:border-sky-700/50 transition"
-                >
-                  <div>
-                    <span className="text-slate-400 text-xs font-mono uppercase tracking-widest">Corporate Track</span>
-                    <div className="text-lg font-bold mt-2 text-sky-300 font-mono">THE JOB</div>
-                  </div>
-                  <div className="text-xs text-slate-500">Work tasks and reports. No Bat Points — by design.</div>
-                </button>
+                />
               )}
             </div>
             <CountdownSection />
-            <div className="bg-dark-slate rounded border border-slate-800 p-6">
-              <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 mb-4 border-b border-slate-800 pb-2">
-                Operational Status
-              </h2>
-              <div className="text-xs text-slate-400 leading-relaxed max-w-2xl space-y-3">
-                <p>Welcome to Bat-Board, premium tactical control desk optimized for personal productivity and operations tracking.</p>
-                <p>Use the side navigation panel to log daily habits, track mission completion logs, and observe the secure ledger log system tracking all your points and activities.</p>
-              </div>
-            </div>
+            {/* Was a welcome blurb that never changed. It now reports the
+                day, because that is what an operational status is. */}
+            <Panel title="Operational Status" meta={todayLabel}>
+              {operationalLines.length === 0 ? (
+                <EmptyState compact>Nothing logged yet today</EmptyState>
+              ) : (
+                <ul className="space-y-1.5">
+                  {operationalLines.map((line) => (
+                    <li key={line.text} className="flex items-baseline gap-2 text-xs">
+                      <span className={`w-1 h-1 rounded-full shrink-0 translate-y-[-2px] ${line.dot}`} aria-hidden="true" />
+                      <span className="text-ink-muted">{line.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
           </div>
         );
     }
