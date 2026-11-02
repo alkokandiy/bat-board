@@ -44,6 +44,33 @@ module.exports = {
         gutter: '1.5rem',
         section: '2rem',
       },
+      // Softer corners. 4px reads as a web form; these read as hardware.
+      borderRadius: {
+        card: '14px',
+        tile: '12px',
+        chip: '8px',
+      },
+      // Depth instead of a 1px grey line round everything. The glow variants
+      // are for the one element that is genuinely active.
+      boxShadow: {
+        tile: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 2px 8px -2px rgba(0,0,0,0.6)',
+        lift: '0 1px 0 0 rgba(255,255,255,0.05) inset, 0 8px 24px -6px rgba(0,0,0,0.7)',
+        'glow-self': '0 0 0 1px rgba(255,215,0,0.25), 0 6px 20px -6px rgba(255,215,0,0.25)',
+        'glow-work': '0 0 0 1px rgba(56,189,248,0.25), 0 6px 20px -6px rgba(56,189,248,0.25)',
+      },
+      transitionTimingFunction: {
+        // iOS-ish: quick to start, settles rather than stops.
+        soft: 'cubic-bezier(0.32, 0.72, 0, 1)',
+      },
+      keyframes: {
+        'rise-in': {
+          '0%': { opacity: '0', transform: 'translateY(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+      animation: {
+        'rise-in': 'rise-in 260ms cubic-bezier(0.32, 0.72, 0, 1) both',
+      },
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         display: ['Bebas Neue', 'sans-serif'],

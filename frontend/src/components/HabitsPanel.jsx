@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../utils/api';
+import { PageHeader } from './ui';
 
 export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAccount }) {
   const [name, setName] = useState('');
@@ -71,12 +72,32 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
     }
   };
 
+  // A habit not yet kept today is the only thing here worth acting on, so it
+  // is the only figure allowed a colour.
+  const pendingToday = habits.filter(
+    (h) => !(h.last_completed && new Date(h.last_completed).toDateString() === new Date().toDateString()));
+  const bestStreak = habits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
+  const withoutCue = habits.filter((h) => !(h.cue || '').trim()).length;
+
+  const habitStats = habits.length === 0
+    ? [{ label: 'none yet', value: '' }]
+    : [
+        { label: 'tracked', value: habits.length },
+        ...(pendingToday.length
+          ? [{ label: 'still to keep today', value: pendingToday.length, tone: 'warn' }]
+          : [{ label: 'all kept today', value: '', tone: 'good' }]),
+        ...(bestStreak ? [{ label: 'day best run', value: bestStreak }] : []),
+        ...(withoutCue ? [{ label: 'without a trigger', value: withoutCue }] : []),
+      ];
+
   return (
     <div className="space-y-6">
-      <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
-        <h1 className="text-2xl font-bold tracking-wider">RECURRING RITUALS</h1>
-        <p className="text-xs text-slate-400">Regular training loops keeping the body and mind razor sharp. Maintain active streaks to amplify resource yields.</p>
-      </div>
+      {/* "Maintain active streaks to amplify resource yields" told you nothing
+          about your habits. This is where they actually stand. */}
+      <PageHeader
+        title="RECURRING RITUALS"
+        stats={habitStats}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Creation Form */}
