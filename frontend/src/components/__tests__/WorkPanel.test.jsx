@@ -18,6 +18,7 @@ vi.mock('../../utils/api', () => ({
     getWorkNotes: vi.fn(),
     createWorkNote: vi.fn(),
     getWorkReport: vi.fn(),
+    logPastFocus: vi.fn(),
   },
 }));
 
@@ -61,6 +62,7 @@ describe('WorkPanel', () => {
     api.getWorkTasks.mockResolvedValue([task()]);
     api.getWorkNotes.mockResolvedValue([]);
     api.getWorkReport.mockResolvedValue(REPORT);
+    api.logPastFocus.mockResolvedValue({ minutes: 120 });
   });
 
   it('shows the board, the schedule and the no-points rule', async () => {
@@ -68,7 +70,9 @@ describe('WorkPanel', () => {
     expect(screen.getByText('Ship the invoice')).toBeTruthy();
     expect(screen.getByText(/Wayne Enterprises/)).toBeTruthy();
     expect(screen.getByText(/Mon, Tue, Wed, Thu, Fri/)).toBeTruthy();
-    expect(screen.getByText(/NO BAT POINTS/)).toBeTruthy();
+    // The promise matters, not its casing — this line is the whole reason
+    // the work track is cyan and never yellow.
+    expect(screen.getByText(/no bat points/i)).toBeTruthy();
   });
 
   it('says so plainly instead of rendering an empty board when the track is off', async () => {
@@ -165,5 +169,35 @@ describe('the Work entry in the shell', () => {
       </DashboardLayout>,
     );
     expect(screen.getAllByRole('button', { name: /^Work$/ }).length).toBeGreaterThan(0);
+  });
+  it('logs hours already spent, from the task itself', async () => {
+    // Until this existed, the only way to record time was to ask Alfred —
+    // and before his tool existed that produced a work NOTE claiming hours
+    // the report then read as 0m.
+    await renderPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /log hours for ship the invoice/i }));
+    });
+    const field = screen.getByLabelText(/hours already spent/i);
+    await act(async () => {
+      fireEvent.change(field, { target: { value: '2' } });
+      fireEvent.click(screen.getByRole('button', { name: /^log$/i }));
+    });
+    expect(api.logPastFocus).toHaveBeenCalledWith({ minutes: 120, work_task_id: 1 });
+  });
+
+  it('shows the reason when the backend refuses the hours', async () => {
+    // The service refuses overlaps and blocks running into the future and
+    // says why; a generic failure would waste that.
+    api.logPastFocus.mockRejectedValue(new Error('That overlaps focus already recorded from 09:00 to 11:00 UTC'));
+    await renderPanel();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /log hours for ship the invoice/i }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/hours already spent/i), { target: { value: '2' } });
+      fireEvent.click(screen.getByRole('button', { name: /^log$/i }));
+    });
+    expect(screen.getByText(/overlaps focus already recorded/i)).toBeTruthy();
   });
 });

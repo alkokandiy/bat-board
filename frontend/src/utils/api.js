@@ -199,6 +199,10 @@ export const api = {
   // fallback. There is no universally correct length, so nothing is hard-coded.
   getSuggestedFocusMinutes: () => request('/focus/suggested-minutes'),
 
+  // Record focus that already happened. Until this existed, the only way to
+  // say "I did two hours on that yesterday" was to ask Alfred.
+  logPastFocus: (data) => request('/focus/log-past', { method: 'POST', body: data }),
+
   // Focus Stats
   getFocusStats: (period = 'week') => request(`/stats/focus?period=${encodeURIComponent(period)}`),
   getFocusTrend: (granularity = 'day') =>

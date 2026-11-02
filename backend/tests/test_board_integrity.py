@@ -327,3 +327,66 @@ def test_an_overlap_with_a_live_timed_session_is_also_caught():
         assert "overlaps" in str(exc.value)
     finally:
         db.close()
+
+
+# --- logging hours from the keyboard, not only through Alfred --------------
+
+def test_the_web_can_log_hours_that_already_happened(client, auth_headers):
+    """It existed only as an Alfred tool, so somebody at the keyboard had no
+    way to say "I did two hours on this yesterday" — and asking Alfred before
+    that tool existed produced a work NOTE claiming hours the report read as
+    zero."""
+    h = auth_headers("logpast_web")
+    client.put("/api/work/status", headers=h, json={"enabled": True})
+    task = client.post("/api/work/tasks", headers=h, json={"title": "fix discrepency"}).json()
+
+    when = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
+    r = client.post("/api/focus/log-past", headers=h,
+                    json={"minutes": 120, "when": when, "work_task_id": task["id"]})
+    assert r.status_code == 201, r.text
+    assert r.json()["minutes"] == 120
+    assert r.json()["logged_manually"] is True
+
+    # And it reaches the report, which is the whole point.
+    report = client.get("/api/work/report?period=today", headers=h).json()
+    assert report["minutes"] >= 120
+
+
+def test_the_web_refuses_an_overlapping_block_with_a_readable_reason(client, auth_headers):
+    h = auth_headers("logpast_overlap")
+    start = (datetime.now(timezone.utc) - timedelta(hours=8)).isoformat()
+    assert client.post("/api/focus/log-past", headers=h,
+                       json={"minutes": 120, "when": start}).status_code == 201
+
+    r = client.post("/api/focus/log-past", headers=h,
+                    json={"minutes": 120, "when": (
+                        datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()})
+    assert r.status_code == 400
+    assert "overlaps" in r.json()["detail"]
+
+
+def test_the_web_refuses_a_block_running_into_the_future(client, auth_headers):
+    h = auth_headers("logpast_future")
+    r = client.post("/api/focus/log-past", headers=h,
+                    json={"minutes": 240,
+                          "when": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()})
+    assert r.status_code == 400
+    assert "future" in r.json()["detail"]
+
+
+def test_logging_without_a_time_places_the_block_ending_now(client, auth_headers):
+    h = auth_headers("logpast_now")
+    r = client.post("/api/focus/log-past", headers=h, json={"minutes": 45})
+    assert r.status_code == 201 and r.json()["minutes"] == 45
+
+
+def test_another_users_task_cannot_be_logged_against(client, auth_headers):
+    owner = auth_headers("logpast_owner")
+    client.put("/api/work/status", headers=owner, json={"enabled": True})
+    task = client.post("/api/work/tasks", headers=owner, json={"title": "theirs"}).json()
+
+    intruder = auth_headers("logpast_intruder")
+    r = client.post("/api/focus/log-past", headers=intruder,
+                    json={"minutes": 30, "work_task_id": task["id"]})
+    assert r.status_code == 400
+    assert "not found" in r.json()["detail"].lower()

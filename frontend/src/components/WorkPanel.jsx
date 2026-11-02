@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Briefcase, Plus, Trash2, Check, BookOpen, FileText } from 'lucide-react';
+import { Briefcase, Plus, Trash2, Check, BookOpen, FileText, Clock } from 'lucide-react';
+import { PageHeader } from './ui';
 import { api } from '../utils/api';
 
 // The work side is deliberately steel-coloured, never bat-yellow: yellow is the
@@ -178,8 +179,21 @@ function SetupCard({ status, onSaved }) {
 
 /* --- task card ------------------------------------------------------------ */
 
-function TaskCard({ task, onMove, onComplete, onDelete, busy }) {
+function TaskCard({ task, onMove, onComplete, onDelete, onLogHours, busy }) {
   const meta = STATUS_META[task.status] || STATUS_META.todo;
+  const [logging, setLogging] = useState(false);
+  const [hours, setHours] = useState('');
+
+  // Hours could only be recorded by asking Alfred, and before the tool
+  // existed that produced a work NOTE claiming time the report read as zero.
+  const submitHours = (e) => {
+    e.preventDefault();
+    const h = parseFloat(hours);
+    if (!h || h <= 0) return;
+    onLogHours(task, Math.round(h * 60));
+    setHours('');
+    setLogging(false);
+  };
   return (
     <div className={`relative bg-matte-obsidian rounded border ${meta.box} p-3 pl-4 space-y-2 overflow-hidden`}>
       {/* The status is readable from the edge of the card, before reading a word. */}
@@ -212,6 +226,15 @@ function TaskCard({ task, onMove, onComplete, onDelete, busy }) {
             </button>
           )}
           <button
+            onClick={() => setLogging((v) => !v)}
+            disabled={busy}
+            title="Log hours already spent on this"
+            aria-label={`Log hours for ${task.title}`}
+            className="p-1.5 rounded border border-bat-line text-ink-faint hover:text-signal-work hover:border-signal-work/60 transition disabled:opacity-40"
+          >
+            <Clock size={13} />
+          </button>
+          <button
             onClick={() => onDelete(task)}
             disabled={busy}
             title="Delete"
@@ -221,6 +244,24 @@ function TaskCard({ task, onMove, onComplete, onDelete, busy }) {
           </button>
         </div>
       </div>
+      {logging && (
+        <form onSubmit={submitHours} className="flex items-center gap-2 pt-0.5">
+          <input
+            type="number" step="0.25" min="0.25" max="16" autoFocus
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            placeholder="hours"
+            aria-label="Hours already spent"
+            className="w-20 bg-bat-raised border border-bat-line rounded px-2 py-1 text-[11px] font-mono text-ink focus:outline-none focus:border-signal-work"
+          />
+          <button type="submit" disabled={busy}
+            className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-signal-work/60 text-signal-work hover:bg-signal-work/10 transition disabled:opacity-40">
+            Log
+          </button>
+          <span className="text-[10px] text-ink-faint">ending now</span>
+        </form>
+      )}
+
       {/* One tap to move a task, instead of opening a select on every card.
           The current column is marked rather than offered again. */}
       <div className="flex flex-wrap gap-1 pt-0.5">
@@ -250,7 +291,7 @@ function TaskCard({ task, onMove, onComplete, onDelete, busy }) {
 
 /* --- report --------------------------------------------------------------- */
 
-function ReportCard({ onSavedReflection }) {
+function ReportCard({ onSavedReflection, refreshKey = 0 }) {
   const [period, setPeriod] = useState('today');
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -271,7 +312,9 @@ function ReportCard({ onSavedReflection }) {
     }
   }, []);
 
-  useEffect(() => { load(period); }, [load, period]);
+  // refreshKey changes when hours are logged elsewhere on this screen,
+  // so the figures do not sit stale at 0m behind a fresh entry.
+  useEffect(() => { load(period); }, [load, period, refreshKey]);
 
   const saveReflection = async () => {
     if (!reflection.trim()) return;
@@ -465,6 +508,10 @@ export default function WorkPanel({ onStatusChange }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  // Only today's total, for the header. The full report stays in ReportCard,
+  // which has its own period tabs.
+  const [todayMinutes, setTodayMinutes] = useState(null);
+  const [reportKey, setReportKey] = useState(0);
   const [showDone, setShowDone] = useState(false);
   const [title, setTitle] = useState('');
   const [project, setProject] = useState('');
@@ -525,8 +572,37 @@ export default function WorkPanel({ onStatusChange }) {
     }
   };
 
+  const refreshTodayMinutes = useCallback(async () => {
+    try {
+      const r = await api.getWorkReport('today');
+      setTodayMinutes(r?.minutes ?? null);
+    } catch {
+      setTodayMinutes(null);
+    }
+  }, []);
+
+  useEffect(() => { refreshTodayMinutes(); }, [refreshTodayMinutes]);
+
   const moveTask = (task, status_) => withTask(task, () => api.updateWorkTask(task.id, { status: status_ }));
   const completeTask = (task) => withTask(task, () => api.completeWorkTask(task.id));
+  // Logging hours is not a task update: it writes a focus session, then the
+  // report has to be re-read or the tile keeps saying 0m.
+  const logHours = async (task, minutes) => {
+    setBusyId(task.id);
+    setError(null);
+    try {
+      await api.logPastFocus({ minutes, work_task_id: task.id });
+      setReportKey((k) => k + 1);
+      await refreshTodayMinutes();
+    } catch (err) {
+      // The service refuses overlaps and anything running into the future,
+      // and says why — show that rather than a generic failure.
+      setError(err.message || 'Could not log those hours.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const deleteTask = (task) => {
     if (!window.confirm(`Delete work task "${task.title}"?`)) return;
     return withTask(task, async () => { await api.deleteWorkTask(task.id); return null; });
@@ -559,18 +635,26 @@ export default function WorkPanel({ onStatusChange }) {
       : null,
   ].filter(Boolean).join(' · ');
 
+  const openCount = tasks.filter((t) => OPEN_STATUSES.includes(t.status)).length;
+  const blockedCount = tasks.filter((t) => t.status === 'blocked').length;
+
   return (
     <div className="h-full flex flex-col min-h-0 space-y-5">
-      <div className="border-l-4 border-sky-700 pl-4 py-1 shrink-0">
-        <h1 className="text-2xl font-bold tracking-wider flex items-center gap-2">
-          <Briefcase size={20} className="text-sky-400" /> CORPORATE TRACK
-        </h1>
-        <p className="text-xs text-slate-400">
+      <div className="shrink-0">
+        <PageHeader
+          title="CORPORATE TRACK"
+          accent="work"
+          stats={[
+            { label: 'open', value: openCount, tone: 'work' },
+            ...(blockedCount ? [{ label: 'blocked', value: blockedCount, tone: 'late' }] : []),
+            ...(todayMinutes !== null ? [{ label: 'logged today', value: fmtHm(todayMinutes) }] : []),
+          ]}
+        >
           {scheduleLine || 'The job, kept apart from your missions.'}
-        </p>
-        <p className="text-[10px] text-slate-600 font-mono mt-0.5">
-          NO BAT POINTS — BY DESIGN. POINTS MEASURE YOU, NOT THE JOB.
-        </p>
+          <span className="block mt-0.5 font-mono text-[10px] text-ink-faint/70">
+            No Bat Points — by design. Points measure you, not the job.
+          </span>
+        </PageHeader>
       </div>
 
       {error && (
@@ -639,6 +723,7 @@ export default function WorkPanel({ onStatusChange }) {
                       onMove={moveTask}
                       onComplete={completeTask}
                       onDelete={deleteTask}
+                      onLogHours={logHours}
                     />
                   ))}
                 </div>
@@ -648,7 +733,7 @@ export default function WorkPanel({ onStatusChange }) {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <ReportCard onSavedReflection={load} />
+          <ReportCard onSavedReflection={load} refreshKey={reportKey} />
           <JournalCard notes={notes} onAdded={load} />
         </div>
       </div>
