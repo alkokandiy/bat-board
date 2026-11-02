@@ -353,3 +353,39 @@ def test_work_facts_leave_the_nudge_engine_when_work_is_off(client, auth_headers
         assert drift is not None and "at work" not in drift.draft
     finally:
         db.close()
+
+
+def test_a_journal_entry_can_be_taken_back(client, auth_headers):
+    """The journal was write-only. That stranded notes reading "Logged 4 hours
+    for pricelist button creation" — written before focus could be backfilled,
+    describing time the report has always counted as zero."""
+    h = auth_headers("worknote_del")
+    _enable(client, h)
+    made = client.post("/api/work/notes", headers=h,
+                       json={"content": "Logged 4 hours for pricelist button creation"})
+    assert made.status_code == 201, made.text
+    note_id = made.json()["id"]
+
+    assert client.delete(f"/api/work/notes/{note_id}", headers=h).status_code == 204
+    assert all(n["id"] != note_id
+               for n in client.get("/api/work/notes", headers=h).json())
+
+
+def test_deleting_a_journal_entry_that_is_not_there_is_a_404(client, auth_headers):
+    h = auth_headers("worknote_missing")
+    _enable(client, h)
+    assert client.delete("/api/work/notes/999999", headers=h).status_code == 404
+
+
+def test_one_user_cannot_delete_anothers_journal_entry(client, auth_headers):
+    owner = auth_headers("worknote_owner")
+    _enable(client, owner)
+    note_id = client.post("/api/work/notes", headers=owner,
+                          json={"content": "mine"}).json()["id"]
+
+    intruder = auth_headers("worknote_intruder")
+    _enable(client, intruder)
+    assert client.delete(f"/api/work/notes/{note_id}", headers=intruder).status_code == 404
+    # And it is still there for its owner.
+    assert any(n["id"] == note_id
+               for n in client.get("/api/work/notes", headers=owner).json())

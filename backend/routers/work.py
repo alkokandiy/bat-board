@@ -228,6 +228,19 @@ def create_note(
 # --- reports ----------------------------------------------------------------
 
 
+@router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(require_work_enabled),
+):
+    """Remove a journal entry. Theirs to correct, so no confirmation gate."""
+    if not work_service.delete_note(db, current_user, note_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Journal entry not found")
+    return None
+
+
 @router.get("/report")
 def work_report(
     period: str = "today",
