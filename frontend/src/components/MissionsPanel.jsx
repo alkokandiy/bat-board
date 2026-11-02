@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { X } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader } from './ui';
+import { PageHeader, Button, fieldClass } from './ui';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
@@ -42,6 +43,70 @@ const QUADRANT_STYLES = {
 
 function parseSubtasks(val) {
   try { return val ? JSON.parse(val) : []; } catch { return []; }
+}
+
+/**
+ * Subtasks, edited as subtasks.
+ *
+ * This was a textarea labelled "Subtasks (JSON array of {title, done})" whose
+ * placeholder was literal JSON. Asking someone to hand-write
+ * [{"title":"...","done":false}] to add a checklist item is the single
+ * clearest sign nobody had used this form. The stored value is still that
+ * JSON string, so nothing on the backend changes — only what a person has to
+ * type.
+ */
+function SubtaskEditor({ value, onChange }) {
+  const items = parseSubtasks(value);
+  const [draft, setDraft] = useState('');
+
+  const write = (next) => onChange(next.length ? JSON.stringify(next) : '');
+
+  const add = () => {
+    const title = draft.trim();
+    if (!title) return;
+    write([...items, { title, done: false }]);
+    setDraft('');
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2 rounded-chip bg-bat-raised ring-1 ring-bat-line px-2.5 py-1.5">
+          <button
+            type="button"
+            onClick={() => write(items.map((it, j) => (j === i ? { ...it, done: !it.done } : it)))}
+            aria-label={item.done ? `Mark "${item.title}" not done` : `Mark "${item.title}" done`}
+            className={`w-3.5 h-3.5 shrink-0 rounded-[4px] ring-1 transition-colors duration-200 ease-soft
+              ${item.done ? 'bg-signal-good ring-signal-good' : 'ring-bat-line-strong hover:ring-ink-muted'}`}
+          />
+          <span className={`flex-1 text-xs truncate ${item.done ? 'text-ink-faint line-through' : 'text-ink-muted'}`}>
+            {item.title}
+          </span>
+          <button
+            type="button"
+            onClick={() => write(items.filter((_, j) => j !== i))}
+            aria-label={`Remove subtask "${item.title}"`}
+            className="text-ink-faint hover:text-signal-late transition-colors duration-200"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          // Enter must not submit the whole mission form while adding a step.
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder="Add a step..."
+          aria-label="New subtask"
+          className={`${fieldClass} text-xs`}
+        />
+        <Button type="button" size="sm" onClick={add} disabled={!draft.trim()}>Add</Button>
+      </div>
+    </div>
+  );
 }
 
 function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
@@ -339,8 +404,8 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
             <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="Classified intel..." className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow h-16 resize-none" />
           </div>
           <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Subtasks (JSON array of {`{title, done}`})</label>
-            <textarea value={form.subtasks} onChange={e => setForm({...form, subtasks: e.target.value})} placeholder='[{&quot;title&quot;:&quot;Scout perimeter&quot;,&quot;done&quot;:false}]' className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow h-12 resize-none font-mono text-[10px]" />
+            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Subtasks</label>
+            <SubtaskEditor value={form.subtasks} onChange={(v) => setForm({ ...form, subtasks: v })} />
           </div>
           <div className="flex space-x-3 pt-2">
             <button type="submit" disabled={loading} className="flex-1 py-2.5 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono tracking-widest disabled:opacity-50">
