@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../utils/api';
+import { PageHeader } from './ui';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
@@ -354,17 +355,36 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
     </div>
   );
 
+  // Overdue is the only thing on this screen that needs a decision today.
+  const openForStats = missions.filter((m) => m.status === 'pending' && !m.is_dismissed);
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const overdueCount = openForStats.filter(
+    (m) => m.due_date && new Date(m.due_date) < startOfToday).length;
+  const dueTodayCount = openForStats.filter(
+    (m) => m.due_date && new Date(m.due_date).toDateString() === new Date().toDateString()).length;
+  const undatedCount = openForStats.filter((m) => !m.due_date).length;
+
+  const missionStats = [
+    { label: 'open', value: openForStats.length },
+    ...(overdueCount ? [{ label: 'overdue', value: overdueCount, tone: 'late' }] : []),
+    ...(dueTodayCount ? [{ label: 'due today', value: dueTodayCount, tone: 'warn' }] : []),
+    ...(undatedCount ? [{ label: 'with no date', value: undatedCount }] : []),
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
-          <h1 className="text-2xl font-bold tracking-wider">TACTICAL MISSIONS</h1>
-          <p className="text-xs text-slate-400">One-time operational objectives. Completing high-priority targets yields maximum resources.</p>
-        </div>
-        <button onClick={() => { setEditMission(null); resetForm(); setShowForm(true); }} className="px-3 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono text-[10px] tracking-widest">
-          + NEW MISSION
-        </button>
-      </div>
+      <PageHeader
+        title="TACTICAL MISSIONS"
+        stats={missionStats}
+        action={(
+          <button
+            onClick={() => { setEditMission(null); resetForm(); setShowForm(true); }}
+            className="px-4 py-2 bg-signal-self text-bat-bg font-bold rounded-chip hover:brightness-110 active:scale-[0.98] transition-all duration-200 ease-soft font-mono text-[10px] tracking-widest"
+          >
+            + NEW MISSION
+          </button>
+        )}
+      />
 
       <div className="flex items-center space-x-2 text-[10px] font-mono">
         <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded border transition ${viewMode === 'list' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>List</button>

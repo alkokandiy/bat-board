@@ -204,18 +204,34 @@ export default function NotesPanel() {
   const hasNotes = notes.length > 0;
   const hasResults = filtered.length > 0;
 
+  // Which set is on screen, and how much of it — "NOTES" alone said neither.
+  const noteStats = [
+    { label: scope === 'alfred' ? "of Alfred's" : 'notes', value: notes.length },
+    ...(notes.filter((n) => n.pinned).length
+      ? [{ label: 'pinned', value: notes.filter((n) => n.pinned).length, tone: 'self' }]
+      : []),
+  ];
+
   return (
-    <div className="h-full flex flex-col bg-[#08080f]">
-      <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-[#1e1e2e]">
-        <h1 className="text-2xl tracking-wider text-slate-100 font-display">NOTES</h1>
-        <button onClick={handleNew} className="px-5 py-2 bg-[#f5c518] text-[#08080f] font-bold rounded-lg hover:brightness-110 transition font-body text-sm tracking-wider">
-          + New Note
-        </button>
+    <div className="h-full flex flex-col bg-bat-bg">
+      <div className="shrink-0 px-6 pt-5 pb-3 border-b border-white/[0.04]">
+        <PageHeader
+          title="NOTES"
+          stats={noteStats}
+          action={(
+            <button
+              onClick={handleNew}
+              className="px-5 py-2 bg-signal-self text-bat-bg font-bold rounded-chip hover:brightness-110 active:scale-[0.98] transition-all duration-200 ease-soft font-body text-sm tracking-wider"
+            >
+              + New Note
+            </button>
+          )}
+        />
       </div>
 
       <div className="flex-1 min-h-0 flex gap-4 p-4">
-        <aside className="w-80 shrink-0 flex flex-col bg-[#0d0d18] rounded-[10px] border border-[#1e1e2e] overflow-hidden">
-          <div className="shrink-0 p-3 border-b border-[#1e1e2e] space-y-2">
+        <aside className="w-80 shrink-0 flex flex-col bg-bat-surface rounded-[10px] border border-bat-line overflow-hidden">
+          <div className="shrink-0 p-3 border-b border-bat-line space-y-2">
             <div className="flex gap-1.5">
               {[['mine', 'MINE'], ['alfred', "ALFRED'S"]].map(([key, label]) => (
                 <button
@@ -223,8 +239,8 @@ export default function NotesPanel() {
                   onClick={() => { setScope(key); setSelectedId(null); }}
                   className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono tracking-wider border transition ${
                     scope === key
-                      ? 'bg-[#f5c518] text-[#08080f] font-bold border-[#f5c518]'
-                      : 'bg-transparent border-[#1e1e2e] text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                      ? 'bg-signal-self text-bat-bg font-bold border-signal-self'
+                      : 'bg-transparent border-bat-line text-slate-500 hover:text-slate-300 hover:border-slate-600'
                   }`}
                 >
                   {label}
@@ -234,11 +250,11 @@ export default function NotesPanel() {
             <input
               type="text" placeholder="Search notes..." value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full bg-[#08080f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-[#f5c518] transition font-body"
+              className="w-full bg-bat-bg border border-bat-line rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-signal-self transition font-body"
             />
             <select
               value={sortBy} onChange={e => setSortBy(e.target.value)}
-              className="w-full bg-[#08080f] border border-[#1e1e2e] rounded-lg px-3 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-[#f5c518] transition font-body cursor-pointer"
+              className="w-full bg-bat-bg border border-bat-line rounded-lg px-3 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-signal-self transition font-body cursor-pointer"
             >
               <option value="edited">Last Edited</option>
               <option value="created">Created</option>
@@ -260,15 +276,15 @@ export default function NotesPanel() {
                 key={note.id} onClick={() => handleSelect(note.id)}
                 className={`group relative rounded-lg px-3 py-2.5 cursor-pointer transition-all duration-150 border ${
                   selectedId === note.id
-                    ? 'bg-[#1a1a2e] border-[#f5c518]/40'
-                    : 'bg-transparent border-transparent hover:bg-[#1a1a2e]/50 hover:border-[#1e1e2e]'
+                    ? 'bg-[#1a1a2e] border-signal-self/40'
+                    : 'bg-transparent border-transparent hover:bg-[#1a1a2e]/50 hover:border-bat-line'
                 }`}
               >
                 <div className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      {note.pinned && <span className="text-[#f5c518] text-[10px]">&#9733;</span>}
-                      <span className={`text-sm truncate font-body ${selectedId === note.id ? 'text-[#f5c518]' : 'text-slate-200'}`}>
+                      {note.pinned && <span className="text-signal-self text-[10px]">&#9733;</span>}
+                      <span className={`text-sm truncate font-body ${selectedId === note.id ? 'text-signal-self' : 'text-slate-200'}`}>
                         {note.title || 'Untitled'}
                       </span>
                     </div>
@@ -277,7 +293,7 @@ export default function NotesPanel() {
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       {note.category && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-[#1e1e2e] text-slate-400 font-body">{note.category}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-bat-line text-slate-400 font-body">{note.category}</span>
                       )}
                       <span className="text-[9px] text-slate-600 font-body">
                         {note.updatedAt ? new Date(note.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
@@ -294,7 +310,7 @@ export default function NotesPanel() {
           </div>
         </aside>
 
-        <main className="flex-1 min-w-0 flex flex-col bg-[#0d0d18] rounded-[10px] border border-[#1e1e2e] overflow-hidden">
+        <main className="flex-1 min-w-0 flex flex-col bg-bat-surface rounded-[10px] border border-bat-line overflow-hidden">
           {!selectedNote ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center space-y-3">
@@ -322,14 +338,14 @@ export default function NotesPanel() {
                 />
               </div>
 
-              <div className="shrink-0 border-t border-[#1e1e2e] px-5 py-3 flex items-center justify-between flex-wrap gap-2">
+              <div className="shrink-0 border-t border-bat-line px-5 py-3 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <input
                       type="text" placeholder="Tag..." value={selectedNote.category}
                       onChange={e => updateField('category', e.target.value)}
                       list="note-tags"
-                      className="w-28 bg-[#08080f] border border-[#1e1e2e] rounded-lg px-2.5 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-[#f5c518] transition font-body"
+                      className="w-28 bg-bat-bg border border-bat-line rounded-lg px-2.5 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-signal-self transition font-body"
                     />
                     <datalist id="note-tags">
                       {allTags.map(t => <option key={t} value={t} />)}
@@ -338,7 +354,7 @@ export default function NotesPanel() {
                   <button
                     onClick={togglePin}
                     className={`text-sm px-2 py-1 rounded-lg transition font-body ${
-                      selectedNote.pinned ? 'text-[#f5c518] bg-[#f5c518]/10' : 'text-slate-500 hover:text-slate-300'
+                      selectedNote.pinned ? 'text-signal-self bg-signal-self/10' : 'text-slate-500 hover:text-slate-300'
                     }`}
                   >
                     {selectedNote.pinned ? '\u2605 Pinned' : '\u2606 Pin'}
@@ -353,7 +369,7 @@ export default function NotesPanel() {
                     {selectedNote.updatedAt ? new Date(selectedNote.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                   </span>
                   {saving && (
-                    <span className="text-[#f5c518] text-[10px] font-medium transition-opacity">Saved &#10003;</span>
+                    <span className="text-signal-self text-[10px] font-medium transition-opacity">Saved &#10003;</span>
                   )}
                 </div>
               </div>
