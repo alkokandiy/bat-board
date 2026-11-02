@@ -210,6 +210,28 @@ def list_notes(db: Session, user: models.BatAccount, *, kind: Optional[str] = No
     return q.order_by(models.BatWorkNote.created_at.desc()).limit(limit).all()
 
 
+def delete_note(db: Session, user: models.BatAccount, note_id: int) -> bool:
+    """Remove one journal entry. True if it existed and belonged to them.
+
+    The journal was write-only: entries could be added and never taken back.
+    That stranded four notes reading "Logged 4 hours for pricelist button
+    creation" — written before focus could be backfilled, describing time the
+    report has always counted as zero. A record you cannot correct stops being
+    a record.
+    """
+    note = (
+        db.query(models.BatWorkNote)
+        .filter(models.BatWorkNote.id == note_id,
+                models.BatWorkNote.owner_id == user.id)
+        .first()
+    )
+    if note is None:
+        return False
+    db.delete(note)
+    db.commit()
+    return True
+
+
 # --- reporting --------------------------------------------------------------
 
 def period_range(user: models.BatAccount, period: str, today: date):

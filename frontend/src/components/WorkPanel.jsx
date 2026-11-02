@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Briefcase, Plus, Trash2, Check, BookOpen, FileText, Clock } from 'lucide-react';
-import { PageHeader } from './ui';
+import { PageHeader, Panel, EmptyState, Button, Field, fieldClass } from './ui';
 import { api } from '../utils/api';
 
 // The work side is deliberately steel-coloured, never bat-yellow: yellow is the
@@ -429,7 +429,7 @@ function ReportCard({ onSavedReflection, refreshKey = 0 }) {
 
 /* --- journal -------------------------------------------------------------- */
 
-function JournalCard({ notes, onAdded }) {
+function JournalCard({ notes, onAdded, onDeleted }) {
   const [content, setContent] = useState('');
   const [kind, setKind] = useState('note');
   const [error, setError] = useState(null);
@@ -447,55 +447,75 @@ function JournalCard({ notes, onAdded }) {
     }
   };
 
+  const remove = async (note) => {
+    if (!window.confirm('Remove this journal entry?')) return;
+    try {
+      await api.deleteWorkNote(note.id);
+      setError(null);
+      onDeleted();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
-    <div className="bg-dark-slate rounded border border-slate-800 p-4 space-y-3">
-      <h2 className="text-xs font-mono uppercase tracking-widest text-slate-300 flex items-center gap-2 border-b border-slate-800 pb-2">
-        <BookOpen size={13} /> Work journal
-      </h2>
+    <Panel
+      title={<span className="flex items-center gap-2"><BookOpen size={13} /> Work journal</span>}
+      meta={notes.length ? String(notes.length) : null}
+    >
       <form onSubmit={add} className="space-y-2">
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={2}
           placeholder="Something learned, something worth remembering about the job."
-          className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-600"
+          className={`${fieldClass} text-xs resize-none focus:ring-signal-work/50`}
         />
         <div className="flex items-center gap-2">
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value)}
-            className="bg-matte-obsidian border border-slate-800 rounded px-2 py-1.5 text-[11px] font-mono text-slate-300 focus:outline-none focus:border-sky-600"
+            className={`${fieldClass} w-auto py-1.5 text-[11px] font-mono focus:ring-signal-work/50`}
           >
             {NOTE_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
           </select>
-          <button
-            type="submit"
-            aria-label="Add journal entry"
-            disabled={!content.trim()}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono tracking-wider rounded disabled:opacity-40"
-          >
-            ADD
-          </button>
+          <Button type="submit" size="sm" tone="work"
+            aria-label="Add journal entry" disabled={!content.trim()}>
+            Add
+          </Button>
         </div>
-        {error && <div className="text-xs text-red-400">{error}</div>}
+        {error && <div className="text-xs text-signal-late">{error}</div>}
       </form>
 
-      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+      <div className="mt-3 space-y-2 max-h-64 overflow-y-auto pr-1">
         {notes.length === 0 ? (
-          <div className="text-[11px] text-slate-600 italic">Nothing in the journal yet.</div>
+          <EmptyState compact>Nothing in the journal yet</EmptyState>
         ) : notes.map((n) => (
-          <div key={n.id} className="bg-matte-obsidian rounded border border-slate-800 p-2.5">
-            <div className="flex items-center justify-between gap-2 text-[9px] font-mono uppercase tracking-wider text-slate-500">
-              <span className={n.kind === 'learning' ? 'text-sky-400' : n.kind === 'reflection' ? 'text-amber-400' : ''}>
+          <div key={n.id}
+            className="group rounded-chip bg-bat-raised ring-1 ring-bat-line p-2.5 transition-colors duration-200 ease-soft hover:ring-bat-line-strong">
+            <div className="flex items-center justify-between gap-2 text-[9px] font-mono uppercase tracking-wider text-ink-faint">
+              <span className={n.kind === 'learning' ? 'text-signal-work' : n.kind === 'reflection' ? 'text-signal-warn' : ''}>
                 {n.kind}
               </span>
-              <span>{fmtDate(n.created_at)}</span>
+              <span className="flex items-center gap-2">
+                {fmtDate(n.created_at)}
+                {/* The journal was write-only until now, which stranded four
+                    entries claiming hours the report counted as zero. */}
+                <button
+                  onClick={() => remove(n)}
+                  aria-label={`Remove journal entry: ${n.content.slice(0, 40)}`}
+                  title="Remove this entry"
+                  className="opacity-0 group-hover:opacity-100 focus:opacity-100 text-ink-faint hover:text-signal-late transition-opacity duration-200"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </span>
             </div>
-            <div className="text-xs text-slate-300 mt-1 whitespace-pre-wrap">{n.content}</div>
+            <div className="text-xs text-ink-muted mt-1 whitespace-pre-wrap">{n.content}</div>
           </div>
         ))}
       </div>
-    </div>
+    </Panel>
   );
 }
 
@@ -734,7 +754,7 @@ export default function WorkPanel({ onStatusChange }) {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           <ReportCard onSavedReflection={load} refreshKey={reportKey} />
-          <JournalCard notes={notes} onAdded={load} />
+          <JournalCard notes={notes} onAdded={load} onDeleted={load} />
         </div>
       </div>
     </div>

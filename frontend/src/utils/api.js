@@ -286,6 +286,9 @@ export const api = {
   getWorkNotes: (kind = '') =>
     request(`/work/notes${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
   createWorkNote: (data) => request('/work/notes', { method: 'POST', body: data }),
+  // The journal was write-only, which stranded entries describing time
+  // the report had always counted as zero.
+  deleteWorkNote: (id) => request(`/work/notes/${id}`, { method: 'DELETE' }),
   getWorkReport: (period = 'today') =>
     request(`/work/report?period=${encodeURIComponent(period)}`),
 
