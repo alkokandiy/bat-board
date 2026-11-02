@@ -121,6 +121,7 @@ export default function App() {
   // has ever compared it against anything. The real default is the user's own
   // median session, fetched at boot; this is only the value before that lands.
   const [focusSessionLength, setFocusSessionLength] = useState(30);
+  const [focusSuggestion, setFocusSuggestion] = useState(null);
   const [focusTimeLeft, setFocusTimeLeft] = useState(25 * 60);
   const [focusRunning, setFocusRunning] = useState(false);
   const [focusSelectedMissionId, setFocusSelectedMissionId] = useState('');
@@ -164,6 +165,10 @@ export default function App() {
       // one. Kept off the boot path: a failure here must not block the board.
       api.getSuggestedFocusMinutes()
         .then((s) => {
+          // Kept, not just applied: the Focus screen says WHERE the number
+          // came from, because "25 minutes" with no provenance is exactly the
+          // folklore this replaced.
+          setFocusSuggestion(s || null);
           if (s?.basis === 'history' && s.minutes > 0) setFocusSessionLength(s.minutes);
         })
         .catch(() => {});
@@ -548,6 +553,7 @@ export default function App() {
               focusTotalTime={focusSessionLength * 60}
               focusRunning={focusRunning}
               focusSessionLength={focusSessionLength}
+              focusSuggestion={focusSuggestion}
               focusSelectedMissionId={focusSelectedMissionId}
               focusSelectedHabitId={focusSelectedHabitId}
               focusNotice={focusNotice}

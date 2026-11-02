@@ -1,6 +1,7 @@
 import React from 'react';
 import { trackPresets } from './AudioPlayer';
 import BatFocusTimer from './BatFocusTimer';
+import { PageHeader, Panel } from './ui';
 
 export default function FocusPanel({
   activeTrack,
@@ -28,6 +29,7 @@ export default function FocusPanel({
   onFocusAdjustTime,
   onFocusSessionChange,
   onFocusExit,
+  focusSuggestion,
 }) {
   const selectedMission = missions.find(m => String(m.id) === focusSelectedMissionId);
   const missionName = selectedMission ? selectedMission.title : '';
@@ -70,6 +72,18 @@ export default function FocusPanel({
   };
   const openMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
 
+  const selectedHabit = habits.find(h => String(h.id) === focusSelectedHabitId);
+  const targetLabel = selectedMission ? selectedMission.title
+    : selectedHabit ? selectedHabit.name : '';
+
+  // Where the default came from. A bare "25" is the folklore this replaced;
+  // their own median is the only defensible recommendation, and saying which
+  // it is keeps the honesty of it visible.
+  const lengthHint = !focusSuggestion ? null
+    : focusSuggestion.basis === 'history'
+      ? `Your usual session is ${focusSuggestion.minutes} min, across ${focusSuggestion.sessions} logged.`
+      : 'A starting point — this becomes your own median once you have a few sessions logged.';
+
   const handleTrackSelect = (track) => {
     if (activeTrack?.id === track.id && isPlaying) {
       onTrackChange(null);
@@ -80,13 +94,23 @@ export default function FocusPanel({
 
   return (
     <div className="space-y-6">
-      <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
-        <h1 className="text-2xl font-bold tracking-wider">FOCUS HOURGLASS</h1>
-        <p className="text-xs text-slate-400">Lock yourself into cognitive isolation. Power through deep work with zero external interruptions.</p>
-      </div>
+      {/* The old line — "Lock yourself into cognitive isolation" — described
+          nothing about this session. These are the settings you are about to
+          start with. */}
+      <PageHeader
+        title="FOCUS HOURGLASS"
+        stats={[
+          { label: 'minutes', value: focusSessionLength },
+          // PageHeader renders value-then-label, so the preposition belongs
+          // in the value or it reads "Review the tracker on".
+          targetLabel
+            ? { label: '', value: `on ${targetLabel}`, tone: 'self' }
+            : { label: '', value: 'free focus' },
+        ]}
+      />
 
       {focusNotice && (
-        <div className="rounded border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-xs text-amber-300 font-mono">
+        <div className="rounded-lg border border-signal-warn/40 bg-signal-warn/10 px-4 py-2 text-xs text-signal-warn font-mono">
           {focusNotice}
         </div>
       )}
@@ -109,11 +133,8 @@ export default function FocusPanel({
           />
         </div>
 
-        <div className="bg-dark-slate p-6 rounded border border-slate-800 space-y-6">
-          <div className="space-y-4">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2">
-              Parameters
-            </h2>
+        <div className="space-y-4">
+          <Panel title="Parameters">
             <div className="text-xs">
               <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Focus Target</label>
               <select
@@ -150,15 +171,15 @@ export default function FocusPanel({
                 value={focusSessionLength}
                 onChange={handleSessionChange}
                 disabled={focusRunning}
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
+                className="w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-ink font-mono focus:outline-none focus:border-signal-self disabled:opacity-50"
               />
+              {lengthHint && (
+                <p className="mt-1 text-[10px] text-ink-faint leading-relaxed">{lengthHint}</p>
+              )}
             </div>
-          </div>
+          </Panel>
 
-          <div className="space-y-4">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2">
-              Soundtrack
-            </h2>
+          <Panel title="Soundtrack">
             <div className="text-xs space-y-2">
               {trackPresets.map((track) => {
                 const isSelected = activeTrack?.id === track.id;
@@ -178,7 +199,7 @@ export default function FocusPanel({
                 );
               })}
             </div>
-          </div>
+          </Panel>
         </div>
       </div>
     </div>

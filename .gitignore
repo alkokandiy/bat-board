@@ -60,3 +60,5 @@ research_notes/
 
 # Local preview config for the frontend dev server lives at the repo root.
 frontend/.claude/
+frontend/preview.html
+frontend/src/preview.jsx
