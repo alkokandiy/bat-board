@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { api } from '../utils/api.js';
 import { migrateOnce } from '../utils/migrateLocalStorage.js';
+import { PageHeader } from './ui';
 
 const LEGACY_KEY = 'bat_notes';
 const MIGRATED_FLAG = 'bat_notes_migrated';

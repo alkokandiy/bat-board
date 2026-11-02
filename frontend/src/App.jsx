@@ -586,7 +586,7 @@ export default function App() {
       default:
         return (
           <div className="space-y-6">
-            <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
+            <div>
               {/* The header carries facts now. "Tactical overview of ongoing
                   Gotham defense protocols" occupied the most valuable line on
                   the screen and said nothing about the board. */}
