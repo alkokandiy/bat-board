@@ -846,6 +846,52 @@ def list_habits(
 ):
     return habit_service.list_habits(db, current_user)
 
+class LogPastFocusRequest(BaseModel):
+    minutes: int = Field(..., ge=1, le=16 * 60)
+    # Omit and the block is placed ending now, which is what "I have just done
+    # two hours" means.
+    when: Optional[datetime] = None
+    mission_id: Optional[int] = None
+    habit_id: Optional[int] = None
+    work_task_id: Optional[int] = None
+
+
+@app.post("/api/focus/log-past", status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
+def log_past_focus(
+    request: Request,
+    payload: LogPastFocusRequest,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Record focus that already happened.
+
+    This existed only as an Alfred tool, so somebody at the keyboard had no
+    way to say "I did two hours on this yesterday" — and asking Alfred before
+    the tool existed produced a work NOTE claiming hours that the report then
+    read as zero. Same service, same rules: no Bat Points, no overlapping
+    blocks, nothing running into the future.
+    """
+    try:
+        session = focus_service.log_past_session(
+            db, current_user,
+            minutes=payload.minutes,
+            when=payload.when,
+            mission_id=payload.mission_id,
+            habit_id=payload.habit_id,
+            work_task_id=payload.work_task_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return {
+        "id": session.id,
+        "minutes": session.duration_minutes,
+        "start_time": session.start_time,
+        "end_time": session.end_time,
+        "logged_manually": True,
+    }
+
+
 @app.get("/api/focus/suggested-minutes")
 @limiter.limit("30/minute")
 def get_suggested_focus_minutes(
