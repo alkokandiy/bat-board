@@ -444,6 +444,10 @@ def health_check():
     return {
         "status": "healthy",
         "version": settings.app_version,
+        # The commit this image was built from. Hard-won: a stale frontend ran
+        # against a current backend for weeks, and nothing on the running
+        # system could say so.
+        "build": os.getenv("BUILD_SHA", "dev"),
         "environment": settings.environment,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }

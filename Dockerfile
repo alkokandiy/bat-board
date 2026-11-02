@@ -4,6 +4,11 @@ WORKDIR /app/frontend
 COPY frontend/package.json ./
 RUN npm install
 COPY frontend/ .
+# The commit being built. Railway passes this; it also busts the build cache
+# for this stage, which is how a stale frontend shipped alongside a current
+# backend for weeks without anyone being able to tell.
+ARG BUILD_SHA=dev
+ENV VITE_BUILD_SHA=$BUILD_SHA
 RUN npm run build
 
 # Build backend
@@ -22,6 +27,9 @@ COPY backend/requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY backend/ .
+
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=$BUILD_SHA
 
 COPY --from=frontend-builder /app/frontend/dist /app/static
 
