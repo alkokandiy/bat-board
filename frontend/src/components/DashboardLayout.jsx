@@ -23,6 +23,9 @@ const ICON_MAP = {
 const SIDEBAR_WIDTH = 256;
 const SIDEBAR_COLLAPSED_WIDTH = 72;
 
+// Stamped at build time by the Dockerfile (ARG BUILD_SHA). "dev" locally.
+const BUILD_SHA = (import.meta.env.VITE_BUILD_SHA || 'dev').slice(0, 7);
+
 export default function DashboardLayout({ account, currentView, onViewChange = () => {}, onLogout = () => {}, activeTrack, isPlaying, onTogglePlay, onTrackChange, focusMode, workEnabled = false, children }) {
   const { username = "Loading...", points = 0, bat_level = "Loading..." } = account || {};
 
@@ -261,8 +264,11 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
 
             {!isCollapsed && (
               <div className="px-6 text-center mt-4 shrink-0">
-                <div className="text-[10px] font-mono text-slate-600">
-                  BUILD v1.0.0 // ENCRYPTED
+                {/* The real commit, not a hard-coded "v1.0.0". A stale
+                    frontend ran against a current backend for weeks and
+                    nothing on screen could say so. */}
+                <div className="text-[10px] font-mono text-slate-600" title="Build this page was compiled from">
+                  BUILD {BUILD_SHA} // ENCRYPTED
                 </div>
               </div>
             )}
