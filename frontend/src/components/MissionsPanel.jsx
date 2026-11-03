@@ -109,7 +109,7 @@ function SubtaskEditor({ value, onChange }) {
   );
 }
 
-function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
+function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime }) {
   const isCompleted = mission.status === 'completed';
   const subtasks = parseSubtasks(mission.subtasks);
   const doneSubtasks = subtasks.filter(s => s.done).length;
@@ -199,6 +199,31 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
         </div>
       </div>
 
+      {/* Recording time used to mean remembering to start a clock BEFORE the
+          work. That is a record which is empty precisely on the busiest
+          days. An hour is still an hour if nothing was running. */}
+      {!isCompleted && onLogTime && (
+        <div className="mt-2 ml-8 flex items-center gap-1.5">
+          <span className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint">
+            Did some
+          </span>
+          {[15, 30, 60].map((mins) => (
+            <button
+              key={mins}
+              type="button"
+              onClick={() => onLogTime(mission, mins)}
+              aria-label={`Log ${mins} minutes on "${mission.title}"`}
+              className="px-2 py-0.5 rounded-chip text-[10px] font-mono text-ink-faint
+                ring-1 ring-bat-line hover:text-ink hover:ring-bat-line-strong
+                transition-all duration-200 ease-soft active:scale-[0.94]
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60"
+            >
+              +{mins < 60 ? `${mins}m` : '1h'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {subtasks.length > 0 && (
         <div className="mt-3 ml-8 space-y-1.5">
           {/* How far along, before the list of steps — the count alone made
@@ -235,7 +260,7 @@ const QUADRANTS = [
   { key: 'delegate', label: 'Delegate', sub: 'neither' },
 ];
 
-function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
+function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime }) {
   const classify = (m) => {
     const urgent = m.priority === 'critical' || m.priority === 'high';
     const important = m.priority !== 'low';
@@ -254,7 +279,7 @@ function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDupl
             {ms.length === 0
               ? <EmptyState compact>Nothing here</EmptyState>
               : ms.map(m => (
-                  <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} />
+                  <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} onLogTime={onLogTime} />
                 ))}
           </Panel>
         );
@@ -393,6 +418,18 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       await onRefreshMissions();
       await onRefreshAccount();
     } catch (err) { console.error(err); }
+  };
+
+  // Backfilled, ending now: "I have just done half an hour on this" is the
+  // shape the time actually arrives in.
+  const handleLogTime = async (mission, minutes) => {
+    try {
+      await api.logPastFocus({ minutes, mission_id: mission.id });
+      setFlash(`Logged ${minutes < 60 ? `${minutes}m` : '1h'} on "${mission.title}"`);
+      await onRefreshMissions();
+    } catch (err) {
+      setFlash(err.message || 'Could not log that.');
+    }
   };
 
   const handleDuplicate = async (mission) => {
@@ -599,7 +636,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       </div>
 
       {viewMode === 'eisenhower' ? (
-        <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} />
+        <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} />
       ) : (
         <div className="space-y-gutter">
           <Panel title="Active" meta={`${sortedMissions.length}`} bodyClassName="p-3 space-y-2">
@@ -609,7 +646,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
               </EmptyState>
             ) : (
               sortedMissions.map(m => (
-                <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} />
+                <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} />
               ))
             )}
           </Panel>
@@ -651,7 +688,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
               </summary>
               <div className="space-y-2 mt-2">
                 {completedMissions.map(m => (
-                  <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} />
+                  <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} />
                 ))}
               </div>
             </details>

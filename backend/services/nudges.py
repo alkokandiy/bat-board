@@ -30,7 +30,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import structlog
 
 import models
-from services import alfred_principles
+from services import activity, alfred_principles
 from services.timezones import day_bounds_utc, local_date, user_tz
 
 log = structlog.get_logger(__name__)
@@ -131,6 +131,9 @@ class Ctx:
     # scheduler has already stopped sending them; this is where Alfred gets
     # to say so, once, instead of a dead cue simply going quiet unexplained.
     dead_reminders: list = field(default_factory=list)
+    # What the record shows about today: when there is evidence of this
+    # person, and how much of that the board can actually account for.
+    today_window: object = None
 
 
 # --- gathering --------------------------------------------------------------
@@ -326,6 +329,7 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
         habits_all=habits,
         late_night_days=len(late_dates),
         dead_reminders=dead_reminders,
+        today_window=activity.observed_day(db, user, today),
         late_night_last=late_last,
     )
 
@@ -847,6 +851,53 @@ def sig_habit_without_cue(ctx: Ctx) -> Optional[Nudge]:
     )
 
 
+def sig_untracked_day(ctx: Ctx) -> Optional[Nudge]:
+    """Plenty of evidence of a person, none of their work.
+
+    "I was just working, in the job and in personal missions" — and the board
+    read zero, because recording it required remembering to start a timer
+    first. Memory is exactly what failed.
+
+    This cannot be fixed by nagging someone to press start. It is fixed by
+    asking once, at the end, with the specifics already in hand, and doing
+    the writing for them. An hour spent is still an hour whether or not a
+    clock was running at the time.
+    """
+    w = ctx.today_window
+    if w is None or not activity.looks_like_an_untracked_day(w):
+        return None
+    # Early in the day there is nothing to reconstruct yet.
+    if ctx.local_now.hour < 18:
+        return None
+    hours = w.unaccounted_minutes // 60
+    return Nudge(
+        key=f"untracked:{w.day.isoformat()}",
+        kind="offer_reconstruct",
+        priority=26,
+        draft=(f"You have been about since {w.first_seen.strftime('%H:%M')} and "
+               f"the board has nothing down for today, {ctx.address}. Tell me "
+               f"roughly what you worked on and I will write it up \u2014 "
+               f"\u201ctwo hours on the pricelist, an hour of email\u201d is plenty to "
+               f"go on."),
+        facts=(f"Evidence of activity from {w.first_seen.strftime('%H:%M')} to "
+               f"{w.last_seen.strftime('%H:%M')} ({w.signals} traces). "
+               f"{w.tracked_minutes} minutes of focus recorded, leaving about "
+               f"{hours}h unaccounted for."),
+        warrant=("They have said plainly that they forget to start timers and "
+                 "just work. Treat that as the tool's problem, not theirs: a "
+                 "record that only exists if you remember to create it in "
+                 "advance will always be empty on the busiest days. Ask ONCE, "
+                 "in plain words, what they actually did, and then write it "
+                 "with log_past_focus yourself \u2014 one call per block, placed "
+                 "end to end so they do not overlap. Rough is fine and worth "
+                 "far more than nothing; do not interrogate them for exact "
+                 "times, do not imply they were idle, and never present the "
+                 "observed window as a claim about where they were or what "
+                 "they were doing. If they would rather not, drop it and do "
+                 "not raise the same day again."),
+    )
+
+
 def sig_reminder_not_working(ctx: Ctx) -> Optional[Nudge]:
     """A reminder they have stopped answering.
 
@@ -973,6 +1024,7 @@ SIGNALS: List[Callable[[Ctx], Optional[Nudge]]] = [
     sig_good_day,
     sig_clear_board,
     sig_reminder_not_working,
+    sig_untracked_day,
     # ...and what he can offer.
     sig_late_night_work,
     sig_loose_ends,
@@ -1126,6 +1178,7 @@ KIND_MIN_GAP_DAYS: Dict[str, int] = {
     # Offers: these are invitations, and an invitation repeated is pestering.
     # A kind word about sleep, not a campaign: rarely, and never twice running.
     "reminder_dead": 0,
+    "offer_reconstruct": 3,
     "care_sleep": 10,
     "offer_cue": 8,
     "offer_when": 14,
