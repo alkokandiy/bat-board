@@ -211,3 +211,58 @@ class TestWhatHeIsShown:
             assert out["events"][0]["starts"] == "2026-11-10 15:00"
         finally:
             db.close()
+
+
+class TestTheOtherInstants:
+    """Countdowns and backfilled focus had the same naive-time problem.
+
+    `log_past_focus`'s own schema already promised "in the user's own
+    timezone"; the code read it as UTC, so the promise was not kept.
+    """
+
+    def test_a_countdown_target_is_their_clock(self):
+        uid = _mk_user("Asia/Tashkent")
+        db = SessionLocal()
+        try:
+            user = db.get(models.BatAccount, uid)
+            _run(db, user, "create_countdown",
+                 {"title": "Launch", "target_date": "2027-01-01T00:00:00"})
+            [c] = db.query(models.BatCountdown).filter_by(owner_id=uid).all()
+            target = c.target_date.replace(tzinfo=timezone.utc) \
+                if c.target_date.tzinfo is None else c.target_date
+            # Midnight in Tashkent is 19:00 the day before, UTC.
+            assert target.astimezone(timezone.utc).strftime("%Y-%m-%d %H") == "2026-12-31 19"
+        finally:
+            db.close()
+
+    def test_moving_a_countdown_uses_the_same_clock(self):
+        uid = _mk_user("Asia/Tashkent")
+        db = SessionLocal()
+        try:
+            user = db.get(models.BatAccount, uid)
+            created = _run(db, user, "create_countdown",
+                           {"title": "Launch", "target_date": "2027-01-01T00:00:00"})
+            _run(db, user, "update_countdown",
+                 {"countdown_id": created["countdown"]["id"],
+                  "target_date": "2027-02-01T00:00:00"})
+            [c] = db.query(models.BatCountdown).filter_by(owner_id=uid).all()
+            target = c.target_date.replace(tzinfo=timezone.utc) \
+                if c.target_date.tzinfo is None else c.target_date
+            assert target.astimezone(timezone.utc).strftime("%Y-%m-%d %H") == "2027-01-31 19"
+        finally:
+            db.close()
+
+    def test_backfilled_focus_lands_at_the_hour_they_said(self):
+        uid = _mk_user("Asia/Tashkent")
+        db = SessionLocal()
+        try:
+            user = db.get(models.BatAccount, uid)
+            _run(db, user, "log_past_focus",
+                 {"minutes": 60, "when": "2026-10-17T14:00:00"})
+            [f] = db.query(models.BatFocus).filter_by(owner_id=uid).all()
+            started = f.start_time.replace(tzinfo=timezone.utc) \
+                if f.start_time.tzinfo is None else f.start_time
+            # 14:00 in Tashkent is 09:00 UTC.
+            assert started.astimezone(timezone.utc).hour == 9
+        finally:
+            db.close()

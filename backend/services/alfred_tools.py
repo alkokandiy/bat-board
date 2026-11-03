@@ -274,15 +274,15 @@ READ_TOOLS = [
          "end_date": {"type": "string", "description": "ISO datetime upper bound."},
      }}},
     {"name": "review_loose_ends", "description": "Everything on the board that is missing the one field that gives it traction: open missions with no date, habits with no cue, notes gone cold. Returns the items, why each gap matters and the question worth asking. Use it when they ask what needs attention, when a list feels stale, or before offering to tidy up. These are offers, never demands — one kind at a time, named items, and 'leave it' is a complete answer.",
-     "input_schema": {"type": "object", "properties": {}}},
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "find_on_board", "description": "Find anything the user has, by whatever they called it — a mission, habit, note, work task, event or countdown. Matching is generous about wording, articles, typos and language, so use this whenever they refer to something by name instead of listing everything and matching by eye. Returns id, kind, exact stored title and a match score. ALWAYS use the returned exact title as expected_title when you then act on it. If nothing matches, list that kind of item and read the titles yourself before telling them it does not exist.",
-     "input_schema": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "What the user called it, in their words."},
          "kinds": {"type": "array", "items": {"type": "string", "enum": ["mission", "habit", "note", "work_task", "event", "countdown"]},
                    "description": "Optional filter. Omit to search everything."},
      }, "required": ["query"]}},
     {"name": "suggest_focus_length", "description": "How long to suggest this user focuses for, based on their OWN completed sessions. Returns {minutes, basis, sessions}: basis='history' means it is their real median, basis='default' means they have too little record yet and the number is only a starting point — say which it is. There is no universally correct session length, so never quote 25 minutes, 52/17, 90 minutes or any other stock figure as if it were established.",
-     "input_schema": {"type": "object", "properties": {}}},
+     "parameters": {"type": "object", "properties": {}}},
     {"name": "get_active_focus_session", "description": "Check whether a focus session is currently running, with elapsed and (for timed sessions) remaining minutes. Use for 'am I focusing?', 'how long left?'.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_focus_stats", "description": "Focus statistics for a period.",
@@ -417,7 +417,7 @@ WRITE_TOOLS = [
      }, "required": ["title", "content"]}},
     {"name": "create_countdown", "description": "Create a countdown to a target date.",
      "parameters": {"type": "object", "properties": {
-         "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime."},
+         "title": {"type": "string"}, "target_date": {"type": "string", "description": "ISO datetime on the user's own clock, no timezone suffix."},
      }, "required": ["title", "target_date"]}},
     {"name": "update_countdown", "description": "Update an existing countdown's title or target date.",
      "parameters": {"type": "object", "properties": {
@@ -516,7 +516,7 @@ WRITE_TOOLS = [
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
      }, "required": ["reminder_id"]}},
     {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the SAME reply. Blocks may not overlap each other (nobody focuses on two things at once) and may not run into the future — if either happens the call is refused and tells you why, so place consecutive blocks end-to-end rather than all at the same hour. Attach it to a mission, a habit or a work task by id, one of the three. No Bat Points for backfilled time.",
-     "input_schema": {"type": "object", "properties": {
+     "parameters": {"type": "object", "properties": {
          "minutes": {"type": "integer", "description": "Length of that block in minutes."},
          "when": {"type": "string", "description": "ISO datetime when the block STARTED, in the user's own timezone, e.g. 2026-10-17T14:00. Omit it and the block is placed ending now, which is right for 'I just did two hours'. If they name only a day, place it inside their working hours and say which hours you assumed."},
          "mission_id": {"type": "integer"},
@@ -1032,13 +1032,13 @@ def execute_tool(
     if name == "create_countdown":
         c = countdown_service.create_countdown(
             db, current_user, title=args["title"],
-            target_date=_parse_dt(args["target_date"], "target_date"))
+            target_date=_parse_dt_local(args["target_date"], "target_date", current_user))
         return {"countdown": _countdown_dict(c)}
     if name == "update_countdown":
         c = countdown_service.update_countdown(
             db, current_user, int(args["countdown_id"]),
             title=args.get("title"),
-            target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
+            target_date=_parse_dt_local(args.get("target_date"), "target_date", current_user) if args.get("target_date") else None)
         if c is None:
             return {"error": "Countdown not found"}
         return {"countdown": _countdown_dict(c)}
@@ -1242,7 +1242,7 @@ def execute_tool(
             session = focus_service.log_past_session(
                 db, current_user,
                 minutes=int(args["minutes"]),
-                when=(_parse_dt(args.get("when"), "when") if args.get("when")
+                when=(_parse_dt_local(args.get("when"), "when", current_user) if args.get("when")
                       else None),
                 mission_id=args.get("mission_id"),
                 habit_id=args.get("habit_id"),
