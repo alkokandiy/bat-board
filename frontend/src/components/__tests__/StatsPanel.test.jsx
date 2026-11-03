@@ -96,7 +96,9 @@ describe('StatsPanel', () => {
     render(<StatsPanel />);
 
     expect(await screen.findByText('FOCUS STATS')).toBeInTheDocument();
-    expect(screen.getByText('Where the deep work actually goes.')).toBeInTheDocument();
+    // The header line used to be a caption about the page. It carries a
+    // figure from it now.
+    expect(await screen.findByText(/focused all told/)).toBeInTheDocument();
 
     // Hero cards
     expect(screen.getByText('Today')).toBeInTheDocument();

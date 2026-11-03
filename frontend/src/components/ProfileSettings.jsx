@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api, browserTimezone } from '../utils/api';
+import { PageHeader } from './ui';
 
 function timezoneOptions(current) {
   let zones = [];
@@ -75,29 +76,29 @@ function AdminPanel() {
   };
 
   return (
-    <div className="bg-dark-slate rounded border border-amber-500/30 p-6">
+    <div className="bg-bat-surface rounded-tile border ring-1 ring-signal-warn/30 p-6">
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-mono tracking-widest text-amber-400">ADMIN · USERS</h3>
+        <h3 className="text-sm font-mono tracking-widest text-signal-warn">ADMIN · USERS</h3>
         <button
           onClick={load}
-          className="px-3 py-1 border border-slate-700 text-slate-300 rounded text-[11px] font-mono tracking-widest hover:border-amber-400/60 transition"
+          className="px-3 py-1 border border-bat-line text-ink-muted rounded text-[11px] font-mono tracking-widest hover:border-signal-warn/60 transition"
         >
           REFRESH
         </button>
       </div>
       {data && (
-        <p className="text-xs text-slate-500 font-body mb-4">
+        <p className="text-xs text-ink-faint font-body mb-4">
           {data.total_users} user{data.total_users === 1 ? '' : 's'} · {data.active_users} active
         </p>
       )}
-      {error && <div className="text-[12px] text-red-400 font-body mb-3">{error}</div>}
+      {error && <div className="text-[12px] text-signal-late font-body mb-3">{error}</div>}
       {loading && !data ? (
-        <div className="text-slate-500 text-sm">Loading…</div>
+        <div className="text-ink-faint text-sm">Loading…</div>
       ) : data && data.users.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[12px] font-body">
             <thead>
-              <tr className="text-slate-500 font-mono text-[10px] tracking-wider border-b border-slate-800">
+              <tr className="text-ink-faint font-mono text-[10px] tracking-wider border-b border-bat-line">
                 <th className="py-2 pr-3">USER</th>
                 <th className="py-2 pr-3">STATUS</th>
                 <th className="py-2 pr-3">SETUP</th>
@@ -105,43 +106,43 @@ function AdminPanel() {
                 <th className="py-2 pr-3 text-right">ACTIONS</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-white/[0.04]">
               {data.users.map((u) => (
                 <tr key={u.id} className="align-middle">
                   <td className="py-2.5 pr-3">
-                    <div className="text-slate-200">
+                    <div className="text-ink">
                       {u.username}
-                      {u.is_admin && <span className="ml-1.5 text-amber-400 text-[10px] font-mono">ADMIN</span>}
+                      {u.is_admin && <span className="ml-1.5 text-signal-warn text-[10px] font-mono">ADMIN</span>}
                     </div>
-                    <div className="text-slate-600 text-[10px]">{u.bat_level} · {u.points} BP</div>
+                    <div className="text-ink-faint text-[10px]">{u.bat_level} · {u.points} BP</div>
                   </td>
                   <td className="py-2.5 pr-3">
                     {u.is_active
-                      ? <span className="text-green-400">active</span>
-                      : <span className="text-red-400">disabled</span>}
+                      ? <span className="text-signal-good">active</span>
+                      : <span className="text-signal-late">disabled</span>}
                   </td>
                   <td className="py-2.5 pr-3 text-[11px]">
-                    <span className={u.telegram_linked ? 'text-slate-300' : 'text-slate-600'}>TG</span>
+                    <span className={u.telegram_linked ? 'text-ink-muted' : 'text-ink-faint'}>TG</span>
                     {' · '}
-                    <span className={u.provider_configured ? 'text-slate-300' : 'text-slate-600'}>AI</span>
+                    <span className={u.provider_configured ? 'text-ink-muted' : 'text-ink-faint'}>AI</span>
                   </td>
-                  <td className="py-2.5 pr-3 text-slate-500 text-[11px]">
+                  <td className="py-2.5 pr-3 text-ink-faint text-[11px]">
                     {u.counts.missions}m · {u.counts.habits}h · {u.counts.notes}n
                   </td>
                   <td className="py-2.5 pr-0 text-right whitespace-nowrap">
                     {u.is_admin ? (
-                      <span className="text-slate-600 text-[11px]">—</span>
+                      <span className="text-ink-faint text-[11px]">—</span>
                     ) : confirmDeleteId === u.id ? (
                       <span className="inline-flex gap-1.5 items-center">
-                        <span className="text-[10px] text-red-400 font-mono">delete?</span>
+                        <span className="text-[10px] text-signal-late font-mono">delete?</span>
                         <button
                           disabled={busyId === u.id}
                           onClick={() => act(api.deleteUser, u.id)}
-                          className="px-2 py-1 border border-red-500/50 text-red-400 rounded text-[10px] font-mono hover:bg-red-500/10 disabled:opacity-50"
+                          className="px-2 py-1 border border-red-500/50 text-signal-late rounded text-[10px] font-mono hover:bg-red-500/10 disabled:opacity-50"
                         >YES</button>
                         <button
                           onClick={() => setConfirmDeleteId(null)}
-                          className="px-2 py-1 border border-slate-700 text-slate-400 rounded text-[10px] font-mono"
+                          className="px-2 py-1 border border-bat-line text-ink-muted rounded text-[10px] font-mono"
                         >NO</button>
                       </span>
                     ) : (
@@ -150,19 +151,19 @@ function AdminPanel() {
                           <button
                             disabled={busyId === u.id}
                             onClick={() => act(api.disableUser, u.id)}
-                            className="px-2 py-1 border border-slate-700 text-slate-300 rounded text-[10px] font-mono tracking-wider hover:border-amber-400/60 disabled:opacity-50"
+                            className="px-2 py-1 border border-bat-line text-ink-muted rounded text-[10px] font-mono tracking-wider hover:border-signal-warn/60 disabled:opacity-50"
                           >DISABLE</button>
                         ) : (
                           <button
                             disabled={busyId === u.id}
                             onClick={() => act(api.enableUser, u.id)}
-                            className="px-2 py-1 border border-slate-700 text-green-400 rounded text-[10px] font-mono tracking-wider hover:border-green-400/60 disabled:opacity-50"
+                            className="px-2 py-1 border border-bat-line text-signal-good rounded text-[10px] font-mono tracking-wider hover:border-green-400/60 disabled:opacity-50"
                           >ENABLE</button>
                         )}
                         <button
                           disabled={busyId === u.id}
                           onClick={() => setConfirmDeleteId(u.id)}
-                          className="px-2 py-1 border border-red-500/40 text-red-400/90 rounded text-[10px] font-mono tracking-wider hover:bg-red-500/10 disabled:opacity-50"
+                          className="px-2 py-1 border border-red-500/40 text-signal-late/90 rounded text-[10px] font-mono tracking-wider hover:bg-red-500/10 disabled:opacity-50"
                         >DELETE</button>
                       </span>
                     )}
@@ -171,12 +172,12 @@ function AdminPanel() {
               ))}
             </tbody>
           </table>
-          <p className="text-[10px] text-slate-600 font-body mt-3">
+          <p className="text-[10px] text-ink-faint font-body mt-3">
             Disable blocks login (reversible). Delete permanently removes the user and all their data. Admins are protected.
           </p>
         </div>
       ) : (
-        <div className="text-slate-500 text-sm">No users.</div>
+        <div className="text-ink-faint text-sm">No users.</div>
       )}
     </div>
   );
@@ -194,6 +195,8 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
   const [tgExpiresAt, setTgExpiresAt] = useState(null);
   const [tgSecondsLeft, setTgSecondsLeft] = useState(0);
   const [tgBusy, setTgBusy] = useState(false);
+  const [tgError, setTgError] = useState(null);
+  const [pointsError, setPointsError] = useState(null);
   const [showLogs, setShowLogs] = useState(false);
   const [ledger, setLedger] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
@@ -324,11 +327,12 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
   const handleResetPoints = async () => {
     if (!window.confirm('Are you sure you want to reset all Bat Points to 0? This cannot be undone.')) return;
     setResetting(true);
+    setPointsError(null);
     try {
       await api.resetPoints();
       await onRefreshAccount();
     } catch (err) {
-      alert(err.message);
+      setPointsError(err.message);
     } finally {
       setResetting(false);
     }
@@ -336,6 +340,9 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
 
   const currentPoints = account?.points ?? 0;
   const currentLevel = account?.bat_level ?? 'The Recruit';
+  // The ladder was drawn but never said how far along it you are.
+  const nextLevel = LEVELS.find((l) => l.min > currentPoints) || null;
+  const pointsToNextLevel = nextLevel ? nextLevel.min - currentPoints : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -366,8 +373,9 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
       const res = await api.generateTelegramCode();
       setTgCode(res.code);
       setTgExpiresAt(res.expires_at);
+      setTgError(null);
     } catch (err) {
-      alert(err.message);
+      setTgError(err.message);
     } finally {
       setTgBusy(false);
     }
@@ -381,8 +389,9 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
       setTgLinked(false);
       setTgCode(null);
       setTgExpiresAt(null);
+      setTgError(null);
     } catch (err) {
-      alert(err.message);
+      setTgError(err.message);
     } finally {
       setTgBusy(false);
     }
@@ -409,15 +418,24 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
 
   return (
     <div className="space-y-6">
-      <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
-        <h1 className="text-2xl font-bold tracking-wider">PROFILE & SETTINGS</h1>
-        <p className="text-xs text-slate-400">Manage your identity, credentials, and Bat Point ledger.</p>
-      </div>
+      {/* "Manage your identity, credentials, and Bat Point ledger" described
+          the page to someone already looking at it. Where you stand is the
+          thing worth the line. */}
+      <PageHeader
+        title="PROFILE & SETTINGS"
+        stats={[
+          { label: 'points', value: currentPoints.toLocaleString() },
+          { label: currentLevel, value: '', tone: 'self' },
+          ...(pointsToNextLevel !== null
+            ? [{ label: `to ${nextLevel.title}`, value: pointsToNextLevel.toLocaleString() }]
+            : []),
+        ]}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Bat Level Ladder */}
-        <div className="bg-dark-slate rounded border border-slate-800 p-6">
-          <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+        <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+          <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
             Bat Level Ladder
           </h2>
           <div className="space-y-1">
@@ -432,71 +450,71 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                   key={lvl.title}
                   className={`flex items-center justify-between px-3 py-2 rounded text-xs font-mono transition ${
                     isCurrent
-                      ? 'bg-electric-bat-yellow/10 text-electric-bat-yellow border border-electric-bat-yellow/30'
+                      ? 'bg-signal-self/10 text-signal-self border border-signal-self/30'
                       : reqMet
-                        ? 'text-slate-400'
-                        : 'text-slate-600'
+                        ? 'text-ink-muted'
+                        : 'text-ink-faint'
                   }`}
                 >
                   <div className="flex items-center gap-2">
                     {isCurrent && <span className="text-[10px]">{'>'}</span>}
                     <span>{lvl.title}</span>
                   </div>
-                  <span className={isCurrent ? 'text-electric-bat-yellow' : 'text-slate-500'}>
+                  <span className={isCurrent ? 'text-signal-self' : 'text-ink-faint'}>
                     {rangeStr}
                   </span>
                 </div>
               );
             })}
           </div>
-          <div className="mt-4 pt-3 border-t border-slate-800 text-xs text-slate-500 font-mono">
-            Current: <span className="text-electric-bat-yellow font-bold">{currentPoints.toLocaleString()} BP</span> — {currentLevel}
+          <div className="mt-4 pt-3 border-t border-bat-line text-xs text-ink-faint font-mono">
+            Current: <span className="text-signal-self font-bold">{currentPoints.toLocaleString()} BP</span> — {currentLevel}
           </div>
         </div>
 
         <div className="space-y-6">
           {/* Change Password */}
-          <div className="bg-dark-slate rounded border border-slate-800 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
               Change Password
             </h2>
             <form onSubmit={handlePasswordChange} className="space-y-3">
               <div className="text-xs">
-                <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Current Password</label>
+                <label className="block text-ink-muted mb-1.5 font-mono uppercase tracking-[0.14em] text-[10px]">Current Password</label>
                 <input
                   type="password"
                   value={currentPassword}
                   onChange={e => setCurrentPassword(e.target.value)}
                   required
-                  className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow"
+                  className="w-full rounded-chip bg-bat-raised px-3 py-2 text-ink font-mono ring-1 ring-bat-line transition-all duration-200 ease-soft focus:outline-none focus:ring-2 focus:ring-signal-self/50"
                 />
               </div>
               <div className="text-xs">
-                <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">New Password</label>
+                <label className="block text-ink-muted mb-1.5 font-mono uppercase tracking-[0.14em] text-[10px]">New Password</label>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={e => setNewPassword(e.target.value)}
                   required
                   minLength={8}
-                  className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow"
+                  className="w-full rounded-chip bg-bat-raised px-3 py-2 text-ink font-mono ring-1 ring-bat-line transition-all duration-200 ease-soft focus:outline-none focus:ring-2 focus:ring-signal-self/50"
                 />
               </div>
               <div className="text-xs">
-                <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Confirm New Password</label>
+                <label className="block text-ink-muted mb-1.5 font-mono uppercase tracking-[0.14em] text-[10px]">Confirm New Password</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   required
-                  className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow"
+                  className="w-full rounded-chip bg-bat-raised px-3 py-2 text-ink font-mono ring-1 ring-bat-line transition-all duration-200 ease-soft focus:outline-none focus:ring-2 focus:ring-signal-self/50"
                 />
               </div>
-              {pwMsg && <div className="text-xs text-green-400">{pwMsg}</div>}
-              {pwError && <div className="text-xs text-red-400">{pwError}</div>}
+              {pwMsg && <div className="text-xs text-signal-good">{pwMsg}</div>}
+              {pwError && <div className="text-xs text-signal-late">{pwError}</div>}
               <button
                 type="submit"
-                className="px-5 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded text-xs font-mono tracking-widest hover:bg-yellow-400 transition"
+                className="px-4 py-2 rounded-chip bg-signal-self text-bat-bg font-bold text-[11px] font-mono uppercase tracking-widest shadow-tile hover:brightness-110 transition-all duration-200 ease-soft active:scale-[0.97]"
               >
                 UPDATE PASSWORD
               </button>
@@ -504,11 +522,11 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
           </div>
 
           {/* Alfred form of address */}
-          <div className="bg-dark-slate rounded border border-slate-800 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
               What Alfred Calls You
             </h2>
-            <p className="text-xs text-slate-400 mb-3">
+            <p className="text-xs text-ink-muted mb-3">
               Used in Telegram and the in-app chat. Leave empty to be addressed by your username ({account?.username}).
             </p>
             <form onSubmit={saveAddress} className="flex gap-2">
@@ -518,33 +536,33 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 onChange={e => { setAddressDraft(e.target.value); setAddressMsg(null); }}
                 maxLength={60}
                 placeholder={account?.username || 'e.g. Master Wayne'}
-                className="flex-1 min-w-0 bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+                className="flex-1 min-w-0 bg-bat-raised border border-bat-line rounded px-3 py-2 text-xs text-ink placeholder-slate-600 focus:outline-none focus:border-signal-self"
               />
               <button
                 type="submit"
                 disabled={addressDraft.trim() === (account?.alfred_address || '')}
-                className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded text-xs font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+                className="px-4 py-2 rounded-chip bg-signal-self text-bat-bg font-bold text-[11px] font-mono uppercase tracking-widest shadow-tile hover:brightness-110 transition-all duration-200 ease-soft active:scale-[0.97] disabled:opacity-40"
               >
                 SAVE
               </button>
             </form>
-            {addressMsg && <div className="text-xs text-green-400 mt-2">{addressMsg}</div>}
-            {addressError && <div className="text-xs text-red-400 mt-2">{addressError}</div>}
+            {addressMsg && <div className="text-xs text-signal-good mt-2">{addressMsg}</div>}
+            {addressError && <div className="text-xs text-signal-late mt-2">{addressError}</div>}
           </div>
 
           {/* Timezone */}
-          <div className="bg-dark-slate rounded border border-slate-800 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
               Timezone
             </h2>
-            <p className="text-xs text-slate-400 mb-3">
+            <p className="text-xs text-ink-muted mb-3">
               Days for habits, daily stats, and Alfred's clock and daily limit start at midnight in this zone.
             </p>
             <select
               value={accountTz}
               disabled={tzBusy}
               onChange={e => saveTimezone(e.target.value)}
-              className="w-full bg-matte-obsidian border border-slate-800 rounded px-2.5 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
+              className="w-full rounded-chip bg-bat-raised px-2.5 py-2 text-xs text-ink font-mono ring-1 ring-bat-line transition-all duration-200 ease-soft focus:outline-none focus:ring-2 focus:ring-signal-self/50 disabled:opacity-50"
             >
               {timezoneOptions(accountTz).map(tz => <option key={tz} value={tz}>{tz}</option>)}
             </select>
@@ -553,20 +571,20 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 type="button"
                 onClick={() => saveTimezone(deviceTz)}
                 disabled={tzBusy}
-                className="mt-3 text-[10px] font-mono tracking-widest text-slate-400 hover:text-electric-bat-yellow border border-slate-800 hover:border-electric-bat-yellow/50 rounded px-2 py-1 transition disabled:opacity-50"
+                className="mt-3 text-[10px] font-mono tracking-widest text-ink-muted hover:text-signal-self border border-bat-line hover:border-signal-self/50 rounded px-2 py-1 transition disabled:opacity-50"
               >
                 USE THIS DEVICE'S ZONE ({deviceTz})
               </button>
             )}
-            {tzError && <div className="text-xs text-red-400 mt-2">{tzError}</div>}
+            {tzError && <div className="text-xs text-signal-late mt-2">{tzError}</div>}
           </div>
 
           {/* Work track */}
-          <div className="bg-dark-slate rounded border border-slate-800 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
               Work Track
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-ink-muted mb-4">
               The corporate side: tasks for your employer, a work journal and work
               reports, kept entirely apart from your missions and earning no Bat
               Points. With it off, the Work tab disappears, Alfred stops offering
@@ -579,40 +597,44 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 disabled={workBusy}
                 className={`px-5 py-2 font-bold rounded text-xs font-mono tracking-widest transition disabled:opacity-50 border ${
                   workEnabled
-                    ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-bat-raised ring-1 ring-bat-line text-ink-muted hover:text-ink hover:ring-bat-line-strong'
                     : 'bg-sky-900/40 border-sky-700 text-sky-200 hover:bg-sky-900/60'
                 }`}
               >
                 {workBusy ? 'SAVING...' : workEnabled ? 'TURN WORK OFF' : 'TURN WORK ON'}
               </button>
-              <span className="text-[10px] font-mono tracking-wider text-slate-500">
+              <span className="text-[10px] font-mono tracking-wider text-ink-faint">
                 {workEnabled ? 'CURRENTLY ON' : 'CURRENTLY OFF'}
               </span>
             </div>
-            {workError && <div className="text-xs text-red-400 mt-2">{workError}</div>}
+            {workError && <div className="text-xs text-signal-late mt-2">{workError}</div>}
           </div>
 
           {/* Reset Points */}
-          <div className="bg-dark-slate rounded border border-red-900/30 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-red-400 border-b border-red-900/30 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-signal-late/25 shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-signal-late border-b border-signal-late/20 pb-2.5 mb-4">
               Danger Zone
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-ink-muted mb-4">
               Reset all Bat Points to 0. Your level will revert to The Recruit. This action is irreversible.
             </p>
+            {pointsError && (
+              <div className="rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30 px-3 py-2 text-[11px] text-signal-late mb-3">{pointsError}</div>
+            )}
+
             <button
               onClick={handleResetPoints}
               disabled={resetting}
-              className="px-5 py-2 bg-red-900/30 border border-red-900/50 text-red-400 font-bold rounded text-xs font-mono tracking-widest hover:bg-red-900/50 transition disabled:opacity-50"
+              className="px-4 py-2 rounded-chip bg-transparent ring-1 ring-signal-late/40 text-signal-late font-bold text-[11px] font-mono uppercase tracking-widest hover:bg-signal-late/10 hover:ring-signal-late/70 transition-all duration-200 ease-soft active:scale-[0.97] disabled:opacity-40"
             >
               {resetting ? 'RESETTING...' : 'RESET BAT POINTS'}
             </button>
 
             <div className="mt-6 pt-4 border-t border-red-900/30">
-              <p className="text-xs text-slate-400 mb-3">
+              <p className="text-xs text-ink-muted mb-3">
                 Start fresh with Alfred by permanently deleting your conversations.
               </p>
-              <label className="flex items-center gap-2 text-xs text-slate-400 mb-4 cursor-pointer select-none">
+              <label className="flex items-center gap-2 text-xs text-ink-muted mb-4 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={eraseMemory}
@@ -622,21 +644,21 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 Also erase everything Alfred remembers about me (its memory notes)
               </label>
               {confirmingAlfredReset ? (
-                <div role="alertdialog" aria-label="Confirm Alfred reset" className="rounded border border-red-900/60 bg-red-950/20 p-4 space-y-3">
-                  <div className="text-xs font-bold text-red-400">This cannot be undone.</div>
+                <div role="alertdialog" aria-label="Confirm Alfred reset" className="rounded-tile border border-red-900/60 bg-red-950/20 p-4 space-y-3">
+                  <div className="text-xs font-bold text-signal-late">This cannot be undone.</div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-red-400 mb-1">Will be deleted</div>
-                    <ul className="text-xs text-slate-300 space-y-0.5 list-disc pl-4">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-signal-late mb-1">Will be deleted</div>
+                    <ul className="text-xs text-ink-muted space-y-0.5 list-disc pl-4">
                       {alfredResetDeletes.map(item => <li key={item}>{item}</li>)}
                     </ul>
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-green-400 mb-1">Will be kept</div>
-                    <ul className="text-xs text-slate-400 space-y-0.5 list-disc pl-4">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-signal-good mb-1">Will be kept</div>
+                    <ul className="text-xs text-ink-muted space-y-0.5 list-disc pl-4">
                       {alfredResetKeeps.map(item => <li key={item}>{item}</li>)}
                     </ul>
                   </div>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] text-ink-faint">
                     The Telegram chat window itself isn't cleared — use "Clear history" in Telegram for that.
                   </div>
                   <div className="flex gap-2 pt-1">
@@ -648,7 +670,7 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                     </button>
                     <button
                       onClick={() => setConfirmingAlfredReset(false)}
-                      className="px-4 py-2 bg-slate-800 text-slate-300 rounded text-xs font-mono tracking-widest hover:bg-slate-700 transition"
+                      className="px-4 py-2 rounded-chip bg-bat-raised ring-1 ring-bat-line text-ink-muted text-[11px] font-mono uppercase tracking-widest hover:text-ink hover:ring-bat-line-strong transition-all duration-200 ease-soft active:scale-[0.97]"
                     >
                       CANCEL
                     </button>
@@ -658,59 +680,62 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 <button
                   onClick={() => { setAlfredResetMsg(null); setConfirmingAlfredReset(true); }}
                   disabled={alfredResetting}
-                  className="px-5 py-2 bg-red-900/30 border border-red-900/50 text-red-400 font-bold rounded text-xs font-mono tracking-widest hover:bg-red-900/50 transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-chip bg-transparent ring-1 ring-signal-late/40 text-signal-late font-bold text-[11px] font-mono uppercase tracking-widest hover:bg-signal-late/10 hover:ring-signal-late/70 transition-all duration-200 ease-soft active:scale-[0.97] disabled:opacity-40"
                 >
                   {alfredResetting ? 'RESETTING...' : 'RESET ALFRED'}
                 </button>
               )}
-              {alfredResetMsg && <div className="text-xs text-slate-400 mt-2">{alfredResetMsg}</div>}
+              {alfredResetMsg && <div className="text-xs text-ink-muted mt-2">{alfredResetMsg}</div>}
             </div>
           </div>
 
           {/* Link Telegram */}
-          <div className="bg-dark-slate rounded border border-slate-800 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
               Link Telegram
             </h2>
+{tgError && (
+              <div className="rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30 px-3 py-2 text-[11px] text-signal-late mb-3">{tgError}</div>
+            )}
             {tgLinked === null ? (
-              <p className="text-xs text-slate-500 font-mono">Checking link status...</p>
+              <p className="text-xs text-ink-faint font-mono">Checking link status...</p>
             ) : tgLinked ? (
               <div className="space-y-3">
-                <p className="text-xs text-green-400 font-mono">Linked ✓ — Alfred will respond to this Telegram account.</p>
+                <p className="text-xs text-signal-good font-mono">Linked ✓ — Alfred will respond to this Telegram account.</p>
                 <button
                   onClick={handleUnlink}
                   disabled={tgBusy}
-                  className="px-5 py-2 bg-matte-obsidian border border-slate-800 text-slate-300 font-bold rounded text-xs font-mono tracking-widest hover:border-red-900/50 hover:text-red-400 transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-chip bg-bat-raised ring-1 ring-bat-line text-ink-muted font-bold text-[11px] font-mono uppercase tracking-widest hover:text-signal-late hover:ring-signal-late/40 transition-all duration-200 ease-soft active:scale-[0.97] disabled:opacity-40"
                 >
                   UNLINK
                 </button>
               </div>
             ) : tgCode ? (
               <div className="space-y-3">
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-ink-muted">
                   Open Telegram, message the bot, and send this code. Expires in{' '}
-                  <span className="text-electric-bat-yellow font-mono font-bold">{fmtExpiry(tgSecondsLeft)}</span>.
+                  <span className="text-signal-self font-mono font-bold">{fmtExpiry(tgSecondsLeft)}</span>.
                 </p>
-                <div className="text-3xl font-mono font-bold tracking-[0.3em] text-electric-bat-yellow text-center py-2 bg-matte-obsidian rounded border border-slate-800">
+                <div className="text-3xl font-mono font-bold tracking-[0.3em] text-signal-self text-center py-2 bg-bat-raised rounded-tile border border-bat-line">
                   {tgCode}
                 </div>
                 <button
                   onClick={handleGenerateCode}
                   disabled={tgBusy}
-                  className="px-5 py-2 bg-matte-obsidian border border-slate-800 text-slate-300 font-bold rounded text-xs font-mono tracking-widest hover:border-electric-bat-yellow/50 transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-chip bg-bat-raised ring-1 ring-bat-line text-ink-muted font-bold text-[11px] font-mono uppercase tracking-widest hover:text-ink hover:ring-bat-line-strong transition-all duration-200 ease-soft active:scale-[0.97] disabled:opacity-40"
                 >
                   REGENERATE CODE
                 </button>
               </div>
             ) : (
               <div className="space-y-3">
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-ink-muted">
                   Connect your Telegram account to chat with Alfred. Generate a code, then send it to the bot.
                 </p>
                 <button
                   onClick={handleGenerateCode}
                   disabled={tgBusy}
-                  className="px-5 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded text-xs font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+                  className="px-4 py-2 rounded-chip bg-signal-self text-bat-bg font-bold text-[11px] font-mono uppercase tracking-widest shadow-tile hover:brightness-110 transition-all duration-200 ease-soft active:scale-[0.97] disabled:opacity-40"
                 >
                   {tgBusy ? 'GENERATING...' : 'GENERATE LINK CODE'}
                 </button>
@@ -718,25 +743,25 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
             )}
           </div>
           {/* Ledger Log */}
-          <div className="bg-dark-slate rounded border border-slate-800 p-6">
-            <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
+          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
+            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
               Ledger Log
             </h2>
-            <p className="text-xs text-slate-400 mb-4">
+            <p className="text-xs text-ink-muted mb-4">
               Immutable history of account modifications, completions, and point awards.
             </p>
             <button
               onClick={toggleLogs}
-              className="px-5 py-2 bg-matte-obsidian border border-slate-800 text-slate-300 font-bold rounded text-xs font-mono tracking-widest hover:border-electric-bat-yellow/50 transition"
+              className="px-5 py-2 bg-bat-raised border border-bat-line text-ink-muted font-bold rounded text-xs font-mono tracking-widest hover:border-signal-self/50 transition"
             >
               {showLogs ? 'HIDE LEDGER' : 'VIEW LEDGER'}
             </button>
             {showLogs && (
-              <div className="mt-4 max-h-80 overflow-y-auto divide-y divide-slate-800 font-mono text-xs border border-slate-800 rounded">
+              <div className="mt-4 max-h-80 overflow-y-auto divide-y divide-white/[0.04] font-mono text-xs border border-bat-line rounded">
                 {ledgerLoading ? (
-                  <div className="p-4 text-center text-slate-500">Loading ledger...</div>
+                  <div className="p-4 text-center text-ink-faint">Loading ledger...</div>
                 ) : ledger.length === 0 ? (
-                  <div className="p-4 text-center text-slate-500">No ledger entries yet.</div>
+                  <div className="p-4 text-center text-ink-faint">No ledger entries yet.</div>
                 ) : ledger.map((log) => {
                   let summary = log.details;
                   try {
@@ -746,12 +771,12 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                   return (
                     <div key={log.id} className="px-3 py-2.5 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="px-1.5 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] shrink-0">
+                        <span className="px-1.5 py-0.5 bg-bat-raised ring-1 ring-bat-line text-ink-muted rounded-chip text-[10px] shrink-0">
                           {log.event_type}
                         </span>
-                        <span className="text-slate-400 truncate">{summary}</span>
+                        <span className="text-ink-muted truncate">{summary}</span>
                       </div>
-                      <span className="text-slate-600 text-[10px] shrink-0">
+                      <span className="text-ink-faint text-[10px] shrink-0">
                         {new Date(log.timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
