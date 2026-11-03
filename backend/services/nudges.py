@@ -49,6 +49,10 @@ GLOBAL_COOLDOWN = timedelta(hours=4)
 UNANSWERED_LIMIT = 2
 # If they've just been talking to Alfred, don't interrupt with a nudge.
 RECENT_CHAT_QUIET = timedelta(minutes=60)
+# How long after a reminder Alfred keeps his own thoughts to himself. The
+# reminder was asked for and fires regardless; an unsolicited message
+# arriving beside it is what turns a useful ping into "notifications".
+REMINDER_QUIET = timedelta(minutes=90)
 
 
 def _naive(dt: datetime) -> datetime:
@@ -123,6 +127,10 @@ class Ctx:
     habits_all: list = field(default_factory=list)
     late_night_days: int = 0
     late_night_last: Optional[object] = None
+    # Reminders that went unanswered often enough to retire themselves. The
+    # scheduler has already stopped sending them; this is where Alfred gets
+    # to say so, once, instead of a dead cue simply going quiet unexplained.
+    dead_reminders: list = field(default_factory=list)
 
 
 # --- gathering --------------------------------------------------------------
@@ -286,6 +294,17 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
     account_age_days = ((local_now.astimezone(timezone.utc) - created).days
                         if created else 0)
 
+    # Reminders that retired themselves after a run of silence. They are
+    # already not being sent; what is missing is anyone saying why.
+    dead_reminders = (
+        db.query(models.BatReminder)
+        .filter(models.BatReminder.owner_id == user.id,
+                models.BatReminder.enabled.is_(True),
+                models.BatReminder.suspended_at.isnot(None))
+        .order_by(models.BatReminder.suspended_at.asc())
+        .all()
+    )
+
     return Ctx(
         user=user, local_now=local_now, today=today, address=_address(user),
         open_missions=open_missions, overdue=overdue, countdowns=countdowns,
@@ -306,6 +325,7 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
         account_age_days=account_age_days,
         habits_all=habits,
         late_night_days=len(late_dates),
+        dead_reminders=dead_reminders,
         late_night_last=late_last,
     )
 
@@ -827,6 +847,49 @@ def sig_habit_without_cue(ctx: Ctx) -> Optional[Nudge]:
     )
 
 
+def sig_reminder_not_working(ctx: Ctx) -> Optional[Nudge]:
+    """A reminder they have stopped answering.
+
+    The owner went a month without taking the medicine the 9pm reminder was
+    for, and the reminder went on arriving every evening unchanged. Repeating
+    a cue that is never followed through does not strengthen it — it teaches
+    the brain to filter it out, and every additional repetition makes the
+    whole channel a little easier to ignore.
+
+    So the repeating stops (the scheduler already does that) and this says so
+    out loud, exactly once per reminder. The framing is the one thing that
+    matters here: this is a reminder that failed, not a person who failed.
+    """
+    if not ctx.dead_reminders:
+        return None
+    r = ctx.dead_reminders[0]
+    return Nudge(
+        key=f"reminder_dead:{r.id}",
+        kind="reminder_dead",
+        priority=24,
+        draft=(f"I have stopped the {r.send_time} reminder about "
+               f"\u201c{r.message}\u201d, {ctx.address} \u2014 it went out several "
+               f"times with no answer either way, and sending it again would "
+               f"only make it easier to tune out. Is the time wrong, is it too "
+               f"big a thing to do at that moment, or is a reminder simply the "
+               f"wrong tool for this one?"),
+        facts=(f"Reminder #{r.id} '{r.message}' at {r.send_time} "
+               f"({r.recurrence}) went unanswered "
+               f"{r.consecutive_ignored or 0} times in a row and has been "
+               f"suspended. It is still saved and can be changed or resumed."),
+        warrant=("A cue that keeps firing without ever being acted on is not "
+                 "neutral: the association is actively trained away, and each "
+                 "repeat costs a little of the attention every other message "
+                 "will need later. Open this as THEIR data, not their failing "
+                 "\u2014 say what the record shows, then ask what was actually in "
+                 "the way: the hour, the size of the thing, or the fact that "
+                 "being told is not what helps here. Offer to move it, shrink "
+                 "it to something that takes a moment, or drop it entirely, "
+                 "and treat 'drop it' as a completely good answer. Do not "
+                 "argue for the habit and do not reinstate it unasked."),
+    )
+
+
 def sig_late_night_work(ctx: Ctx) -> Optional[Nudge]:
     """Work logged in the small hours, raised the following day.
 
@@ -909,6 +972,7 @@ SIGNALS: List[Callable[[Ctx], Optional[Nudge]]] = [
     sig_stalled_mission,
     sig_good_day,
     sig_clear_board,
+    sig_reminder_not_working,
     # ...and what he can offer.
     sig_late_night_work,
     sig_loose_ends,
@@ -972,6 +1036,20 @@ def may_nudge(db, user: models.BatAccount, local_now: datetime) -> bool:
         .first()
     )
     if last is not None and now_utc - _aware(last.sent_at) < GLOBAL_COOLDOWN:
+        return False
+
+    # A reminder the user asked for always fires on time — it is their own
+    # instruction, not Alfred's idea, so it is never held back. The yielding
+    # goes the other way: a nudge landing a minute after the 9pm medicine
+    # reminder is two notifications in one breath, and it is the one nobody
+    # asked for that should wait.
+    last_reminder = (
+        db.query(models.BatReminderLog)
+        .filter(models.BatReminderLog.owner_id == user.id)
+        .order_by(models.BatReminderLog.sent_at.desc())
+        .first()
+    )
+    if last_reminder is not None and now_utc - _aware(last_reminder.sent_at) < REMINDER_QUIET:
         return False
 
     # Mid-conversation? Leave them be.
@@ -1047,6 +1125,7 @@ KIND_MIN_GAP_DAYS: Dict[str, int] = {
     "praise": 5,
     # Offers: these are invitations, and an invitation repeated is pestering.
     # A kind word about sleep, not a campaign: rarely, and never twice running.
+    "reminder_dead": 0,
     "care_sleep": 10,
     "offer_cue": 8,
     "offer_when": 14,
