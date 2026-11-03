@@ -50,7 +50,15 @@ def suggested_focus_minutes(db: Session, current_user: models.BatAccount) -> dic
         .filter(models.BatFocus.owner_id == current_user.id,
                 models.BatFocus.end_time.isnot(None),
                 models.BatFocus.duration_minutes.isnot(None),
-                models.BatFocus.duration_minutes >= MIN_FOCUS_MINUTES)
+                models.BatFocus.duration_minutes >= MIN_FOCUS_MINUTES,
+                # Measured sessions only. A backfilled block is a quantity of
+                # time remembered afterwards, not evidence of how long this
+                # person can actually hold attention — and now that a mission
+                # row offers +15m / +30m / +1h, letting those in would make
+                # the "median" a median of button presses. Someone who only
+                # ever backfills keeps the honest "default" basis instead of
+                # being told a made-up number is their own.
+                models.BatFocus.logged_manually.is_(False))
         .order_by(models.BatFocus.start_time.desc())
         .limit(SUGGESTION_SAMPLE)
         .all()
