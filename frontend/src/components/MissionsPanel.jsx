@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader, Button, fieldClass } from './ui';
+import { PageHeader, Panel, Button, EmptyState, Field, fieldClass } from './ui';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
@@ -32,17 +32,48 @@ function localDateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
-// Full class names so Tailwind's build keeps them (interpolated names like
-// `border-${color}-900/30` are purged and rendered colourless).
-const QUADRANT_STYLES = {
-  red: { box: 'border-red-900/30', head: 'text-red-400 border-red-900/20' },
-  amber: { box: 'border-amber-900/30', head: 'text-amber-400 border-amber-900/20' },
-  blue: { box: 'border-blue-900/30', head: 'text-blue-400 border-blue-900/20' },
-  slate: { box: 'border-slate-900/30', head: 'text-slate-400 border-slate-900/20' },
-};
-
 function parseSubtasks(val) {
   try { return val ? JSON.parse(val) : []; } catch { return []; }
+}
+
+// Full class names so Tailwind's build keeps them (interpolated names like
+// `text-${tone}-400` are purged and rendered colourless).
+const PRIORITY_CHIP = {
+  low: 'text-ink-faint ring-bat-line',
+  medium: 'text-signal-work ring-signal-work/30',
+  high: 'text-signal-warn ring-signal-warn/30',
+  critical: 'text-signal-late ring-signal-late/40',
+};
+
+/**
+ * One control, four choices, no four separate bordered boxes.
+ *
+ * The filters were eight hand-rolled buttons on two rows, each drawing its own
+ * border — so the screen opened with more chrome than content. A segmented
+ * track reads as a single thing you are moving a selection along.
+ */
+function Segmented({ label, options, value, onChange }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex rounded-chip bg-bat-surface ring-1 ring-bat-line p-0.5">
+      {options.map((opt) => {
+        const on = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            aria-pressed={on}
+            className={`px-3 py-1 rounded-[6px] text-[10px] font-mono uppercase tracking-widest
+              transition-all duration-200 ease-soft
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60
+              ${on ? 'bg-bat-raised text-ink shadow-tile' : 'text-ink-faint hover:text-ink-muted'}`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
@@ -109,42 +140,36 @@ function SubtaskEditor({ value, onChange }) {
   );
 }
 
-function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
-  const classify = (m) => {
-    const urgent = m.priority === 'critical' || m.priority === 'high';
-    const important = m.priority !== 'low';
-    if (urgent && important) return 1;
-    if (urgent && !important) return 2;
-    if (!urgent && important) return 3;
-    return 4;
-  };
-  const q1 = missions.filter(m => classify(m) === 1);
-  const q2 = missions.filter(m => classify(m) === 2);
-  const q3 = missions.filter(m => classify(m) === 3);
-  const q4 = missions.filter(m => classify(m) === 4);
-
-  const labels = [
-    { label: '1. DO (Urgent & Important)', color: 'red', missions: q1 },
-    { label: '2. DECIDE (Urgent & Not Important)', color: 'amber', missions: q2 },
-    { label: '3. SCHEDULE (Not Urgent & Important)', color: 'blue', missions: q3 },
-    { label: '4. DELEGATE (Not Urgent & Not Important)', color: 'slate', missions: q4 },
-  ];
-
+/**
+ * The row actions.
+ *
+ * These were four glyph buttons with a `title` and no accessible name at all —
+ * a screen reader announced "button, button, button, button", and I could not
+ * target them from the accessibility tree while testing the live app. They
+ * also sat at `text-slate-600` on `#2c2c2c`, which is close enough to
+ * invisible that you had to know they were there. Now each one says what it
+ * does, and the group fades up as a set when the row is touched rather than
+ * each icon being permanently dim.
+ */
+function RowAction({ label, onClick, icon: Icon, tone = 'plain' }) {
+  const hover = tone === 'danger'
+    ? 'hover:text-signal-late hover:ring-signal-late/40'
+    : tone === 'warn'
+      ? 'hover:text-signal-warn hover:ring-signal-warn/40'
+      : 'hover:text-ink hover:ring-bat-line-strong';
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {labels.map(({ label, color, missions: ms }) => (
-        <div key={color} className={`bg-dark-slate rounded border ${QUADRANT_STYLES[color].box} p-3 space-y-2`}>
-          <div className={`text-[10px] font-mono uppercase tracking-widest ${QUADRANT_STYLES[color].head} border-b pb-1`}>
-            {label} <span className="text-slate-500">({ms.length})</span>
-          </div>
-          {ms.length === 0 ? (
-            <div className="text-[10px] text-slate-600 italic">No missions</div>
-          ) : (
-            ms.map(m => <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} />)
-          )}
-        </div>
-      ))}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`w-7 h-7 inline-flex items-center justify-center rounded-chip
+        text-ink-faint ring-1 ring-transparent bg-transparent
+        transition-all duration-200 ease-soft active:scale-[0.94]
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60 ${hover}`}
+    >
+      <Icon size={13} />
+    </button>
   );
 }
 
@@ -154,75 +179,150 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
   const doneSubtasks = subtasks.filter(s => s.done).length;
   const tags = mission.tags ? mission.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
 
-  const priorityStyles = {
-    low: 'bg-slate-800/60 text-slate-400 border-slate-800',
-    medium: 'bg-blue-950/20 text-blue-400 border-blue-900/30',
-    high: 'bg-amber-950/20 text-amber-400 border-amber-900/30',
-    critical: 'bg-red-950/30 text-red-500 border-red-900/40 font-bold'
-  };
+  const overdue = !isCompleted && mission.due_date && dueDateKey(mission.due_date) < localDateKey(new Date());
 
   return (
-    <div className={`bg-dark-slate p-4 rounded border transition-all duration-200 ${isCompleted ? 'border-slate-900 opacity-60' : mission.is_pinned ? 'border-yellow-700/50' : 'border-slate-800 hover:border-slate-700'}`}>
+    <div
+      className={`group rounded-tile bg-bat-raised ring-1 p-3.5
+        transition-all duration-200 ease-soft hover:shadow-lift
+        ${isCompleted
+          ? 'ring-bat-line opacity-50'
+          : mission.is_pinned
+            ? 'ring-signal-self/30'
+            : overdue
+              ? 'ring-signal-late/25'
+              : 'ring-bat-line hover:ring-bat-line-strong'}`}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start space-x-3 min-w-0">
-          <button onClick={() => onToggleStatus(mission)}
-            className={`w-5 h-5 rounded border mt-0.5 flex items-center justify-center shrink-0 transition ${isCompleted ? 'bg-electric-bat-yellow border-electric-bat-yellow text-matte-obsidian' : 'border-slate-700 hover:border-electric-bat-yellow'}`}>
-            {isCompleted && <span className="text-xs font-bold">✓</span>}
+        <div className="flex items-start gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => onToggleStatus(mission)}
+            aria-label={isCompleted ? `Reopen "${mission.title}"` : `Complete "${mission.title}"`}
+            title={isCompleted ? 'Reopen' : 'Complete'}
+            className={`w-5 h-5 mt-0.5 shrink-0 rounded-[6px] ring-1 inline-flex items-center justify-center
+              transition-all duration-200 ease-soft active:scale-[0.9]
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60
+              ${isCompleted
+                ? 'bg-signal-self ring-signal-self text-bat-bg'
+                : 'ring-bat-line-strong text-transparent hover:ring-signal-self hover:text-signal-self/40'}`}
+          >
+            <Check size={12} strokeWidth={3} />
           </button>
+
           <div className="min-w-0">
             <div className="flex items-center flex-wrap gap-1.5">
-              <h3 className={`text-sm font-semibold tracking-wide ${isCompleted ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+              <h3 className={`text-sm font-semibold tracking-wide ${isCompleted ? 'line-through text-ink-faint' : 'text-ink'}`}>
                 {mission.title}
               </h3>
-              {mission.is_pinned && <span className="text-[10px] text-yellow-500">📌</span>}
-              <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded border ${priorityStyles[mission.priority] || ''}`}>
+              {mission.is_pinned && <Pin size={11} className="text-signal-self" aria-label="Pinned" />}
+              <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ${PRIORITY_CHIP[mission.priority] || PRIORITY_CHIP.low}`}>
                 {mission.priority}
               </span>
               {tags.map((t, i) => (
-                <span key={t + '-' + i} className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                <span key={t + '-' + i} className="text-[9px] font-mono text-ink-muted px-1.5 py-0.5 rounded-chip bg-bat-surface ring-1 ring-bat-line">
                   {t}
                 </span>
               ))}
             </div>
+
             {mission.description && (
-              <p className={`text-xs mt-0.5 ${isCompleted ? 'text-slate-600' : 'text-slate-400'}`}>
+              <p className={`text-xs mt-1 leading-snug ${isCompleted ? 'text-ink-faint' : 'text-ink-muted'}`}>
                 {mission.description}
               </p>
             )}
-            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-mono mt-1">
-              {mission.due_date && <span>🎯 {formatDueDate(mission.due_date)}</span>}
-              {mission.location && <span>📍 {mission.location}</span>}
-              {subtasks.length > 0 && <span>✓ {doneSubtasks}/{subtasks.length}</span>}
+
+            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-ink-faint mt-1.5">
+              {mission.due_date && (
+                <span className={`inline-flex items-center gap-1 ${overdue ? 'text-signal-late' : ''}`}>
+                  <Target size={10} /> {formatDueDate(mission.due_date)}{overdue ? ' · overdue' : ''}
+                </span>
+              )}
+              {mission.location && (
+                <span className="inline-flex items-center gap-1"><MapPin size={10} /> {mission.location}</span>
+              )}
               {mission.focus_minutes > 0 && (
-                <span className="text-electric-bat-yellow font-semibold">⏱ {fmtMins(mission.focus_minutes)} focused</span>
+                <span className="text-signal-self">
+                  {fmtMins(mission.focus_minutes)} focused
+                  {mission.completed_focus_sessions > 0 && ` · ${mission.completed_focus_sessions} session${mission.completed_focus_sessions !== 1 ? 's' : ''}`}
+                </span>
               )}
             </div>
-            {mission.completed_focus_sessions > 0 && (
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                {mission.completed_focus_sessions} focus session{mission.completed_focus_sessions !== 1 ? 's' : ''}
-              </div>
-            )}
           </div>
         </div>
-        <div className="flex items-center space-x-1 shrink-0">
-          <button onClick={() => onEdit(mission)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-slate-300 hover:bg-slate-800 transition text-xs" title="Edit">✎</button>
-          <button onClick={() => onDuplicate(mission)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-slate-300 hover:bg-slate-800 transition text-xs" title="Duplicate">⧉</button>
+
+        {/* Dim until the row is approached, then a legible set — rather than
+            four controls permanently at the edge of visibility. */}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
+          <RowAction label={`Edit "${mission.title}"`} onClick={() => onEdit(mission)} icon={Pencil} />
+          <RowAction label={`Duplicate "${mission.title}"`} onClick={() => onDuplicate(mission)} icon={Copy} />
           {!mission.is_dismissed && (
-            <button onClick={() => onWontDo(mission)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-amber-400 hover:bg-slate-800 transition text-xs" title="Won't Do">⊘</button>
+            <RowAction label={`Won't do "${mission.title}"`} onClick={() => onWontDo(mission)} icon={Ban} tone="warn" />
           )}
-          <button onClick={() => onDelete(mission.id)} className="w-7 h-7 flex items-center justify-center rounded text-slate-600 hover:text-red-500 hover:bg-slate-800 transition text-xs" title="Delete">✕</button>
+          <RowAction label={`Delete "${mission.title}"`} onClick={() => onDelete(mission.id)} icon={Trash2} tone="danger" />
         </div>
       </div>
+
       {subtasks.length > 0 && (
-        <div className="mt-2 ml-7 space-y-0.5">
+        <div className="mt-3 ml-8 space-y-1.5">
+          {/* How far along, before the list of steps — the count alone made
+              you read every row to find out. */}
+          <div className="flex items-center gap-2">
+            {/* Capped, or a full-width track reads as a divider rule rather
+                than as progress. */}
+            <div className="h-1 w-full max-w-[160px] rounded-full bg-bat-surface overflow-hidden">
+              <div
+                className="h-full rounded-full bg-signal-good transition-all duration-300 ease-soft"
+                style={{ width: `${Math.round((doneSubtasks / subtasks.length) * 100)}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono tabular-nums text-ink-faint shrink-0">
+              {doneSubtasks}/{subtasks.length}
+            </span>
+          </div>
           {subtasks.map((s, i) => (
-            <div key={s.title + '-' + i} className="flex items-center space-x-1.5 text-xs">
-              <span className={s.done ? 'text-green-500' : 'text-slate-600'}>{s.done ? '☑' : '☐'}</span>
-              <span className={s.done ? 'line-through text-slate-500' : 'text-slate-400'}>{s.title}</span>
+            <div key={s.title + '-' + i} className="flex items-center gap-2 text-xs">
+              <span className={`w-2.5 h-2.5 shrink-0 rounded-[3px] ring-1 ${s.done ? 'bg-signal-good ring-signal-good' : 'ring-bat-line-strong'}`} aria-hidden="true" />
+              <span className={s.done ? 'line-through text-ink-faint' : 'text-ink-muted'}>{s.title}</span>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+const QUADRANTS = [
+  { key: 'do', label: 'Do', sub: 'urgent & important' },
+  { key: 'decide', label: 'Decide', sub: 'urgent, not important' },
+  { key: 'schedule', label: 'Schedule', sub: 'important, not urgent' },
+  { key: 'delegate', label: 'Delegate', sub: 'neither' },
+];
+
+function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
+  const classify = (m) => {
+    const urgent = m.priority === 'critical' || m.priority === 'high';
+    const important = m.priority !== 'low';
+    if (urgent && important) return 'do';
+    if (urgent && !important) return 'decide';
+    if (!urgent && important) return 'schedule';
+    return 'delegate';
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+      {QUADRANTS.map(({ key, label, sub }) => {
+        const ms = missions.filter(m => classify(m) === key);
+        return (
+          <Panel key={key} title={label} meta={`${ms.length} · ${sub}`} bodyClassName="p-3 space-y-2">
+            {ms.length === 0
+              ? <EmptyState compact>Nothing here</EmptyState>
+              : ms.map(m => (
+                  <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} />
+                ))}
+          </Panel>
+        );
+      })}
     </div>
   );
 }
@@ -234,8 +334,25 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', due_date: '', tags: '', location: '', notes: '', subtasks: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // Saving used to produce no acknowledgement whatsoever: the modal vanished
+  // and a row appeared somewhere in a list of forty.
+  const [flash, setFlash] = useState(null);
 
   const [dateFilter, setDateFilter] = useState('all');
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 2600);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  // Escape closes the modal; every other dialog on the web does.
+  useEffect(() => {
+    if (!showForm) return;
+    const onKey = (e) => { if (e.key === 'Escape') closeForm(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showForm]);
 
   const todayKey = localDateKey(new Date());
   const weekEndKey = localDateKey(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
@@ -264,6 +381,12 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const resetForm = () => {
     setForm({ title: '', description: '', priority: 'medium', due_date: '', tags: '', location: '', notes: '', subtasks: '' });
     setError(null);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditMission(null);
+    resetForm();
   };
 
   const openEdit = (mission) => {
@@ -300,14 +423,14 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       // Status is only set on create: editing a completed mission used to
       // send status 'pending' and silently reopen it.
       if (!editMission) payload.status = 'pending';
+      const wasEdit = Boolean(editMission);
       if (editMission) {
         await api.updateMission(editMission.id, payload);
       } else {
         await api.createMission(payload);
       }
-      setShowForm(false);
-      setEditMission(null);
-      resetForm();
+      closeForm();
+      setFlash(wasEdit ? `Updated "${payload.title}"` : `Added "${payload.title}"`);
       await onRefreshMissions();
       await onRefreshAccount();
     } catch (err) {
@@ -321,6 +444,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
     const nextStatus = mission.status === 'completed' ? 'pending' : 'completed';
     try {
       await api.updateMission(mission.id, { status: nextStatus });
+      setFlash(nextStatus === 'completed' ? `Done — "${mission.title}"` : `Reopened "${mission.title}"`);
       await onRefreshMissions();
       await onRefreshAccount();
     } catch (err) { console.error(err); }
@@ -349,6 +473,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         is_pinned: false,
         status: 'pending',
       });
+      setFlash(`Copied "${mission.title}"`);
       await onRefreshMissions();
     } catch (err) { console.error(err); }
   };
@@ -356,63 +481,131 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const handleWontDo = async (mission) => {
     try {
       await api.updateMission(mission.id, { is_dismissed: true, status: 'dismissed' });
+      setFlash(`Set aside "${mission.title}"`);
       await onRefreshMissions();
     } catch (err) { console.error(err); }
   };
 
   const renderForm = () => (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => { if (form.title.trim() && !confirm('Discard unsaved changes?')) return; setShowForm(false); setEditMission(null); resetForm(); }}>
-      <div className="bg-dark-slate rounded border border-slate-700 p-5 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2 mb-4">
-          {editMission ? 'Edit Mission' : 'Queue New Mission'}
-        </h2>
-        {error && <div className="p-2 bg-red-950/40 border border-red-900 rounded text-red-400 text-xs mb-3">{error}</div>}
-        <form onSubmit={handleSubmit} className="space-y-3 text-xs">
-          <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Objective Name</label>
-            <input type="text" value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="Secure Arkham perimeter..." className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow" required />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Description</label>
-            <textarea value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Tactical details..." className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow h-16 resize-none" />
-          </div>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+      onClick={() => { if (form.title.trim() && !confirm('Discard unsaved changes?')) return; closeForm(); }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={editMission ? 'Edit mission' : 'New mission'}
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-card
+          bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line-strong shadow-lift
+          animate-rise-in"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/[0.04]">
+          <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted">
+            {editMission ? 'Edit mission' : 'New mission'}
+          </h2>
+          <button
+            type="button"
+            onClick={closeForm}
+            aria-label="Close"
+            className="text-ink-faint hover:text-ink transition-colors duration-200"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-5 space-y-3.5 text-xs">
+          {error && (
+            <div className="rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30 px-3 py-2 text-[11px] text-signal-late">
+              {error}
+            </div>
+          )}
+
+          <Field label="What is it">
+            <input
+              type="text"
+              value={form.title}
+              onChange={e => setForm({ ...form, title: e.target.value })}
+              placeholder="Finish the quarterly report"
+              className={fieldClass}
+              required
+              autoFocus
+            />
+          </Field>
+
+          <Field label="Description">
+            <textarea
+              value={form.description}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+              placeholder="Anything you'll want to remember when you pick it up."
+              className={`${fieldClass} h-16 resize-none`}
+            />
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-slate-400 mb-1 font-mono text-[10px]">Threat Level</label>
-              <select value={form.priority} onChange={e => setForm({...form, priority: e.target.value})} className="w-full bg-matte-obsidian border border-slate-800 rounded px-2.5 py-2 text-slate-200 focus:outline-none focus:border-electric-bat-yellow">
+            <Field label="Priority">
+              <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })} className={fieldClass}>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
                 <option value="critical">Critical</option>
               </select>
-            </div>
-            <div>
-              <label className="block text-slate-400 mb-1 font-mono text-[10px]">Target Date</label>
-              <input type="date" value={form.due_date} onChange={e => setForm({...form, due_date: e.target.value})} className="w-full bg-matte-obsidian border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-electric-bat-yellow font-mono" />
-            </div>
+            </Field>
+            <Field label="Due" hint="A mission with a date is one you can plan around.">
+              <input
+                type="date"
+                value={form.due_date}
+                onChange={e => setForm({ ...form, due_date: e.target.value })}
+                className={`${fieldClass} font-mono`}
+              />
+            </Field>
           </div>
-          <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Tags (comma-separated)</label>
-            <input type="text" value={form.tags} onChange={e => setForm({...form, tags: e.target.value})} placeholder="gotham, arkham, stealth" className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow" />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Location</label>
-            <input type="text" value={form.location} onChange={e => setForm({...form, location: e.target.value})} placeholder="Gotham City - East Side" className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow" />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Notes</label>
-            <textarea value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="Classified intel..." className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow h-16 resize-none" />
-          </div>
-          <div>
-            <label className="block text-slate-400 mb-1 font-mono text-[10px]">Subtasks</label>
+
+          <Field label="Tags" hint="Comma-separated.">
+            <input
+              type="text"
+              value={form.tags}
+              onChange={e => setForm({ ...form, tags: e.target.value })}
+              placeholder="work, admin"
+              className={fieldClass}
+            />
+          </Field>
+
+          <Field label="Where">
+            <input
+              type="text"
+              value={form.location}
+              onChange={e => setForm({ ...form, location: e.target.value })}
+              placeholder="Office, home, the gym..."
+              className={fieldClass}
+            />
+          </Field>
+
+          <Field label="Notes">
+            <textarea
+              value={form.notes}
+              onChange={e => setForm({ ...form, notes: e.target.value })}
+              placeholder="Links, numbers, context."
+              className={`${fieldClass} h-16 resize-none`}
+            />
+          </Field>
+
+          <Field label="Steps">
             <SubtaskEditor value={form.subtasks} onChange={(v) => setForm({ ...form, subtasks: v })} />
-          </div>
-          <div className="flex space-x-3 pt-2">
-            <button type="submit" disabled={loading} className="flex-1 py-2.5 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono tracking-widest disabled:opacity-50">
-              {loading ? 'SAVING...' : editMission ? 'UPDATE MISSION' : 'LAUNCH PROTOCOL'}
-            </button>
-            <button type="button" onClick={() => { setShowForm(false); setEditMission(null); resetForm(); }} className="px-4 py-2.5 bg-slate-800 text-slate-300 rounded hover:bg-slate-700 transition font-mono text-[10px]">
-              CANCEL
+          </Field>
+
+          {/* The primary action carries the weight; cancel is a quiet way out,
+              not — as before — the louder of the two. */}
+          <div className="flex items-center gap-3 pt-1">
+            <Button type="submit" tone="self" disabled={loading} className="flex-1 py-2.5">
+              {loading ? 'Saving...' : editMission ? 'Save changes' : 'Add mission'}
+            </Button>
+            <button
+              type="button"
+              onClick={closeForm}
+              className="text-[10px] font-mono uppercase tracking-widest text-ink-faint hover:text-ink-muted transition-colors duration-200 px-2"
+            >
+              Cancel
             </button>
           </div>
         </form>
@@ -422,11 +615,10 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
 
   // Overdue is the only thing on this screen that needs a decision today.
   const openForStats = missions.filter((m) => m.status === 'pending' && !m.is_dismissed);
-  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
   const overdueCount = openForStats.filter(
-    (m) => m.due_date && new Date(m.due_date) < startOfToday).length;
+    (m) => m.due_date && dueDateKey(m.due_date) < todayKey).length;
   const dueTodayCount = openForStats.filter(
-    (m) => m.due_date && new Date(m.due_date).toDateString() === new Date().toDateString()).length;
+    (m) => dueDateKey(m.due_date) === todayKey).length;
   const undatedCount = openForStats.filter((m) => !m.due_date).length;
 
   const missionStats = [
@@ -436,62 +628,80 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
     ...(undatedCount ? [{ label: 'with no date', value: undatedCount }] : []),
   ];
 
+  const newMissionButton = (
+    <Button tone="self" onClick={() => { setEditMission(null); resetForm(); setShowForm(true); }}>
+      <Plus size={13} /> New mission
+    </Button>
+  );
+
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="TACTICAL MISSIONS"
-        stats={missionStats}
-        action={(
-          <button
-            onClick={() => { setEditMission(null); resetForm(); setShowForm(true); }}
-            className="px-4 py-2 bg-signal-self text-bat-bg font-bold rounded-chip hover:brightness-110 active:scale-[0.98] transition-all duration-200 ease-soft font-mono text-[10px] tracking-widest"
-          >
-            + NEW MISSION
-          </button>
+      <PageHeader title="TACTICAL MISSIONS" stats={missionStats} action={newMissionButton} />
+
+      <div className="flex items-center flex-wrap gap-2">
+        <Segmented
+          label="View"
+          value={viewMode}
+          onChange={setViewMode}
+          options={[
+            { value: 'list', label: 'List' },
+            { value: 'eisenhower', label: 'Eisenhower' },
+          ]}
+        />
+        {viewMode === 'list' && (
+          <Segmented
+            label="Due"
+            value={dateFilter}
+            onChange={setDateFilter}
+            options={[
+              { value: 'all', label: 'All' },
+              { value: 'today', label: 'Today' },
+              { value: 'week', label: 'This week' },
+            ]}
+          />
         )}
-      />
-
-      <div className="flex items-center space-x-2 text-[10px] font-mono">
-        <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded border transition ${viewMode === 'list' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>List</button>
-        <button onClick={() => setViewMode('eisenhower')} className={`px-3 py-1.5 rounded border transition ${viewMode === 'eisenhower' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>Eisenhower</button>
-      </div>
-
-      <div className="flex items-center space-x-2 text-[10px] font-mono">
-        <button onClick={() => setDateFilter('all')} className={`px-3 py-1.5 rounded border transition ${dateFilter === 'all' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>All</button>
-        <button onClick={() => setDateFilter('today')} className={`px-3 py-1.5 rounded border transition ${dateFilter === 'today' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>Today</button>
-        <button onClick={() => setDateFilter('week')} className={`px-3 py-1.5 rounded border transition ${dateFilter === 'week' ? 'bg-dark-slate border-electric-bat-yellow text-electric-bat-yellow' : 'border-slate-800 text-slate-400 hover:border-slate-600'}`}>This Week</button>
       </div>
 
       {viewMode === 'eisenhower' ? (
         <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} />
       ) : (
-        <div className="space-y-3">
-          <div className="flex justify-between items-center text-xs font-mono text-slate-500 uppercase tracking-wider px-1">
-            <span>Active Missions ({sortedMissions.length})</span>
-          </div>
-          {sortedMissions.length === 0 ? (
-            <div className="bg-dark-slate p-8 text-center rounded border border-slate-800 text-slate-500 font-mono text-xs">ALL SECTORS SECURED. NO ACTIVE OBJECTIVES PLOTTED.</div>
-          ) : (
-            <div className="space-y-2">
-              {sortedMissions.map(m => (
+        <div className="space-y-gutter">
+          <Panel title="Active" meta={`${sortedMissions.length}`} bodyClassName="p-3 space-y-2">
+            {sortedMissions.length === 0 ? (
+              <EmptyState>
+                {dateFilter === 'all' ? 'Nothing on the board' : 'Nothing due in this window'}
+              </EmptyState>
+            ) : (
+              sortedMissions.map(m => (
                 <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} />
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </Panel>
 
           {dismissedMissions.length > 0 && (
-            <details className="group">
-              <summary className="text-[10px] font-mono text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-300 px-1 py-2">
-                Won't Do ({dismissedMissions.length})
+            <details>
+              <summary className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint hover:text-ink-muted cursor-pointer px-1 py-2 transition-colors duration-200">
+                Set aside ({dismissedMissions.length})
               </summary>
               <div className="space-y-2 mt-2">
                 {dismissedMissions.map(m => (
-                  <div key={m.id} className="bg-dark-slate p-3 rounded border border-slate-800 opacity-50 flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-slate-500 line-through text-xs">{m.title}</span>
-                      <button onClick={async () => { try { await api.updateMission(m.id, { is_dismissed: false, status: 'pending' }); onRefreshMissions(); } catch (e) { console.error(e); } }} className="text-[9px] text-slate-600 hover:text-slate-300">(restore)</button>
+                  <div key={m.id} className="flex items-center justify-between gap-3 rounded-tile bg-bat-raised ring-1 ring-bat-line px-3.5 py-2.5">
+                    <span className="text-xs text-ink-faint line-through truncate">{m.title}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await api.updateMission(m.id, { is_dismissed: false, status: 'pending' });
+                            setFlash(`Back on the board — "${m.title}"`);
+                            onRefreshMissions();
+                          } catch (e) { console.error(e); }
+                        }}
+                      >
+                        Restore
+                      </Button>
+                      <RowAction label={`Delete "${m.title}"`} onClick={() => handleDelete(m.id)} icon={Trash2} tone="danger" />
                     </div>
-                    <button onClick={() => handleDelete(m.id)} className="text-slate-600 hover:text-red-500 text-[10px]">✕</button>
                   </div>
                 ))}
               </div>
@@ -499,9 +709,9 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
           )}
 
           {completedMissions.length > 0 && (
-            <details className="group">
-              <summary className="text-[10px] font-mono text-slate-500 uppercase tracking-wider cursor-pointer hover:text-slate-300 px-1 py-2">
-                Completed ({completedMissions.length})
+            <details>
+              <summary className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint hover:text-ink-muted cursor-pointer px-1 py-2 transition-colors duration-200">
+                Done ({completedMissions.length})
               </summary>
               <div className="space-y-2 mt-2">
                 {completedMissions.map(m => (
@@ -514,6 +724,17 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       )}
 
       {showForm && renderForm()}
+
+      {flash && (
+        <div
+          role="status"
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] animate-rise-in
+            rounded-chip bg-bat-raised ring-1 ring-bat-line-strong shadow-lift
+            px-4 py-2 text-[11px] text-ink-muted max-w-[90vw] truncate"
+        >
+          {flash}
+        </div>
+      )}
     </div>
   );
 }
