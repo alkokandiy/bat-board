@@ -1,6 +1,136 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Check, Flag, Trash2 } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader } from './ui';
+import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
+
+const FREQUENCY_LABEL = { daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
+
+function keptThisPeriod(habit) {
+  if (!habit.last_completed) return false;
+  const last = new Date(habit.last_completed);
+  const now = new Date();
+  if (habit.frequency === 'weekly') {
+    return (now - last) / 86400000 < 7 && last <= now;
+  }
+  if (habit.frequency === 'monthly') {
+    return last.getFullYear() === now.getFullYear() && last.getMonth() === now.getMonth();
+  }
+  return last.toDateString() === now.toDateString();
+}
+
+function dateKey(value) {
+  return value ? String(value).slice(0, 10) : '';
+}
+
+/**
+ * How it is actually going.
+ *
+ * The row used to lead with the consecutive streak and award an "ON FIRE"
+ * badge above three — which is the chain framing this codebase bans outright,
+ * and the reason a single blameless missed day reads as total failure. The
+ * reward has followed recent adherence for a while; the screen simply never
+ * showed it. Now the honest measure is the headline and the run is a footnote.
+ */
+function Adherence({ habit }) {
+  const window = habit.adherence_window || 0;
+  const done = habit.adherence_done || 0;
+  if (!window) return null;
+  const rate = done / window;
+  const tone = rate >= 0.7 ? 'bg-signal-good' : rate >= 0.4 ? 'bg-signal-warn' : 'bg-bat-line-strong';
+
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <div className="h-1 w-full max-w-[90px] shrink rounded-full bg-bat-surface overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-300 ease-soft ${tone}`}
+             style={{ width: `${Math.round(rate * 100)}%` }} />
+      </div>
+      <span className="text-[10px] font-mono text-ink-muted tabular-nums whitespace-nowrap">
+        {done} of your last {window}
+      </span>
+    </div>
+  );
+}
+
+function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate }) {
+  return (
+    <div
+      className={`group rounded-tile bg-bat-raised ring-1 p-3.5
+        transition-all duration-200 ease-soft
+        ${kept ? 'ring-bat-line opacity-55' : 'ring-bat-line hover:ring-bat-line-strong hover:shadow-lift'}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center flex-wrap gap-1.5">
+            <h3 className={`text-sm font-semibold tracking-wide ${kept ? 'text-ink-muted' : 'text-ink'}`}>
+              {habit.name}
+            </h3>
+            <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ring-bat-line text-ink-faint">
+              {FREQUENCY_LABEL[habit.frequency] || habit.frequency}
+            </span>
+          </div>
+
+          {/* The cue is the strongest lever there is, so it reads as the
+              instruction rather than as a grey afterthought. */}
+          {habit.cue && (
+            <p className="text-[11px] text-signal-work/80 mt-1">{habit.cue}</p>
+          )}
+          {habit.description && (
+            <p className="text-xs text-ink-muted mt-1 leading-snug">{habit.description}</p>
+          )}
+
+          <Adherence habit={habit} />
+
+          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-ink-faint mt-1.5">
+            {habit.streak > 0 && <span>{habit.streak} in a row</span>}
+            {habit.best_streak > 0 && <span>best {habit.best_streak}</span>}
+            {habit.focus_minutes > 0 && <span>{habit.focus_minutes}m focused</span>}
+            {habit.last_completed && (
+              <span>last {new Date(habit.last_completed).toLocaleDateString()}</span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {kept ? (
+            <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-signal-good">
+              <Check size={12} strokeWidth={3} /> kept
+            </span>
+          ) : (
+            <Button tone="self" size="sm" onClick={() => onCheckIn(habit.id)}>Check in</Button>
+          )}
+          <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
+            <IconButton
+              label={`Delete "${habit.name}"`}
+              icon={Trash2}
+              tone="danger"
+              onClick={() => onDelete(habit.id, habit.name)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* An end date is a real thing to want — "do this until the exam" — but
+          it was a bare date input labelled "Target end date:" on every single
+          row, which made forty habits into forty date pickers. It opens only
+          when there is one, or when you ask for one. */}
+      <details className="mt-2">
+        <summary className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint hover:text-ink-muted cursor-pointer transition-colors duration-200 inline-flex items-center gap-1">
+          <Flag size={10} />
+          {habit.target_date
+            ? `until ${new Date(habit.target_date).toLocaleDateString()}`
+            : 'set an end date'}
+        </summary>
+        <input
+          type="date"
+          defaultValue={dateKey(habit.target_date)}
+          onChange={(e) => onSetTargetDate(habit.id, e.target.value || null)}
+          aria-label={`End date for "${habit.name}"`}
+          className={`${fieldClass} font-mono mt-1.5 w-auto text-xs`}
+        />
+      </details>
+    </div>
+  );
+}
 
 export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAccount }) {
   const [name, setName] = useState('');
@@ -12,6 +142,13 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
+  const [flash, setFlash] = useState(null);
+
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(null), 2600);
+    return () => clearTimeout(t);
+  }, [flash]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,6 +163,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
         frequency,
         cue: cue.trim() || null
       });
+      setFlash(`Tracking "${name.trim()}"`);
       setName('');
       setDescription('');
       setCue('');
@@ -43,7 +181,8 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   const handleCheckIn = async (habitId) => {
     try {
       setActionError(null);
-      await api.checkInHabit(habitId);
+      const updated = await api.checkInHabit(habitId);
+      setFlash(updated?.name ? `Kept "${updated.name}"` : 'Kept');
       await onRefreshHabits();
       await onRefreshAccount();
     } catch (err) {
@@ -51,11 +190,12 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this recurring ritual?")) return;
+  const handleDelete = async (id, habitName) => {
+    if (!confirm(`Stop tracking "${habitName}"? Its history goes with it.`)) return;
     try {
       setActionError(null);
       await api.deleteHabit(id);
+      setFlash(`Stopped tracking "${habitName}"`);
       await onRefreshHabits();
       await onRefreshAccount();
     } catch (err) {
@@ -72,242 +212,140 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
     }
   };
 
-  // A habit not yet kept today is the only thing here worth acting on, so it
-  // is the only figure allowed a colour.
-  const pendingToday = habits.filter(
-    (h) => !(h.last_completed && new Date(h.last_completed).toDateString() === new Date().toDateString()));
-  const bestStreak = habits.reduce((max, h) => Math.max(max, h.streak || 0), 0);
+  const pending = habits.filter((h) => !keptThisPeriod(h));
+  const kept = habits.filter(keptThisPeriod);
+  const bestStreak = habits.reduce((max, h) => Math.max(max, h.best_streak || h.streak || 0), 0);
   const withoutCue = habits.filter((h) => !(h.cue || '').trim()).length;
 
   const habitStats = habits.length === 0
     ? [{ label: 'none yet', value: '' }]
     : [
         { label: 'tracked', value: habits.length },
-        ...(pendingToday.length
-          ? [{ label: 'still to keep today', value: pendingToday.length, tone: 'warn' }]
-          : [{ label: 'all kept today', value: '', tone: 'good' }]),
+        ...(pending.length
+          ? [{ label: 'still to keep', value: pending.length, tone: 'warn' }]
+          : [{ label: 'all kept', value: '', tone: 'good' }]),
         ...(bestStreak ? [{ label: 'day best run', value: bestStreak }] : []),
         ...(withoutCue ? [{ label: 'without a trigger', value: withoutCue }] : []),
       ];
 
   return (
-    <div className="space-y-6">
-      {/* "Maintain active streaks to amplify resource yields" told you nothing
-          about your habits. This is where they actually stand. */}
-      <PageHeader
-        title="RECURRING RITUALS"
-        stats={habitStats}
-      />
+    <div className="space-y-4">
+      <PageHeader title="RECURRING RITUALS" stats={habitStats} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Creation Form */}
-        <div className="bg-dark-slate p-5 rounded border border-slate-800 h-fit space-y-4">
-          <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300 border-b border-slate-800 pb-2">
-            Establish Ritual
-          </h2>
-          
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-gutter items-start">
+        <Panel title="New ritual" className="lg:sticky lg:top-4">
           {error && (
-            <div className="p-3 bg-red-950/40 border border-red-900 rounded text-red-400 text-xs">
+            <div className="rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30 px-3 py-2 text-[11px] text-signal-late mb-3">
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Ritual Name</label>
+            <Field label="What is it">
               <input
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Strength conditioning (50 reps)..."
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+                placeholder="Fifty press-ups"
+                className={fieldClass}
                 required
               />
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Description (Optional)</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Power workout or visual surveillance analysis check."
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow h-20 resize-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">
-                Trigger (Optional)
-              </label>
+            <Field label="Trigger" hint="Tie it to something that already happens. It is the single biggest thing that makes a habit stick.">
               <input
                 type="text"
                 value={cue}
                 onChange={(e) => setCue(e.target.value)}
                 placeholder="After I put the kettle on"
                 maxLength={200}
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+                className={fieldClass}
               />
-              <p className="text-[10px] text-slate-500 mt-1">
-                Tie it to something that already happens. It is the single
-                biggest thing that makes a habit stick.
-              </p>
-            </div>
+            </Field>
 
-            <div>
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Frequency</label>
-              <select
-                value={frequency}
-                onChange={(e) => setFrequency(e.target.value)}
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-2.5 py-2 text-slate-200 focus:outline-none focus:border-electric-bat-yellow"
-              >
-                <option value="daily">Daily Loop</option>
-                <option value="weekly">Weekly Loop</option>
-                <option value="monthly">Monthly Loop</option>
+            <Field label="How often">
+              <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className={fieldClass}>
+                <option value="daily">Every day</option>
+                <option value="weekly">Every week</option>
+                <option value="monthly">Every month</option>
               </select>
-            </div>
+            </Field>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-2 py-2.5 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono tracking-widest disabled:opacity-50"
-            >
-              {loading ? "COMMITTING..." : "LOG PROTOCOL"}
-            </button>
+            <Field label="Notes">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Anything you'll want to remember."
+                className={`${fieldClass} h-16 resize-none`}
+              />
+            </Field>
+
+            <Button type="submit" tone="self" disabled={loading} className="w-full py-2.5">
+              {loading ? 'Saving...' : 'Start tracking'}
+            </Button>
           </form>
-        </div>
+        </Panel>
 
-        {/* Habits List */}
-        <div className="lg:col-span-2 space-y-3">
+        <div className="lg:col-span-2 space-y-gutter">
           {actionError && (
-            <div className="p-3 bg-red-950/40 border border-red-900 rounded text-red-400 text-xs">
+            <div className="rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30 px-3 py-2 text-[11px] text-signal-late">
               {actionError}
             </div>
           )}
-          <div className="flex justify-between items-center text-xs font-mono text-slate-500 uppercase tracking-wider px-1">
-            <span>Pending Today</span>
-            <span>{habits.filter(h => !h.last_completed || new Date(h.last_completed).toDateString() !== new Date().toDateString()).length} REMAINING</span>
-          </div>
 
-          <div className="space-y-2.5">
+          <Panel title="Still to keep" meta={`${pending.length}`} bodyClassName="p-3 space-y-2">
             {habits.length === 0 ? (
-              <div className="bg-dark-slate p-8 text-center rounded border border-slate-800 text-slate-500 font-mono text-xs">
-                NO RITUAL LOOPS ENGAGED. CONFIGURE A NEW ROUTINE TO BEGIN TRAINING.
-              </div>
+              <EmptyState>Nothing tracked yet</EmptyState>
+            ) : pending.length === 0 ? (
+              <EmptyState compact>All kept — come back tomorrow</EmptyState>
             ) : (
-              (() => {
-                const now = new Date();
-                const todayStr = now.toDateString();
-                const pendingHabits = habits.filter((habit) => {
-                  const checkedToday = habit.last_completed
-                    ? new Date(habit.last_completed).toDateString() === todayStr
-                    : false;
-                  return !checkedToday;
-                });
-                const completedToday = habits.length - pendingHabits.length;
-
-                if (pendingHabits.length === 0) {
-                  return (
-                    <div className="bg-dark-slate p-8 text-center rounded border border-emerald-900/30 text-emerald-400 font-mono text-xs space-y-2">
-                      <div className="text-lg">ALL RITUALS COMPLETED</div>
-                      <div className="text-emerald-400/60">All {completedToday} habit{completedToday !== 1 ? 's' : ''} checked in today. Come back tomorrow.</div>
-                    </div>
-                  );
-                }
-
-                return pendingHabits.map((habit) => {
-                  return (
-                  <div
-                    key={habit.id}
-                    className="bg-dark-slate p-4 rounded border border-slate-800 hover:border-slate-700 transition flex items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center space-x-3">
-                        <h3 className="text-sm font-semibold tracking-wide text-slate-200">
-                          {habit.name}
-                        </h3>
-                        <span className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-800 font-mono">
-                          {habit.frequency}
-                        </span>
-                      </div>
-                      
-                      {habit.cue && (
-                        <p className="text-[11px] text-slate-500 mt-1 italic">
-                          {habit.cue}
-                        </p>
-                      )}
-                      {habit.description && (
-                        <p className="text-xs text-slate-400">
-                          {habit.description}
-                        </p>
-                      )}
-
-                      <div className="flex items-center space-x-4 pt-1 text-[10px] font-mono">
-                        <div className="flex items-center space-x-1">
-                          <span className="text-slate-500">Streak:</span>
-                          <span className={`${habit.streak > 0 ? 'text-orange-500 font-bold' : 'text-slate-400'}`}>
-                            {habit.streak} {habit.streak === 1 ? 'day' : 'days'}
-                          </span>
-                        </div>
-
-                        {(habit.focus_minutes || 0) > 0 && (
-                          <div className="text-slate-500">
-                            {habit.focus_minutes}m focus
-                          </div>
-                        )}
-                        
-                        {habit.streak > 2 && (
-                          <span className="text-[9px] bg-orange-950/20 text-orange-400 border border-orange-950 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                            ON FIRE
-                          </span>
-                        )}
-
-                        {habit.last_completed && (
-                          <div className="text-slate-500">
-                            Last: {new Date(habit.last_completed).toLocaleDateString()}
-                          </div>
-                        )}
-
-                        {habit.target_date && (
-                          <div className={`${new Date(habit.target_date) < new Date() ? 'text-red-400' : 'text-slate-500'}`}>
-                            End: {new Date(habit.target_date).toLocaleDateString()}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2 pt-1 text-[10px] font-mono">
-                        <span className="text-slate-500">Target end date:</span>
-                        <input
-                          type="date"
-                          defaultValue={habit.target_date ? habit.target_date.split('T')[0] : ''}
-                          onChange={e => handleSetTargetDate(habit.id, e.target.value || null)}
-                          className="bg-matte-obsidian border border-slate-800 rounded px-2 py-1 text-slate-300 focus:outline-none focus:border-electric-bat-yellow w-auto"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-3 shrink-0">
-                      <button
-                        onClick={() => handleCheckIn(habit.id)}
-                        className="px-4 py-2 rounded text-xs font-bold font-mono tracking-wider border transition duration-200 bg-electric-bat-yellow text-matte-obsidian border-electric-bat-yellow hover:bg-yellow-400"
-                      >
-                        CHECK IN
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(habit.id)}
-                        className="text-slate-600 hover:text-red-500 transition text-xs font-mono px-1.5 py-1"
-                        title="Delete ritual"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
-                  );
-                });
-              })()
+              pending.map((habit) => (
+                <HabitRow
+                  key={habit.id}
+                  habit={habit}
+                  kept={false}
+                  onCheckIn={handleCheckIn}
+                  onDelete={handleDelete}
+                  onSetTargetDate={handleSetTargetDate}
+                />
+              ))
             )}
-          </div>
+          </Panel>
+
+          {/* Kept habits used to vanish from the screen entirely, so you could
+              not see what you had already done — only what you had not. */}
+          {kept.length > 0 && (
+            <details>
+              <summary className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint hover:text-ink-muted cursor-pointer px-1 py-2 transition-colors duration-200">
+                Kept ({kept.length})
+              </summary>
+              <div className="space-y-2 mt-2">
+                {kept.map((habit) => (
+                  <HabitRow
+                    key={habit.id}
+                    habit={habit}
+                    kept
+                    onCheckIn={handleCheckIn}
+                    onDelete={handleDelete}
+                    onSetTargetDate={handleSetTargetDate}
+                  />
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       </div>
+
+      {flash && (
+        <div
+          role="status"
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] animate-rise-in
+            rounded-chip bg-bat-raised ring-1 ring-bat-line-strong shadow-lift
+            px-4 py-2 text-[11px] text-ink-muted max-w-[90vw] truncate"
+        >
+          {flash}
+        </div>
+      )}
     </div>
   );
 }

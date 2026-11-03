@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader, Panel, Button, EmptyState, Field, fieldClass } from './ui';
+import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
@@ -140,39 +140,6 @@ function SubtaskEditor({ value, onChange }) {
   );
 }
 
-/**
- * The row actions.
- *
- * These were four glyph buttons with a `title` and no accessible name at all —
- * a screen reader announced "button, button, button, button", and I could not
- * target them from the accessibility tree while testing the live app. They
- * also sat at `text-slate-600` on `#2c2c2c`, which is close enough to
- * invisible that you had to know they were there. Now each one says what it
- * does, and the group fades up as a set when the row is touched rather than
- * each icon being permanently dim.
- */
-function RowAction({ label, onClick, icon: Icon, tone = 'plain' }) {
-  const hover = tone === 'danger'
-    ? 'hover:text-signal-late hover:ring-signal-late/40'
-    : tone === 'warn'
-      ? 'hover:text-signal-warn hover:ring-signal-warn/40'
-      : 'hover:text-ink hover:ring-bat-line-strong';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`w-7 h-7 inline-flex items-center justify-center rounded-chip
-        text-ink-faint ring-1 ring-transparent bg-transparent
-        transition-all duration-200 ease-soft active:scale-[0.94]
-        focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60 ${hover}`}
-    >
-      <Icon size={13} />
-    </button>
-  );
-}
-
 function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo }) {
   const isCompleted = mission.status === 'completed';
   const subtasks = parseSubtasks(mission.subtasks);
@@ -254,12 +221,12 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
         {/* Dim until the row is approached, then a legible set — rather than
             four controls permanently at the edge of visibility. */}
         <div className="flex items-center gap-0.5 shrink-0 opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
-          <RowAction label={`Edit "${mission.title}"`} onClick={() => onEdit(mission)} icon={Pencil} />
-          <RowAction label={`Duplicate "${mission.title}"`} onClick={() => onDuplicate(mission)} icon={Copy} />
+          <IconButton label={`Edit "${mission.title}"`} onClick={() => onEdit(mission)} icon={Pencil} />
+          <IconButton label={`Duplicate "${mission.title}"`} onClick={() => onDuplicate(mission)} icon={Copy} />
           {!mission.is_dismissed && (
-            <RowAction label={`Won't do "${mission.title}"`} onClick={() => onWontDo(mission)} icon={Ban} tone="warn" />
+            <IconButton label={`Won't do "${mission.title}"`} onClick={() => onWontDo(mission)} icon={Ban} tone="warn" />
           )}
-          <RowAction label={`Delete "${mission.title}"`} onClick={() => onDelete(mission.id)} icon={Trash2} tone="danger" />
+          <IconButton label={`Delete "${mission.title}"`} onClick={() => onDelete(mission.id)} icon={Trash2} tone="danger" />
         </div>
       </div>
 
@@ -700,7 +667,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
                       >
                         Restore
                       </Button>
-                      <RowAction label={`Delete "${m.title}"`} onClick={() => handleDelete(m.id)} icon={Trash2} tone="danger" />
+                      <IconButton label={`Delete "${m.title}"`} onClick={() => handleDelete(m.id)} icon={Trash2} tone="danger" />
                     </div>
                   </div>
                 ))}
