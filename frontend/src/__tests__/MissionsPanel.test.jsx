@@ -9,6 +9,7 @@ vi.mock('../utils/api', () => ({
     createMission: vi.fn(),
     updateMission: vi.fn(),
     deleteMission: vi.fn(),
+    logPastFocus: vi.fn(),
   },
 }));
 
@@ -49,6 +50,7 @@ describe('a mission row can be operated without guessing', () => {
     api.updateMission.mockResolvedValue({});
     api.createMission.mockResolvedValue({});
     api.deleteMission.mockResolvedValue({});
+    api.logPastFocus.mockResolvedValue({});
   });
 
   // These four controls were glyph buttons with only a `title`: the
@@ -143,5 +145,44 @@ describe('the due filter', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
     expect(screen.getByText('Due today')).toBeTruthy();
     expect(screen.queryByText('No date')).toBeNull();
+  });
+});
+
+
+describe('logging time without a timer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.logPastFocus.mockResolvedValue({});
+    api.updateMission.mockResolvedValue({});
+  });
+
+  // "I was just working." A record that only exists if you remember to start
+  // a clock beforehand is empty on exactly the days with most work in them.
+  it('offers the common lengths on the row, each named', () => {
+    renderPanel([mission()]);
+    for (const [label, mins] of [['+15m', 15], ['+30m', 30], ['+1h', 60]]) {
+      const btn = screen.getByRole('button', { name: `Log ${mins} minutes on "Finish the report"` });
+      expect(btn.textContent).toBe(label);
+    }
+  });
+
+  it('writes a backfilled block against that mission', async () => {
+    renderPanel([mission()]);
+    fireEvent.click(screen.getByRole('button', { name: /Log 30 minutes/ }));
+    await waitFor(() => expect(api.logPastFocus).toHaveBeenCalledWith({ minutes: 30, mission_id: 1 }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Logged 30m');
+  });
+
+  it('says so when the backend refuses, rather than silently doing nothing', async () => {
+    api.logPastFocus.mockRejectedValue(new Error('Blocks may not overlap.'));
+    renderPanel([mission()]);
+    fireEvent.click(screen.getByRole('button', { name: /Log 15 minutes/ }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Blocks may not overlap.');
+  });
+
+  it('does not offer it on something already finished', () => {
+    renderPanel([mission({ status: 'completed' })]);
+    fireEvent.click(screen.getByText(/^Done \(1\)$/));
+    expect(screen.queryByRole('button', { name: /Log 30 minutes/ })).toBeNull();
   });
 });

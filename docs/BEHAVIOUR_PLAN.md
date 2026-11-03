@@ -37,11 +37,21 @@ cost months and deliver nothing.
 different product: Flutter client, WatermelonDB, HealthKit/WearOS biometrics,
 geofencing, ambient noise, OS-level app blocking, Kafka, Redis, LangGraph.
 bat-board is a FastAPI + React web app with a Telegram bot. It has no device,
-no sensors, no background process on the user's phone. **Every "context
-stream" in the paper — HRV, sleep debt, motion state, battery, location — is
-unavailable, and no amount of building changes that.**
+no sensors, no background process on the user's phone. **No HRV, no sleep
+debt, no motion state, no location** — and no readiness score built on them.
 
-So: no readiness score from biometrics. Not now, probably not ever.
+**But "no biometrics" is not "no context", and reading it that way was lazy.**
+The database already holds timestamped evidence of the person: every message
+they send Alfred, every focus session, work note and habit check-in. That
+gives an *observed active window* — when there is evidence of them, and how
+much of it the board can account for (`services/activity.py`). It is the
+paper's context-normalisation node built from what this product can honestly
+see, and it is enough to notice a day someone clearly spent working with
+nothing recorded.
+
+The hard rule on it: absence of evidence is **not** evidence. A quiet stretch
+means the app saw nothing, never that the person was resting, idle or
+unwell. No mood, no energy, no readiness inferred from silence.
 
 **Does apply, and is the valuable part.** The behavioural mechanisms do not
 need sensors. The system already holds the only context that matters for this
@@ -52,8 +62,8 @@ adherence, and what they tell Alfred.
 |---|---|---|
 | Cue / craving / response / reward loop | `habit.cue` exists | nothing closes the reward |
 | Task-bracketing (start + finish matter, middle does not) | — | the whole design assumes the middle |
-| Reward prediction error, extinction | — | **this is problem 2** |
-| Friction tuning | — | **this is problem 1** |
+| Reward prediction error, extinction | **done** (phases 0–1) | — |
+| Friction tuning | **done** (phase 2) | — |
 | Adaptive downscaling to a micro-habit | — | missing entirely |
 | Motivational-Interviewing response to a miss | partly, in `alfred_principles` | never triggered by a miss |
 | Habit stacking | `cue` is free text | not anchored to anything real |
