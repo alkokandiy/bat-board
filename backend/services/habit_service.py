@@ -29,12 +29,14 @@ def create_habit(
     description: Optional[str] = None,
     frequency: str = "daily",
     cue: Optional[str] = None,
+    minimum_viable: Optional[str] = None,
 ) -> models.BatHabit:
     habit = models.BatHabit(
         name=name,
         description=description,
         frequency=frequency,
         cue=(cue or "").strip() or None,
+        minimum_viable=(minimum_viable or "").strip() or None,
         streak=0,
         owner_id=current_user.id,
     )
@@ -62,6 +64,14 @@ def _period_index(frequency: str, day: date) -> int:
 
 
 ADHERENCE_WINDOW_DAYS = 14
+
+# One missed period inside a run is forgiven. A second is the run genuinely
+# ending, and pretending otherwise would make the number mean nothing.
+GRACE_PER_RUN = 1
+# ...and only for a habit that is actually being kept. A habit done twice
+# ever has no run worth protecting, and protecting it would turn the count
+# into a participation trophy.
+GRACE_MIN_ADHERENCE = 0.5
 
 
 def recent_adherence(db: Session, current_user: models.BatAccount,
@@ -177,10 +187,23 @@ def check_in_habit(
     db.add(completion)
 
     if is_new_completion:
-        if last_period is not None and current_period - last_period == 1:
+        gap = (current_period - last_period) if last_period is not None else None
+        used_grace = False
+        if gap == 1:
             habit.streak += 1
+            # A clean run: the allowance is whole again for the next gap.
+            habit.grace_used_in_run = 0
+        elif (gap == 2
+              and (habit.grace_used_in_run or 0) < GRACE_PER_RUN
+              and recent_adherence(db, current_user, habit)["rate"] >= GRACE_MIN_ADHERENCE):
+            # Exactly one period missed, by somebody who is otherwise keeping
+            # this. The run survives and the allowance is spent.
+            habit.streak += 1
+            habit.grace_used_in_run = (habit.grace_used_in_run or 0) + 1
+            used_grace = True
         else:
             habit.streak = 1
+            habit.grace_used_in_run = 0
         # The run can break; the best run never does. A miss should cost the
         # current count, not the achievement behind it.
         if habit.streak > (habit.best_streak or 0):
@@ -214,6 +237,7 @@ def check_in_habit(
             "habit_id": habit.id,
             "name": habit.name,
             "streak": habit.streak,
+            "grace_used": used_grace,
             "best_streak": habit.best_streak,
             "adherence": f"{adherence['done']} of the last {adherence['window']}",
             "points_awarded": reward
@@ -241,6 +265,7 @@ def update_habit(
     frequency: Optional[str] = None,
     target_date: Optional[datetime] = None,
     cue: Optional[str] = None,
+    minimum_viable: Optional[str] = None,
 ) -> Optional[models.BatHabit]:
     """Update an existing habit. Returns None if not found."""
     habit = db.query(models.BatHabit).filter(
@@ -259,6 +284,8 @@ def update_habit(
     if cue is not None:
         # "" clears the cue rather than storing an empty string.
         habit.cue = cue.strip() or None
+    if minimum_viable is not None:
+        habit.minimum_viable = minimum_viable.strip() or None
     if target_date is not None:
         habit.target_date = target_date
 
