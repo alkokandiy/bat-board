@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
+import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
 
 const priorityWeight = { critical: 4, high: 3, medium: 2, low: 1 };
 
@@ -44,37 +44,6 @@ const PRIORITY_CHIP = {
   high: 'text-signal-warn ring-signal-warn/30',
   critical: 'text-signal-late ring-signal-late/40',
 };
-
-/**
- * One control, four choices, no four separate bordered boxes.
- *
- * The filters were eight hand-rolled buttons on two rows, each drawing its own
- * border — so the screen opened with more chrome than content. A segmented
- * track reads as a single thing you are moving a selection along.
- */
-function Segmented({ label, options, value, onChange }) {
-  return (
-    <div role="group" aria-label={label} className="inline-flex rounded-chip bg-bat-surface ring-1 ring-bat-line p-0.5">
-      {options.map((opt) => {
-        const on = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => onChange(opt.value)}
-            aria-pressed={on}
-            className={`px-3 py-1 rounded-[6px] text-[10px] font-mono uppercase tracking-widest
-              transition-all duration-200 ease-soft
-              focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60
-              ${on ? 'bg-bat-raised text-ink shadow-tile' : 'text-ink-faint hover:text-ink-muted'}`}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /**
  * Subtasks, edited as subtasks.
