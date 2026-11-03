@@ -768,7 +768,7 @@ def list_calendar_events(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return calendar_service.list_upcoming_events(db, current_user)
+    return calendar_service.list_all_events(db, current_user)
 
 @app.post("/api/calendar/events", response_model=CalendarEventSchema, status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")

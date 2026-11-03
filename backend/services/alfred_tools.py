@@ -5,7 +5,7 @@ it touches: no schema exposes owner_id/user_id/current_user — the backend
 injects the already-resolved authenticated user server-side.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -25,6 +25,7 @@ from services import (
     telegram_service,
     work_service,
 )
+from services.timezones import user_tz
 
 FOCUS_NO_LIVE_SYNC_NOTE = (
     "The session is recorded in the database, but there is NO live sync to "
@@ -115,12 +116,33 @@ def _habit_dict(h):
     }
 
 
-def _event_dict(e):
-    return {
+def _event_dict(e, tz=None):
+    out = {
         "id": e.id, "title": e.title, "description": e.description,
         "start_time": _iso(e.start_time), "end_time": _iso(e.end_time),
         "mission_id": e.mission_id,
     }
+    if tz is not None:
+        # The instant stays, but he is also given it on the user's own clock.
+        # Asking him to convert UTC in his head is asking for a wrong answer.
+        out["starts"] = _local_str(e.start_time, tz)
+        out["ends"] = _local_str(e.end_time, tz)
+    return out
+
+
+def _as_utc(dt):
+    """Stored timestamps are UTC; some are naive, so make the comparison safe."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _local_str(dt, tz):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).strftime("%Y-%m-%d %H:%M")
 
 
 def _note_dict(n):
@@ -192,6 +214,25 @@ def _reminder_dict(r):
     return d
 
 
+def _parse_dt_local(value, field_name, current_user):
+    """Parse a datetime the model wrote, reading a naive one as THEIR clock.
+
+    He is handed the time as a local wall clock ("2:47 AM, Asia/Tashkent,
+    UTC+05:00") and the tool schema only ever said "ISO datetime", so he
+    writes back the local time he was thinking in. Storing that as UTC moved
+    every event he made by the account's offset — five hours for Tashkent,
+    silently, with the board and Alfred each insisting they were right.
+
+    Only for instants (an event's start and end). A mission's due_date is a
+    calendar DATE stored at UTC midnight and read back by its date part;
+    shifting that would move it a day.
+    """
+    dt = _parse_dt(value, field_name)
+    if dt is None or dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=user_tz(current_user)).astimezone(timezone.utc)
+
+
 def _parse_dt(value, field_name):
     if value is None:
         return None
@@ -214,8 +255,11 @@ READ_TOOLS = [
      }}},
     {"name": "list_habits", "description": "List the user's habits with streaks.",
      "parameters": {"type": "object", "properties": {}}},
-    {"name": "list_upcoming_events", "description": "List calendar events ordered by start time.",
-     "parameters": {"type": "object", "properties": {}}},
+    {"name": "list_upcoming_events", "description": "List calendar events that have not finished yet, soonest first. Each event carries `starts`/`ends` already converted to the user's own clock — read those, never convert `start_time` yourself. Use `days` for 'this week' or 'today', and `include_past` only when they ask about events that have already happened.",
+     "parameters": {"type": "object", "properties": {
+         "days": {"type": "integer", "description": "Only events starting within this many days from now."},
+         "include_past": {"type": "boolean", "description": "Include events that have already finished. Default false."},
+     }}},
     {"name": "list_notes", "description": "List notes. Optional substring search over title/body and sort.",
      "parameters": {"type": "object", "properties": {
          "search": {"type": "string", "description": "Substring to match in title or body."},
@@ -338,16 +382,16 @@ WRITE_TOOLS = [
      }, "required": ["habit_id"]}},
     {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
      "parameters": {"type": "object", "properties": {
-         "title": {"type": "string"}, "start_time": {"type": "string", "description": "ISO datetime."},
-         "description": {"type": "string"}, "end_time": {"type": "string", "description": "ISO datetime."},
+         "title": {"type": "string"}, "start_time": {"type": "string", "description": "ISO datetime. Write it on the user's own clock, with no timezone suffix (2026-11-10T15:00 means 3pm where they are). Add an offset only if they actually named another zone."},
+         "description": {"type": "string"}, "end_time": {"type": "string", "description": "ISO datetime, on the user's clock like start_time. Must not be before it."},
          "color": {"type": "string"}, "mission_id": {"type": "integer", "description": "Link to a mission."},
      }, "required": ["title", "start_time"]}},
     {"name": "update_event", "description": "Update an existing calendar event.",
      "parameters": {"type": "object", "properties": {
          "event_id": {"type": "integer"},
          "title": {"type": "string"}, "description": {"type": "string"},
-         "start_time": {"type": "string", "description": "ISO datetime."},
-         "end_time": {"type": "string", "description": "ISO datetime."},
+         "start_time": {"type": "string", "description": "ISO datetime on the user's own clock, no timezone suffix."},
+         "end_time": {"type": "string", "description": "ISO datetime on the user's own clock. Must not be before the start."},
          "color": {"type": "string"}, "mission_id": {"type": "integer"},
      }, "required": ["event_id"]}},
     {"name": "create_note", "description": "Create a note.",
@@ -682,7 +726,7 @@ def _describe_tool_target(
         match = next((x for x in h if x.id == int(args.get("habit_id"))), None)
         return match.name if match else None
     if name == "delete_event":
-        e = calendar_service.list_upcoming_events(db, current_user)
+        e = calendar_service.list_all_events(db, current_user)
         match = next((x for x in e if x.id == int(args.get("event_id"))), None)
         return match.title if match else None
     if name == "delete_briefing":
@@ -775,7 +819,22 @@ def execute_tool(
     if name == "list_habits":
         return {"habits": [_habit_dict(h) for h in habit_service.list_habits(db, current_user)]}
     if name == "list_upcoming_events":
-        return {"events": [_event_dict(e) for e in calendar_service.list_upcoming_events(db, current_user)]}
+        tz = user_tz(current_user)
+        events = calendar_service.list_all_events(db, current_user)
+        now = datetime.now(timezone.utc)
+
+        if not args.get("include_past"):
+            # An event still running has not been missed, so judge by its end
+            # where it has one. This matches what the board shows.
+            events = [e for e in events if _as_utc(e.end_time or e.start_time) >= now]
+        days = args.get("days")
+        if days is not None:
+            horizon = now + timedelta(days=int(days))
+            events = [e for e in events if _as_utc(e.start_time) <= horizon]
+
+        return {"events": [_event_dict(e, tz) for e in events],
+                "count": len(events),
+                "now": _local_str(now, tz)}
     if name == "list_notes":
         return {"notes": [_note_dict(n) for n in notes_service.list_notes(
             db, current_user, search=args.get("search"),
@@ -917,26 +976,26 @@ def execute_tool(
         mission_id = args.get("mission_id")
         e = calendar_service.create_event(
             db, current_user, title=args["title"],
-            start_time=_parse_dt(args["start_time"], "start_time"),
+            start_time=_parse_dt_local(args["start_time"], "start_time", current_user),
             description=args.get("description"),
-            end_time=_parse_dt(args.get("end_time"), "end_time") if args.get("end_time") else None,
+            end_time=_parse_dt_local(args.get("end_time"), "end_time", current_user) if args.get("end_time") else None,
             color=args.get("color"),
             mission_id=int(mission_id) if mission_id is not None else None)
         if e is None:
             return {"error": "Event not created"}
-        return {"event": _event_dict(e)}
+        return {"event": _event_dict(e, user_tz(current_user))}
     if name == "update_event":
         mission_id = args.get("mission_id")
         e = calendar_service.update_event(
             db, current_user, int(args["event_id"]),
             title=args.get("title"), description=args.get("description"),
-            start_time=_parse_dt(args.get("start_time"), "start_time") if args.get("start_time") else None,
-            end_time=_parse_dt(args.get("end_time"), "end_time") if args.get("end_time") else None,
+            start_time=_parse_dt_local(args.get("start_time"), "start_time", current_user) if args.get("start_time") else None,
+            end_time=_parse_dt_local(args.get("end_time"), "end_time", current_user) if args.get("end_time") else None,
             color=args.get("color"),
             mission_id=int(mission_id) if mission_id is not None else None)
         if e is None:
             return {"error": "Event not found"}
-        return {"event": _event_dict(e)}
+        return {"event": _event_dict(e, user_tz(current_user))}
     if name == "create_note":
         n = notes_service.create_note(
             db, current_user, title=args.get("title") or "",
