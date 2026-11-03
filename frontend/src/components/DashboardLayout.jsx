@@ -34,9 +34,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   });
   const [hoveredItem, setHoveredItem] = useState(null);
   const [glowingItem, setGlowingItem] = useState(null);
-  const [indicatorStyle, setIndicatorStyle] = useState({ top: 0, height: 0 });
 
-  const navRefs = useRef({});
   const glowTimeoutRef = useRef(null);
 
   // Work appears only when the user has the corporate track switched on. With
@@ -58,16 +56,6 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
       return next;
     });
   }, []);
-
-  const updateIndicator = useCallback(() => {
-    const el = navRefs.current[currentView];
-    if (!el) return;
-    setIndicatorStyle({ top: el.offsetTop, height: el.offsetHeight });
-  }, [currentView]);
-
-  useEffect(() => {
-    updateIndicator();
-  }, [updateIndicator, sidebarCollapsed, workEnabled]);
 
   useEffect(() => {
     if (glowingItem) {
@@ -167,17 +155,13 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
                 </p>
               )}
 
+              {/* There was a sliding yellow rail here, positioned from
+                  `offsetTop` measured on a render before the layout had
+                  settled — so it pointed at the previous item as often as
+                  the current one. The active row already says what it is
+                  with its background, its colour and its ringed icon; a
+                  fourth marker that is sometimes wrong is worse than none. */}
               <div className="relative">
-                <div
-                  className="absolute left-0 w-[3px] bg-signal-self rounded-full"
-                  style={{
-                    top: indicatorStyle.top,
-                    height: indicatorStyle.height,
-                    boxShadow: '0 0 8px rgba(255,215,0,0.4)',
-                    transition: 'top 220ms cubic-bezier(0.4, 0, 0.2, 1), height 220ms cubic-bezier(0.4, 0, 0.2, 1)',
-                  }}
-                />
-
                 {navItems.map((item) => {
                   const isActive = currentView === item.id;
                   const Icon = ICON_MAP[item.id];
@@ -187,7 +171,6 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
                   return (
                     <div key={item.id} className="relative" style={{ marginBottom: 2 }}>
                       <button
-                        ref={(el) => { navRefs.current[item.id] = el; }}
                         onClick={() => handleViewChange(item.id)}
                         onMouseEnter={() => setHoveredItem(item.id)}
                         onMouseLeave={() => setHoveredItem(null)}
