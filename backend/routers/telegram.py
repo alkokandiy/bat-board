@@ -27,7 +27,7 @@ from dependencies import (
     get_db,
     get_user_by_telegram_chat_id,
 )
-from services import alfred_agent, alfred_memory_reviewer, provider_config_service, setup_wizard, telegram_service
+from services import alfred_agent, alfred_memory_reviewer, provider_config_service, reminder_feedback, setup_wizard, telegram_service
 
 logger = structlog.get_logger()
 
@@ -488,9 +488,76 @@ async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background
         alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, transcript, reply)
 
 
+def _callback_user(db: Session, callback: dict):
+    from_user = callback.get("from") or {}
+    telegram_user_id = str(from_user.get("id", ""))
+    if not telegram_user_id:
+        return None
+    try:
+        return get_user_by_telegram_chat_id(telegram_user_id, db)
+    except Exception:
+        return None
+
+
+def _handle_reminder_callback(db: Session, callback: dict) -> None:
+    """A tap on Done / Not today / Stop this.
+
+    This is the return path a reminder never had. Without it the system could
+    not tell a reminder someone relies on from one they stopped reading, so
+    it went on sending both for ever.
+    """
+    settings = get_settings()
+    try:
+        _, action, raw_id = callback.get("data", "").split(":", 2)
+        reminder_id = int(raw_id)
+    except (ValueError, AttributeError):
+        return
+
+    user = _callback_user(db, callback)
+    if user is None:
+        return
+
+    def _answer(text: str) -> None:
+        try:
+            if settings.telegram_bot_token and callback.get("id"):
+                telegram_service.answer_callback_query(
+                    settings.telegram_bot_token, callback["id"], text)
+        except Exception:
+            pass
+
+    if action == "stop":
+        reminder = (
+            db.query(models.BatReminder)
+            .filter_by(id=reminder_id, owner_id=user.id)
+            .first()
+        )
+        if reminder is None:
+            _answer("That reminder is gone already.")
+            return
+        # Off in one tap, from the message itself. Anything the user is told
+        # to stop must be stoppable without a conversation about it.
+        reminder.enabled = False
+        db.commit()
+        _answer("Stopped. Ask me if you want it back.")
+        return
+
+    if action not in reminder_feedback.OUTCOMES:
+        return
+
+    row = reminder_feedback.record_outcome(db, user, reminder_id, action)
+    if row is None:
+        _answer("I could not find that one.")
+        return
+    _answer("Noted." if action == "done" else "Noted — not today.")
+
+
 async def _handle_callback_query(db: Session, callback: dict) -> None:
-    """Handle inline keyboard callbacks (wizard steps, then session switch)."""
+    """Handle inline keyboard callbacks (reminders, wizard steps, session switch)."""
     data = callback.get("data", "")
+
+    if data.startswith("rem:"):
+        _handle_reminder_callback(db, callback)
+        return
 
     if data.startswith("wprov:") or data.startswith("wmodel:"):
         from_user = callback.get("from") or {}
