@@ -41,7 +41,7 @@ def test_creating_one_that_ends_before_it_starts_is_refused():
             calendar_service.create_event(
                 db, user, title="Backwards", start_time=NOON,
                 end_time=NOON - timedelta(hours=1))
-        assert calendar_service.list_upcoming_events(db, user) == []
+        assert calendar_service.list_all_events(db, user) == []
     finally:
         db.close()
 

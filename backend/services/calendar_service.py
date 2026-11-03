@@ -12,14 +12,16 @@ from sqlalchemy.orm import Session
 import models
 
 
-def list_upcoming_events(
+def list_all_events(
     db: Session,
     current_user: models.BatAccount,
 ) -> List[models.CalendarEvent]:
-    """All of the user's events ordered by start_time.
+    """All of the user's events ordered by start_time — past included.
 
-    Mirrors the existing route exactly (full ordered list; the "upcoming"
-    slicing stays client-side, as today).
+    Named for what it does. As `list_upcoming_events` it read as a filtered
+    list, and Alfred's tool of the same name handed him the account's entire
+    history under the word "upcoming". The filtering lives with the caller
+    that wants it.
     """
     return db.query(models.CalendarEvent).filter(
         models.CalendarEvent.owner_id == current_user.id
