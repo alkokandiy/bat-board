@@ -204,6 +204,11 @@ def _reminder_dict(r):
         "id": r.id, "message": r.message, "enabled": r.enabled,
         "recurrence": r.recurrence, "send_time": r.send_time,
         "ends_on": getattr(r, "ends_on", None) or "no end date",
+        # Whether it is actually working. A reminder nobody answers is the
+        # one thing he could never see, so he went on treating a dead cue and
+        # a relied-on one as the same thing.
+        "consecutive_ignored": getattr(r, "consecutive_ignored", 0) or 0,
+        "suspended": getattr(r, "suspended_at", None) is not None,
     }
     if r.recurrence == "weekly":
         d["weekdays"] = briefing_service.weekdays_label(r.weekdays)
@@ -301,8 +306,13 @@ READ_TOOLS = [
      "parameters": {"type": "object", "properties": {}}},
     {"name": "get_briefings", "description": "Show the user's morning/night briefing settings: whether each is on, its time, which sections it includes, and news topics. Use when they ask about their briefings or before editing one.",
      "parameters": {"type": "object", "properties": {}}},
-    {"name": "list_reminders", "description": "List the user's reminders (message, schedule, enabled). Use before editing or deleting one, or when they ask what reminders are set.",
+    {"name": "list_reminders", "description": "List the user's reminders (message, schedule, enabled), each with `consecutive_ignored` and `suspended`. A suspended one stopped itself after going unanswered repeatedly — it is still saved, and resuming it unchanged would only repeat what did not work.",
      "parameters": {"type": "object", "properties": {}}},
+    {"name": "reminder_history", "description": "How a reminder has actually been going: each occurrence with its outcome (done / skipped / snoozed / ignored), plus counts. 'ignored' means it was sent and never answered either way. Read this BEFORE suggesting anything about a reminder — whether it is working is a fact you can check, not something to guess at.",
+     "parameters": {"type": "object", "properties": {
+         "reminder_id": {"type": "integer"},
+         "limit": {"type": "integer", "description": "How many recent occurrences. Default 30."},
+     }, "required": ["reminder_id"]}},
     {"name": "list_work_tasks", "description": "List CORPORATE/WORK tasks (the job track) — separate from personal missions. Use for 'what work tasks do we have', 'what's on at the office'. Optionally filter by status (todo/doing/blocked/done) or project.",
      "parameters": {"type": "object", "properties": {
          "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
@@ -326,6 +336,10 @@ READ_TOOLS = [
 ]
 
 WRITE_TOOLS = [
+    {"name": "resume_reminder", "description": "Un-suspend a reminder that stopped itself. Only after the user has said what should change about it — resuming one unchanged puts back exactly the thing they were already ignoring. Change the time or the wording first if that is what they asked for.",
+     "parameters": {"type": "object", "properties": {
+         "reminder_id": {"type": "integer"},
+     }, "required": ["reminder_id"]}},
     {"name": "create_mission", "description": "Create a new mission. Ask first for priority and due date when missing; other fields optional.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "description": {"type": "string"},
@@ -601,6 +615,7 @@ CAPABILITY_GROUPS = [
     ("Briefings and reminders (scheduled, over Telegram)", [
         "get_briefings", "set_briefing", "delete_briefing",
         "list_reminders", "create_reminder", "update_reminder", "delete_reminder",
+        "reminder_history", "resume_reminder",
         "show_daily_brief"]),
     ("The corporate/work track", [
         "list_work_tasks", "create_work_task", "create_work_tasks",
@@ -886,6 +901,30 @@ def execute_tool(
         briefs = briefing_service.list_briefings(db, current_user)
         return {"briefings": [_briefing_dict(b) for b in briefs],
                 "telegram_linked": telegram_service.is_telegram_linked(db, current_user)}
+    if name == "reminder_history":
+        from services import reminder_feedback
+        rid = int(args["reminder_id"])
+        rows = reminder_feedback.history(db, current_user, rid, int(args.get("limit") or 30))
+        if not rows:
+            return {"error": "No record for that reminder — check the id with list_reminders."}
+        return {"occurrences": rows,
+                "summary": reminder_feedback.summary(db, current_user, rid)}
+
+    if name == "resume_reminder":
+        from services import reminder_feedback
+        r = (db.query(models.BatReminder)
+             .filter(models.BatReminder.id == int(args["reminder_id"]),
+                     models.BatReminder.owner_id == current_user.id)
+             .first())
+        if r is None:
+            return {"error": "Reminder not found"}
+        r.suspended_at = None
+        r.consecutive_ignored = 0
+        r.enabled = True
+        db.commit()
+        db.refresh(r)
+        return {"reminder": _reminder_dict(r), "resumed": True}
+
     if name == "list_reminders":
         rems = briefing_service.list_reminders(db, current_user)
         return {"reminders": [_reminder_dict(r) for r in rems],
