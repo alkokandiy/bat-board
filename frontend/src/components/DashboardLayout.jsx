@@ -33,7 +33,6 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
     return localStorage.getItem('batboard_sidebar_collapsed') === 'true';
   });
   const [hoveredItem, setHoveredItem] = useState(null);
-  const [pressedItem, setPressedItem] = useState(null);
   const [glowingItem, setGlowingItem] = useState(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ top: 0, height: 0 });
 
@@ -86,36 +85,36 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
   const isCollapsed = sidebarCollapsed;
 
   return (
-    <div className="h-screen bg-matte-obsidian text-slate-100 flex flex-col font-sans overflow-hidden">
+    <div className="h-screen bg-bat-bg text-ink flex flex-col font-sans overflow-hidden">
       {!focusMode && (
-        <header className="h-16 border-b border-dark-slate flex items-center justify-between px-6 bg-matte-obsidian z-10">
+        <header className="h-16 border-b border-white/[0.04] flex items-center justify-between px-6 bg-bat-surface z-10">
           <div className="flex items-center space-x-3">
             <button
               onClick={() => onViewChange('dashboard')}
-              className="text-electric-bat-yellow text-2xl font-bold tracking-widest hover:brightness-110 transition"
+              className="font-display text-signal-self text-2xl tracking-widest hover:brightness-110 transition-all duration-200 ease-soft"
               title="Back to Command Center"
             >
               BAT-BOARD
             </button>
-            <span className="text-xs bg-dark-slate text-slate-400 px-2.5 py-1 rounded font-mono tracking-wider border border-slate-800">
+            <span className="text-[10px] bg-bat-raised text-ink-muted px-2.5 py-1 rounded-chip font-mono uppercase tracking-widest ring-1 ring-bat-line">
               SYSTEM ONLINE
             </span>
           </div>
 
           <div className="flex items-center space-x-6">
             <div className="text-right hidden sm:block">
-              <div className="text-sm font-semibold text-slate-200">{username}</div>
-              <div className="text-xs text-electric-bat-yellow font-mono tracking-wider font-semibold">
+              <div className="text-sm font-semibold text-ink">{username}</div>
+              <div className="text-[10px] text-signal-self font-mono uppercase tracking-widest font-semibold">
                 {bat_level}
               </div>
             </div>
-            <div className="h-10 px-4 bg-dark-slate rounded border border-slate-800 flex items-center justify-center space-x-2 font-mono">
-              <span className="text-xs text-slate-400">PTS:</span>
-              <span className="text-electric-bat-yellow font-bold text-sm">{points}</span>
+            <div className="h-10 px-4 bg-bat-raised rounded-chip ring-1 ring-bat-line flex items-center justify-center space-x-2 font-mono">
+              <span className="text-[10px] text-ink-muted uppercase tracking-widest">pts</span>
+              <span className="text-signal-self font-bold text-sm tabular-nums">{points}</span>
             </div>
             <button
               onClick={onLogout}
-              className="text-xs text-slate-500 hover:text-red-400 transition font-mono tracking-wider"
+              className="text-[10px] text-ink-faint hover:text-signal-late transition-colors duration-200 font-mono uppercase tracking-widest"
               title="Disconnect"
             >
               EXIT
@@ -127,7 +126,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {!focusMode && (
           <aside
-            className="border-r border-dark-slate bg-matte-obsidian flex flex-col shrink-0 hidden md:flex relative overflow-hidden"
+            className="border-r border-white/[0.04] bg-bat-surface flex flex-col shrink-0 hidden md:flex relative overflow-hidden"
             style={{
               width: isCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH,
               transition: 'width 260ms cubic-bezier(0.4, 0, 0.2, 1)',
@@ -145,39 +144,32 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
             >
               <button
                 onClick={toggleSidebar}
-                className="flex items-center justify-center rounded-full bg-dark-slate hover:border-electric-bat-yellow transition-colors duration-150"
-                style={{
-                  width: 26,
-                  height: 26,
-                  border: '1px solid #334155',
-                }}
+                aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-expanded={!isCollapsed}
                 title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                className="group w-[26px] h-[26px] flex items-center justify-center rounded-full
+                  bg-bat-raised ring-1 ring-bat-line text-ink-faint
+                  hover:ring-signal-self/60 hover:text-signal-self
+                  transition-all duration-200 ease-soft active:scale-[0.94]
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60"
               >
-                <div
-                  style={{
-                    transform: isCollapsed ? 'rotate(0deg)' : 'rotate(180deg)',
-                    transition: 'transform 200ms ease, color 150ms ease',
-                    color: '#94a3b8',
-                    display: 'flex',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.color = '#FFD700'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.color = '#94a3b8'; }}
-                >
-                  <ChevronLeft size={18} />
-                </div>
+                <ChevronLeft
+                  size={18}
+                  className={`transition-transform duration-200 ease-soft ${isCollapsed ? '' : 'rotate-180'}`}
+                />
               </button>
             </div>
 
             <nav className="space-y-1.5 px-4 flex-1 relative">
               {!isCollapsed && (
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest px-3 mb-3">
+                <p className="text-[10px] text-ink-faint font-mono uppercase tracking-[0.14em] px-3 mb-3">
                   Operations Center
                 </p>
               )}
 
               <div className="relative">
                 <div
-                  className="absolute left-0 w-[3px] bg-electric-bat-yellow rounded-full"
+                  className="absolute left-0 w-[3px] bg-signal-self rounded-full"
                   style={{
                     top: indicatorStyle.top,
                     height: indicatorStyle.height,
@@ -190,7 +182,6 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
                   const isActive = currentView === item.id;
                   const Icon = ICON_MAP[item.id];
                   const isHovered = hoveredItem === item.id;
-                  const isPressed = pressedItem === item.id;
                   const isGlowing = glowingItem === item.id && isActive;
 
                   return (
@@ -199,39 +190,25 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
                         ref={(el) => { navRefs.current[item.id] = el; }}
                         onClick={() => handleViewChange(item.id)}
                         onMouseEnter={() => setHoveredItem(item.id)}
-                        onMouseLeave={() => { setHoveredItem(null); setPressedItem(null); }}
-                        onMouseDown={() => setPressedItem(item.id)}
-                        onMouseUp={() => setPressedItem(null)}
-                        className={`w-full flex items-center rounded-md text-sm font-medium transition-all duration-150 ${
+                        onMouseLeave={() => setHoveredItem(null)}
+                        className={`group w-full flex items-center rounded-tile text-sm font-medium
+                          transition-all duration-200 ease-soft active:scale-[0.97]
+                          focus:outline-none focus-visible:ring-1 focus-visible:ring-signal-self/60 ${
                           isCollapsed ? 'justify-center px-0 py-3' : 'px-4 py-3'
                         } ${
-                          isActive ? 'text-electric-bat-yellow' : 'text-slate-400'
+                          isActive
+                            ? 'text-signal-self bg-bat-raised'
+                            : 'text-ink-muted hover:text-ink hover:bg-bat-raised/60 hover:translate-x-0.5'
                         }`}
-                        style={{
-                          gap: isCollapsed ? 0 : 12,
-                          backgroundColor: isActive
-                            ? 'rgba(44,44,44,0.6)'
-                            : isHovered
-                              ? 'rgba(44,44,44,0.5)'
-                              : 'transparent',
-                          transform: isPressed
-                            ? 'scale(0.97)'
-                            : isHovered
-                              ? 'translateX(2px)'
-                              : 'translateX(0)',
-                          transition: 'background-color 150ms ease, transform 100ms ease',
-                        }}
+                        style={{ gap: isCollapsed ? 0 : 12 }}
                       >
                         <div
-                          className="flex items-center justify-center rounded-lg shrink-0"
-                          style={{
-                            width: 32,
-                            height: 32,
-                            border: `1px solid ${isActive ? '#FFD700' : '#475569'}`,
-                            color: isActive ? '#FFD700' : isHovered ? '#e2e8f0' : '#94a3b8',
-                            boxShadow: isGlowing ? '0 0 12px rgba(255,215,0,0.5)' : 'none',
-                            transition: 'color 150ms ease, border-color 150ms ease, box-shadow 400ms ease',
-                          }}
+                          className={`w-8 h-8 flex items-center justify-center rounded-chip shrink-0 ring-1
+                            transition-all duration-200 ease-soft ${
+                            isActive
+                              ? 'ring-signal-self text-signal-self'
+                              : 'ring-bat-line text-ink-faint group-hover:ring-bat-line-strong group-hover:text-ink-muted'
+                          } ${isGlowing ? 'shadow-glow-self' : ''}`}
                         >
                           <Icon size={18} />
                         </div>
@@ -250,7 +227,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
 
                       {isCollapsed && isHovered && (
                         <div
-                          className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-matte-obsidian border border-slate-700 text-xs text-slate-200 px-2.5 py-1.5 rounded z-50 pointer-events-none"
+                          className="absolute left-full ml-3 top-1/2 -translate-y-1/2 bg-bat-raised ring-1 ring-bat-line-strong shadow-lift text-xs text-ink px-2.5 py-1.5 rounded-chip z-50 pointer-events-none"
                           style={{ whiteSpace: 'nowrap' }}
                         >
                           {item.label}
@@ -267,7 +244,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
                 {/* The real commit, not a hard-coded "v1.0.0". A stale
                     frontend ran against a current backend for weeks and
                     nothing on screen could say so. */}
-                <div className="text-[10px] font-mono text-slate-600" title="Build this page was compiled from">
+                <div className="text-[10px] font-mono text-ink-faint" title="Build this page was compiled from">
                   BUILD {BUILD_SHA} // ENCRYPTED
                 </div>
               </div>
@@ -275,13 +252,13 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
           </aside>
         )}
 
-        <main className={`flex-1 min-h-0 bg-matte-obsidian overflow-y-auto ${focusMode ? 'p-0' : 'p-6 md:p-8'}`}>
+        <main className={`flex-1 min-h-0 bg-bat-bg overflow-y-auto ${focusMode ? 'p-0' : 'p-6 md:p-8'}`}>
           {children}
         </main>
       </div>
 
       {!focusMode && (
-        <nav className="md:hidden border-t border-dark-slate bg-matte-obsidian h-16 flex items-center justify-around px-2 shrink-0">
+        <nav className="md:hidden border-t border-white/[0.04] bg-bat-surface h-16 flex items-center justify-around px-2 shrink-0">
           {navItems.map((item) => {
             const isActive = currentView === item.id;
             const Icon = ICON_MAP[item.id];
@@ -289,7 +266,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
               <button
                 key={item.id}
                 onClick={() => onViewChange(item.id)}
-                className={`flex flex-col items-center justify-center py-2 px-2 ${isActive ? 'text-electric-bat-yellow' : 'text-slate-500'}`}
+                className={`flex flex-col items-center justify-center py-2 px-2 transition-colors duration-200 ${isActive ? 'text-signal-self' : 'text-ink-faint'}`}
               >
                 <span className="w-6 h-6 flex items-center justify-center">
                   <Icon size={16} strokeWidth={1.5} />
@@ -298,7 +275,7 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
               </button>
             );
           })}
-          <button onClick={onLogout} className="flex flex-col items-center justify-center py-2 px-2 text-slate-500">
+          <button onClick={onLogout} aria-label="Sign out" className="flex flex-col items-center justify-center py-2 px-2 text-ink-faint hover:text-signal-late transition-colors duration-200">
             <span className="w-6 h-6 flex items-center justify-center text-xs font-bold border border-current rounded">X</span>
             <span className="text-[9px] mt-1 font-semibold">Exit</span>
           </button>
