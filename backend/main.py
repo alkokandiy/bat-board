@@ -778,16 +778,19 @@ def create_calendar_event(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    event = calendar_service.create_event(
-        db,
-        current_user,
-        title=event_data.title,
-        start_time=event_data.start_time,
-        description=event_data.description,
-        end_time=event_data.end_time,
-        color=event_data.color,
-        mission_id=event_data.mission_id,
-    )
+    try:
+        event = calendar_service.create_event(
+            db,
+            current_user,
+            title=event_data.title,
+            start_time=event_data.start_time,
+            description=event_data.description,
+            end_time=event_data.end_time,
+            color=event_data.color,
+            mission_id=event_data.mission_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if event is None:
         raise HTTPException(status_code=404, detail="Mission not found")
     return event
@@ -820,6 +823,15 @@ def update_calendar_event(
             event.mission_id = event_data.mission_id
         else:
             setattr(event, field, getattr(event_data, field))
+
+    # This route assigns fields itself (it has to: an explicit null here means
+    # "clear it", which the service's update_event reads as "leave it alone"),
+    # so it calls the same rule rather than growing its own.
+    try:
+        calendar_service.ensure_time_order(event.start_time, event.end_time)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc))
 
     db.commit()
     db.refresh(event)

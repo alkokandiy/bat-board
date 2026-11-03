@@ -26,6 +26,19 @@ def list_upcoming_events(
     ).order_by(models.CalendarEvent.start_time).all()
 
 
+def ensure_time_order(start: Optional[datetime], end: Optional[datetime]) -> None:
+    """An event cannot end before it begins.
+
+    Nothing checked this: the form, the API and Alfred all accepted an end
+    before the start, and the result sorted and rendered as a zero- or
+    negative-length block that no screen could draw sensibly. Lives here so
+    the web API and Alfred's tools enforce the same rule rather than one of
+    them disagreeing.
+    """
+    if start is not None and end is not None and end < start:
+        raise ValueError("An event cannot end before it starts.")
+
+
 def create_event(
     db: Session,
     current_user: models.BatAccount,
@@ -37,6 +50,7 @@ def create_event(
     mission_id: Optional[int] = None,
 ) -> Optional[models.CalendarEvent]:
     """Returns None when mission_id refers to an unknown/foreign mission."""
+    ensure_time_order(start_time, end_time)
     if mission_id:
         mission = db.query(models.BatMission).filter(
             models.BatMission.id == mission_id,
@@ -81,6 +95,13 @@ def update_event(
     ).first()
     if event is None:
         return None
+
+    # Against the times the event will HAVE, not only the ones passed in:
+    # moving the start past an untouched end is the same mistake.
+    ensure_time_order(
+        start_time if start_time is not None else event.start_time,
+        end_time if end_time is not None else event.end_time,
+    )
 
     if title is not None:
         event.title = title
