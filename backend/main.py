@@ -305,6 +305,12 @@ class BatHabitSchema(BatHabitBase):
     id: int
     streak: int
     best_streak: int = 0
+    # "5 of your last 14" — the measure the reward is actually built on. The
+    # consecutive streak alone is the one number the evidence says not to lead
+    # with, and it was all the board had. Defaulted, so any path that does not
+    # compute it still serialises.
+    adherence_done: int = 0
+    adherence_window: int = 0
     last_completed: Optional[datetime] = None
     focus_minutes: int = 0
     target_date: Optional[datetime] = None

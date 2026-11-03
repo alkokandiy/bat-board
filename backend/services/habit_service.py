@@ -18,7 +18,8 @@ def list_habits(
     db: Session,
     current_user: models.BatAccount,
 ) -> List[models.BatHabit]:
-    return db.query(models.BatHabit).filter(models.BatHabit.owner_id == current_user.id).all()
+    habits = db.query(models.BatHabit).filter(models.BatHabit.owner_id == current_user.id).all()
+    return attach_adherence(db, current_user, habits)
 
 
 def create_habit(
@@ -89,6 +90,46 @@ def recent_adherence(db: Session, current_user: models.BatAccount,
     window = max(1, _periods_in(habit.frequency, days))
     done = min(len(periods), window)
     return {"done": done, "window": window, "rate": round(done / window, 2)}
+
+
+def attach_adherence(db: Session, current_user: models.BatAccount,
+                     habits: List[models.BatHabit],
+                     days: int = ADHERENCE_WINDOW_DAYS) -> List[models.BatHabit]:
+    """Hang "done of window" on each habit so the API can report it.
+
+    `recent_adherence` is the measure the reward is built on, but it only ever
+    reached the user through a check-in response — so the board could show the
+    consecutive streak and nothing else, which is the one number the evidence
+    says not to lead with. One query for the whole list, because somebody with
+    forty habits should not pay forty round trips for it.
+
+    These are plain attributes, not columns, so they must be set after the last
+    commit: an expire-on-commit wipes the instance dict.
+    """
+    if not habits:
+        return habits
+
+    tz = user_tz(current_user)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    by_habit: dict = {h.id: set() for h in habits}
+    rows = (
+        db.query(models.HabitCompletionLog.habit_id,
+                 models.HabitCompletionLog.completed_at)
+        .filter(models.HabitCompletionLog.habit_id.in_(by_habit.keys()),
+                models.HabitCompletionLog.completed_at >= since.replace(tzinfo=None))
+        .all()
+    )
+    frequencies = {h.id: h.frequency for h in habits}
+    for habit_id, completed_at in rows:
+        if completed_at:
+            by_habit[habit_id].add(
+                _period_index(frequencies[habit_id], local_date(completed_at, tz)))
+
+    for habit in habits:
+        window = max(1, _periods_in(habit.frequency, days))
+        habit.adherence_done = min(len(by_habit[habit.id]), window)
+        habit.adherence_window = window
+    return habits
 
 
 def _periods_in(frequency: str, days: int) -> int:
@@ -187,7 +228,8 @@ def check_in_habit(
     db.commit()
     db.refresh(habit)
     db.refresh(current_user)
-    return habit
+    # After the commit: the refresh above would have cleared it.
+    return attach_adherence(db, current_user, [habit])[0]
 
 
 def update_habit(
