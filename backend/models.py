@@ -445,6 +445,14 @@ class BatReminder(Base):
     # it runs indefinitely. Past this date the reminder stops and disables itself.
     ends_on = Column(String, nullable=True)      # "YYYY-MM-DD" local
 
+    # A run of occurrences that went out and were never answered. Reset by
+    # any answer at all, including "not today": the point is whether the
+    # reminder is reaching them, not whether they complied.
+    consecutive_ignored = Column(Integer, default=0, server_default="0", nullable=False)
+    # Set when that run suspends it. The scheduler stops; Alfred raises it
+    # once, as a question rather than another reminder.
+    suspended_at = Column(DateTime, nullable=True)
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -461,6 +469,10 @@ class BatReminderLog(Base):
     id = Column(Integer, primary_key=True, index=True)
     local_date = Column(String, nullable=False)  # YYYY-MM-DD in the owner's timezone
     sent_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # 'done' | 'skipped' | 'snoozed'. NULL means sent and never answered —
+    # which is what every row meant before there was anywhere to say otherwise.
+    outcome = Column(String, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
 
     reminder_id = Column(Integer, ForeignKey("bat_reminders.id", ondelete="CASCADE"), nullable=False, index=True)
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)

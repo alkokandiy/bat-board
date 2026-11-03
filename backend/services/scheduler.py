@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 import models
 from config import get_settings
-from services import briefings, telegram_service
+from services import briefings, reminder_feedback, telegram_service
 from services.timezones import user_tz
 
 log = structlog.get_logger(__name__)
@@ -113,12 +113,28 @@ def _reminder_due_today(reminder: models.BatReminder, local_now: datetime) -> bo
     return False
 
 
-def _send(db: Session, user: models.BatAccount, chat_id: str, text: str) -> bool:
+def _send(db: Session, user: models.BatAccount, chat_id: str, text: str,
+          reply_markup: Optional[dict] = None) -> bool:
     settings = get_settings()
     if not settings.telegram_bot_token:
         log.warning("scheduler_no_bot_token")
         return False
-    return telegram_service.send_telegram_message(settings.telegram_bot_token, chat_id, text)
+    return telegram_service.send_telegram_message(
+        settings.telegram_bot_token, chat_id, text, reply_markup=reply_markup)
+
+
+def _reminder_keyboard(reminder_id: int) -> dict:
+    """Three taps, from the notification itself.
+
+    A reminder with no reply path cannot be told apart from one that works,
+    so the system kept firing a dead cue for a month. "Not today" matters as
+    much as "done": it says the message arrived and was considered.
+    """
+    return {"inline_keyboard": [[
+        {"text": "Done", "callback_data": f"rem:done:{reminder_id}"},
+        {"text": "Not today", "callback_data": f"rem:skipped:{reminder_id}"},
+        {"text": "Stop this", "callback_data": f"rem:stop:{reminder_id}"},
+    ]]}
 
 
 async def _fire_briefings(db: Session, user: models.BatAccount, chat_id: str,
@@ -176,7 +192,20 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
             continue
         if not _reminder_due_today(r, local_now):
             continue
+        # A run of unanswered occurrences has retired it. Alfred raises it as
+        # a question; the scheduler does not keep ringing in the meantime.
+        if reminder_feedback.is_suspended(r):
+            continue
         local_date = local_now.date().isoformat()
+
+        # The previous occurrence is now superseded. If it was never answered,
+        # that silence is the signal — count it before sending another.
+        previous = reminder_feedback.latest_occurrence(db, r.id, user.id)
+        if previous is not None and previous.outcome is None:
+            reminder_feedback.note_unanswered(db, r)
+            if reminder_feedback.is_suspended(r):
+                summary["reminders_suspended"] = summary.get("reminders_suspended", 0) + 1
+                continue
 
         logrow = models.BatReminderLog(reminder_id=r.id, owner_id=user.id, local_date=local_date)
         db.add(logrow)
@@ -187,7 +216,8 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
             continue
 
         try:
-            ok = _send(db, user, chat_id, briefings.render_reminder(user, r))
+            ok = _send(db, user, chat_id, briefings.render_reminder(user, r),
+                       reply_markup=_reminder_keyboard(r.id))
         except Exception as exc:
             ok = False
             log.warning("reminder_send_failed", reminder_id=r.id, error=str(exc))
@@ -365,7 +395,7 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
     Telegram chat are skipped silently.
     """
     summary = {"users": 0, "briefings_sent": 0, "briefings_failed": 0,
-               "reminders_sent": 0, "reminders_failed": 0,
+               "reminders_sent": 0, "reminders_failed": 0, "reminders_suspended": 0,
                "focus_autoended": 0, "focus_pings_sent": 0,
                "focus_stale_closed": 0, "nudges_sent": 0, "nudges_declined": 0,
                "work_reports_sent": 0}
