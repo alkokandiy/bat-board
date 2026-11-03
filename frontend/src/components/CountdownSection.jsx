@@ -1,13 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Trash2 } from 'lucide-react';
 import { api } from '../utils/api.js';
 import { migrateOnce } from '../utils/migrateLocalStorage.js';
+import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
 
 const LEGACY_KEY = 'bat_countdown_goals';
 const MIGRATED_FLAG = 'bat_countdown_migrated';
 
-function calcDiff(target) {
-  const now = new Date();
-  const diff = target.getTime() - now.getTime();
+// Written out, because Tailwind reads the source for whole class names.
+// These were built as `text-${color}`, so `text-blue-400` and
+// `text-amber-400` appeared nowhere it could see them and were stripped from
+// the stylesheet entirely — two of the three default labels have been
+// rendering with no colour at all.
+const TONES = {
+  self: 'text-signal-self',
+  work: 'text-signal-work',
+  warn: 'text-signal-warn',
+  late: 'text-signal-late',
+};
+
+function calcDiff(target, from) {
+  const diff = target.getTime() - from;
   if (diff <= 0) return { days: 0, hours: 0, minutes: 0, seconds: 0, expired: true };
   const totalSeconds = Math.floor(diff / 1000);
   return {
@@ -19,38 +32,58 @@ function calcDiff(target) {
   };
 }
 
-function CountdownTile({ label, target, color = 'electric-bat-yellow', onDelete, onDismiss }) {
-  const [diff, setDiff] = useState(() => calcDiff(new Date(target)));
-
+/**
+ * One clock for the whole screen.
+ *
+ * Every tile used to run its own `setInterval`, so a page with the three
+ * defaults and ten goals ticked thirteen separate timers a second, each
+ * re-rendering on its own schedule.
+ */
+function useSecondTick() {
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setDiff(calcDiff(new Date(target))), 1000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [target]);
+  }, []);
+  return now;
+}
+
+function Unit({ value, suffix }) {
+  return (
+    <div className="flex items-baseline">
+      <span className="text-2xl font-bold font-mono tabular-nums text-ink leading-none">{value}</span>
+      <span className="text-[9px] font-mono text-ink-faint ml-1">{suffix}</span>
+    </div>
+  );
+}
+
+function CountdownTile({ label, target, tone = 'self', now, onDelete, onDismiss }) {
+  const diff = calcDiff(new Date(target), now);
 
   return (
-    <div className={`bg-dark-slate p-4 rounded border border-slate-800 relative`}>
+    <div className="group relative rounded-tile bg-bat-raised ring-1 ring-bat-line p-4
+      transition-all duration-200 ease-soft hover:ring-bat-line-strong">
       {onDelete && !diff.expired && (
-        <button onClick={onDelete} className="absolute top-2 right-2 text-slate-600 hover:text-red-500 text-[10px]">✕</button>
+        <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
+          <IconButton label={`Delete "${label}"`} icon={Trash2} tone="danger" size={12} onClick={onDelete} />
+        </div>
       )}
-      <div className={`text-[10px] font-mono uppercase tracking-widest text-${color} mb-2 truncate pr-4`}>{label}</div>
+
+      <div className={`text-[10px] font-mono uppercase tracking-[0.14em] mb-2 truncate pr-6 ${TONES[tone] || TONES.self}`}>
+        {label}
+      </div>
+
       {diff.expired ? (
         <div className="space-y-2">
-          <div className="text-green-400 text-sm font-bold">COMPLETE ✓</div>
-          {onDismiss && (
-            <button
-              onClick={onDismiss}
-              className="text-[10px] font-mono tracking-widest text-slate-500 hover:text-electric-bat-yellow border border-slate-800 hover:border-electric-bat-yellow/50 rounded px-2 py-1 transition"
-            >
-              VERIFIED — DISMISS
-            </button>
-          )}
+          <div className="text-signal-good text-sm font-bold">Done</div>
+          {onDismiss && <Button size="sm" onClick={onDismiss}>Clear it</Button>}
         </div>
       ) : (
-        <div className="flex items-center gap-3 font-mono">
-          {diff.days > 0 && <div><span className="text-2xl font-bold text-slate-100">{diff.days}</span><span className="text-[9px] text-slate-500 ml-1">d</span></div>}
-          <div><span className="text-2xl font-bold text-slate-100">{String(diff.hours).padStart(2, '0')}</span><span className="text-[9px] text-slate-500 ml-1">h</span></div>
-          <div><span className="text-2xl font-bold text-slate-100">{String(diff.minutes).padStart(2, '0')}</span><span className="text-[9px] text-slate-500 ml-1">m</span></div>
-          <div><span className="text-2xl font-bold text-slate-100">{String(diff.seconds).padStart(2, '0')}</span><span className="text-[9px] text-slate-500 ml-1">s</span></div>
+        <div className="flex items-center gap-3">
+          {diff.days > 0 && <Unit value={diff.days} suffix="d" />}
+          <Unit value={String(diff.hours).padStart(2, '0')} suffix="h" />
+          <Unit value={String(diff.minutes).padStart(2, '0')} suffix="m" />
+          <Unit value={String(diff.seconds).padStart(2, '0')} suffix="s" />
         </div>
       )}
     </div>
@@ -61,10 +94,22 @@ function fromServer(c) {
   return { id: c.id, label: c.title, target: c.target_date };
 }
 
+// Sunday 23:59, to match the Monday-first week the calendar draws. The old
+// arithmetic was `date + (7 - getDay())`, which on a Sunday pointed at NEXT
+// Sunday — "end of week" read as seven days away on the day it was due.
+export function endOfWeek(from) {
+  const d = new Date(from);
+  d.setDate(d.getDate() + ((7 - d.getDay()) % 7));
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
 export default function CountdownSection() {
   const [goals, setGoals] = useState([]);
   const [newLabel, setNewLabel] = useState('');
   const [newTarget, setNewTarget] = useState('');
+  const [error, setError] = useState(null);
+  const now = useSecondTick();
 
   // One-time legacy migration, then load from the API.
   useEffect(() => {
@@ -92,6 +137,7 @@ export default function CountdownSection() {
 
   const addGoal = async () => {
     if (!newLabel.trim() || !newTarget) return;
+    setError(null);
     try {
       const created = await api.createCountdown({
         title: newLabel.trim(),
@@ -101,8 +147,10 @@ export default function CountdownSection() {
       setGoals(prev => [...prev, fromServer(created)]);
       setNewLabel('');
       setNewTarget('');
-    } catch {
-      // Backend unreachable: don't pretend it was saved.
+    } catch (err) {
+      // It used to fail in complete silence — you typed a goal, pressed Add,
+      // and nothing happened or appeared.
+      setError(err.message || 'Could not save that goal.');
     }
   };
 
@@ -115,60 +163,74 @@ export default function CountdownSection() {
     }
   };
 
-  const now = new Date();
-  const endOfWeek = new Date(now);
-  endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
-  endOfWeek.setHours(23, 59, 59, 999);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-  const endOfYear = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+  const defaults = useMemo(() => {
+    const d = new Date(now);
+    return [
+      { label: 'End of week', target: endOfWeek(d).toISOString(), tone: 'work' },
+      { label: 'End of month', target: new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999).toISOString(), tone: 'warn' },
+      { label: 'End of year', target: new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999).toISOString(), tone: 'late' },
+    ];
+    // Recomputed only when the day changes, not every second.
+  }, [new Date(now).toDateString()]);
 
-  const defaults = [
-    { label: 'End of Week', target: endOfWeek.toISOString(), color: 'blue-400' },
-    { label: 'End of Month', target: endOfMonth.toISOString(), color: 'amber-400' },
-    { label: 'End of Year', target: endOfYear.toISOString(), color: 'red-400' },
+  const live = goals.filter((g) => new Date(g.target).getTime() > now);
+  const passed = goals.filter((g) => new Date(g.target).getTime() <= now);
+  const soonest = [...live].sort((a, b) => new Date(a.target) - new Date(b.target))[0];
+
+  const stats = [
+    { label: 'goals', value: goals.length },
+    ...(soonest
+      ? [{
+          label: `until ${soonest.label.length > 22 ? soonest.label.slice(0, 21) + '…' : soonest.label}`,
+          value: `${calcDiff(new Date(soonest.target), now).days}d`,
+          tone: 'self',
+        }]
+      : []),
+    ...(passed.length ? [{ label: 'passed', value: passed.length, tone: 'good' }] : []),
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="border-l-4 border-electric-bat-yellow pl-4 py-1">
-        <h1 className="text-2xl font-bold tracking-wider">COUNTDOWN TIMER</h1>
-        <p className="text-xs text-slate-400">Real-time countdown tracking for critical deadlines and personal goals.</p>
-      </div>
+    <div className="space-y-gutter">
+      {/* "Real-time countdown tracking for critical deadlines and personal
+          goals" described the feature to someone already using it. */}
+      <PageHeader title="COUNTDOWNS" stats={stats} />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-gutter">
         {defaults.map(d => (
-          <CountdownTile key={d.label} label={d.label} target={d.target} color={d.color} />
+          <CountdownTile key={d.label} label={d.label} target={d.target} tone={d.tone} now={now} />
         ))}
       </div>
 
-      <div className="bg-dark-slate p-4 rounded border border-slate-800 space-y-3">
-        <h2 className="text-xs font-mono uppercase tracking-widest text-slate-300">Personal Goals</h2>
+      <Panel title="Your own">
+        {error && (
+          <div className="rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30 px-3 py-2 text-[11px] text-signal-late mb-3">
+            {error}
+          </div>
+        )}
         <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <label className="block text-[10px] text-slate-400 font-mono mb-1">Goal Name</label>
-            <input type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Mission deadline..." className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow text-xs" />
-          </div>
-          <div className="flex-1">
-            <label className="block text-[10px] text-slate-400 font-mono mb-1">Target Date</label>
-            <input type="datetime-local" value={newTarget} onChange={e => setNewTarget(e.target.value)} className="w-full bg-matte-obsidian border border-slate-800 rounded px-2 py-1.5 text-slate-200 focus:outline-none focus:border-electric-bat-yellow text-xs font-mono" />
-          </div>
-          <button onClick={addGoal} disabled={!newLabel.trim() || !newTarget} className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono text-[10px] tracking-widest disabled:opacity-50 whitespace-nowrap">
-            ADD
-          </button>
+          <Field label="What for" className="flex-1">
+            <input type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addGoal(); } }}
+              placeholder="Thesis hand-in" className={`${fieldClass} text-xs`} />
+          </Field>
+          <Field label="When" className="flex-1">
+            <input type="datetime-local" value={newTarget} onChange={e => setNewTarget(e.target.value)}
+              className={`${fieldClass} text-xs font-mono`} />
+          </Field>
+          <Button tone="self" onClick={addGoal} disabled={!newLabel.trim() || !newTarget} className="mb-0.5">
+            Add
+          </Button>
         </div>
-      </div>
+      </Panel>
 
-      {goals.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {goals.map(g => (
-            <CountdownTile key={g.id} label={g.label} target={g.target} onDelete={() => deleteGoal(g.id)} onDismiss={() => deleteGoal(g.id)} />
+      {goals.length === 0 ? (
+        <EmptyState>Nothing of your own counting down</EmptyState>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
+          {[...live, ...passed].map(g => (
+            <CountdownTile key={g.id} label={g.label} target={g.target} now={now}
+              onDelete={() => deleteGoal(g.id)} onDismiss={() => deleteGoal(g.id)} />
           ))}
-        </div>
-      )}
-
-      {goals.length === 0 && (
-        <div className="bg-dark-slate p-8 text-center rounded border border-slate-800 text-slate-500 font-mono text-xs">
-          NO PERSONAL GOALS CONFIGURED. ADD ONE ABOVE.
         </div>
       )}
     </div>
