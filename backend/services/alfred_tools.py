@@ -112,6 +112,8 @@ def _habit_dict(h):
         # implying the achievement behind it was lost; cue is the if-then plan.
         "best_streak": getattr(h, "best_streak", 0) or 0,
         "cue": getattr(h, "cue", None),
+        # The two-minute version, for days the full thing is out of reach.
+        "minimum_viable": getattr(h, "minimum_viable", None),
         "last_completed": _iso(h.last_completed),
     }
 
@@ -381,17 +383,19 @@ WRITE_TOOLS = [
          "name": {"type": "string"}, "description": {"type": "string"},
          "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
          "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window."},
+         "minimum_viable": {"type": "string", "description": "The two-minute version, in THEIR words: 'put the shoes on', 'one page', 'five press-ups'. On a day the full thing is out of reach, doing this still starts the cue and closes the reward, and that loop is the thing being built. Ask for it; do not invent one."},
      }, "required": ["name"]}},
     {"name": "check_in_habit", "description": "Check in to a habit (streak + points).",
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
      }, "required": ["habit_id"]}},
-    {"name": "update_habit", "description": "Update an existing habit's name, description, frequency or cue. Shrinking a habit that keeps failing (a smaller version, a gentler frequency) is a legitimate fix — offer it, never impose it.",
+    {"name": "update_habit", "description": "Update an existing habit's name, description, frequency, cue or minimum_viable. Shrinking a habit that keeps failing (a smaller version, a gentler frequency) is a legitimate fix — offer it, never impose it.",
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
          "name": {"type": "string"}, "description": {"type": "string"},
          "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
          "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window. Pass an empty string to clear it."},
+         "minimum_viable": {"type": "string", "description": "The two-minute version, in THEIR words: 'put the shoes on', 'one page', 'five press-ups'. On a day the full thing is out of reach, doing this still starts the cue and closes the reward, and that loop is the thing being built. Ask for it; do not invent one."},
          "target_date": {"type": "string", "description": "ISO datetime."},
      }, "required": ["habit_id"]}},
     {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
@@ -995,7 +999,7 @@ def execute_tool(
         h = habit_service.create_habit(
             db, current_user, name=args["name"],
             description=args.get("description"), frequency=args.get("frequency") or "daily",
-            cue=args.get("cue"))
+            cue=args.get("cue"), minimum_viable=args.get("minimum_viable"))
         return {"habit": _habit_dict(h)}
     if name == "check_in_habit":
         h = habit_service.check_in_habit(db, current_user, int(args["habit_id"]))
@@ -1007,6 +1011,7 @@ def execute_tool(
             db, current_user, int(args["habit_id"]),
             name=args.get("name"), description=args.get("description"),
             frequency=args.get("frequency"), cue=args.get("cue"),
+            minimum_viable=args.get("minimum_viable"),
             target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
         if h is None:
             return {"error": "Habit not found"}

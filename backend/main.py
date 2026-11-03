@@ -287,6 +287,9 @@ class BatHabitBase(BaseModel):
     # An implementation intention — when and where this actually happens.
     # Naming it is the strongest single lever in the habit literature.
     cue: Optional[str] = Field(None, max_length=200)
+    # The two-minute version. Doing it on a bad day still starts the cue and
+    # closes the reward, which is the part that builds the habit.
+    minimum_viable: Optional[str] = Field(None, max_length=200)
 
 class BatHabitCreate(BatHabitBase):
     pass
@@ -296,6 +299,7 @@ class BatHabitUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     frequency: Optional[Literal["daily", "weekly", "monthly"]] = None
     cue: Optional[str] = Field(None, max_length=200)
+    minimum_viable: Optional[str] = Field(None, max_length=200)
     streak: Optional[int] = None
     target_date: Optional[datetime] = None
 
@@ -311,6 +315,7 @@ class BatHabitSchema(BatHabitBase):
     # compute it still serialises.
     adherence_done: int = 0
     adherence_window: int = 0
+    grace_used_in_run: int = 0
     last_completed: Optional[datetime] = None
     focus_minutes: int = 0
     target_date: Optional[datetime] = None
@@ -940,6 +945,7 @@ def create_habit(
         description=habit_data.description,
         frequency=habit_data.frequency,
         cue=habit_data.cue,
+        minimum_viable=habit_data.minimum_viable,
     )
 
 @app.put("/api/habits/{habit_id}", response_model=BatHabitSchema)

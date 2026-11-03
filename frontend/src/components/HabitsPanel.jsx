@@ -74,6 +74,13 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate }) {
           {habit.cue && (
             <p className="text-[11px] text-signal-work/80 mt-1">{habit.cue}</p>
           )}
+          {/* The floor, not a lesser option: doing this still fires the cue
+              and closes the reward, which is the loop being built. */}
+          {habit.minimum_viable && (
+            <p className="text-[11px] text-ink-faint mt-1">
+              On a bad day: <span className="text-signal-good">{habit.minimum_viable}</span>
+            </p>
+          )}
           {habit.description && (
             <p className="text-xs text-ink-muted mt-1 leading-snug">{habit.description}</p>
           )}
@@ -139,6 +146,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   // The when-and-where. Naming a trigger that already happens is the
   // strongest lever there is for a habit actually sticking.
   const [cue, setCue] = useState('');
+  const [minimumViable, setMinimumViable] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -161,12 +169,14 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
         name,
         description: description.trim() || null,
         frequency,
-        cue: cue.trim() || null
+        cue: cue.trim() || null,
+        minimum_viable: minimumViable.trim() || null
       });
       setFlash(`Tracking "${name.trim()}"`);
       setName('');
       setDescription('');
       setCue('');
+      setMinimumViable('');
       setFrequency('daily');
       await onRefreshHabits();
       await onRefreshAccount();
@@ -216,6 +226,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   const kept = habits.filter(keptThisPeriod);
   const bestStreak = habits.reduce((max, h) => Math.max(max, h.best_streak || h.streak || 0), 0);
   const withoutCue = habits.filter((h) => !(h.cue || '').trim()).length;
+  const withoutFloor = habits.filter((h) => !(h.minimum_viable || '').trim()).length;
 
   const habitStats = habits.length === 0
     ? [{ label: 'none yet', value: '' }]
@@ -226,6 +237,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
           : [{ label: 'all kept', value: '', tone: 'good' }]),
         ...(bestStreak ? [{ label: 'day best run', value: bestStreak }] : []),
         ...(withoutCue ? [{ label: 'without a trigger', value: withoutCue }] : []),
+        ...(withoutFloor ? [{ label: 'with no bad-day version', value: withoutFloor }] : []),
       ];
 
   return (
@@ -258,6 +270,17 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                 value={cue}
                 onChange={(e) => setCue(e.target.value)}
                 placeholder="After I put the kettle on"
+                maxLength={200}
+                className={fieldClass}
+              />
+            </Field>
+
+            <Field label="On a bad day" hint="The two-minute version. Doing it still counts — a habit you can keep on the worst day survives the weeks the full one would not.">
+              <input
+                type="text"
+                value={minimumViable}
+                onChange={(e) => setMinimumViable(e.target.value)}
+                placeholder="Five of them"
                 maxLength={200}
                 className={fieldClass}
               />

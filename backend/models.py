@@ -129,6 +129,15 @@ class BatHabit(Base):
     # before email". Naming when and where a habit happens is the strongest
     # single lever in the habit literature, and there was nowhere to put it.
     cue = Column(String, nullable=True)
+    # The two-minute version, in the user's own words: "put the shoes on",
+    # "one page". On a day the full thing is out of reach, doing this still
+    # starts the cue and closes the reward, and the loop is what is being
+    # built. Shrinking it beats breaking it.
+    minimum_viable = Column(String, nullable=True)
+    # How much of the allowance this run has spent. One blameless missed day
+    # should not cost a run of twenty; a run you can only ever lose is one
+    # people abandon after the first gap.
+    grace_used_in_run = Column(Integer, default=0, server_default="0", nullable=False)
     last_completed = Column(DateTime, nullable=True)
     focus_minutes = Column(Integer, default=0, nullable=False)
     target_date = Column(DateTime, nullable=True)

@@ -30,7 +30,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import structlog
 
 import models
-from services import activity, alfred_principles
+from services import activity, alfred_principles, habit_service
 from services.timezones import day_bounds_utc, local_date, user_tz
 
 log = structlog.get_logger(__name__)
@@ -170,6 +170,10 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
     )
 
     habits = db.query(models.BatHabit).filter(models.BatHabit.owner_id == user.id).all()
+    # How often each is actually being kept. Without this the signals can
+    # only see the consecutive run, which is the number this codebase has
+    # deliberately stopped leading with. One query for the whole list.
+    habit_service.attach_adherence(db, user, habits)
     habits_pending = [
         h for h in habits
         if not (h.last_completed and local_date(h.last_completed, tz) == today)
@@ -851,6 +855,56 @@ def sig_habit_without_cue(ctx: Ctx) -> Optional[Nudge]:
     )
 
 
+def sig_shrink_the_habit(ctx: Ctx) -> Optional[Nudge]:
+    """A habit being kept rarely enough that the size is the problem.
+
+    The failure mode the research names is all-or-nothing: a partial miss is
+    read as total failure and the whole thing is abandoned. The answer is not
+    more resolve, it is a smaller target that still starts the cue and closes
+    the reward — the loop stays intact and the striatal circuit keeps firing
+    whether the run was five miles or putting the shoes on.
+
+    Offered only where there is a real record to go on. A habit made
+    yesterday has not failed at anything yet.
+    """
+    candidates = []
+    for h in ctx.habits_all:
+        if (getattr(h, "minimum_viable", None) or "").strip():
+            continue                       # already has a smaller version
+        done = getattr(h, "adherence_done", None)
+        window = getattr(h, "adherence_window", None) or 0
+        if not window or done is None:
+            continue
+        # Kept sometimes but not often: there is something there to rescue.
+        if 0 < done <= max(1, window // 3):
+            candidates.append((done / window, h))
+    if not candidates:
+        return None
+    _, h = min(candidates, key=lambda pair: pair[0])
+    return Nudge(
+        key=f"shrink:{h.id}",
+        kind="offer_shrink",
+        priority=29,
+        draft=(f"{h.name} has happened {h.adherence_done} time"
+               f"{'' if h.adherence_done == 1 else 's'} in the last "
+               f"{h.adherence_window}, {ctx.address}. What would the "
+               f"two-minute version look like \u2014 the one you could do on the "
+               f"worst day of the week? I will keep that as the floor."),
+        facts=(f"Habit '{h.name}' kept {h.adherence_done} of the last "
+               f"{h.adherence_window} opportunities, and has no smaller "
+               f"version recorded."),
+        warrant=("A target repeatedly missed is a target set too high for the "
+                 "days it has to survive, not a person who lacks resolve. "
+                 "Doing a tiny version still fires the cue and closes the "
+                 "reward, which is the loop being built \u2014 so a floor they "
+                 "can clear on the worst day protects the habit far better "
+                 "than insisting on the full one. Ask THEM what the smallest "
+                 "version is, in their words, and save it; do not invent one "
+                 "and do not negotiate the big one back. Say plainly that the "
+                 "small version counts as done."),
+    )
+
+
 def sig_untracked_day(ctx: Ctx) -> Optional[Nudge]:
     """Plenty of evidence of a person, none of their work.
 
@@ -1025,6 +1079,7 @@ SIGNALS: List[Callable[[Ctx], Optional[Nudge]]] = [
     sig_clear_board,
     sig_reminder_not_working,
     sig_untracked_day,
+    sig_shrink_the_habit,
     # ...and what he can offer.
     sig_late_night_work,
     sig_loose_ends,
@@ -1179,6 +1234,7 @@ KIND_MIN_GAP_DAYS: Dict[str, int] = {
     # A kind word about sleep, not a campaign: rarely, and never twice running.
     "reminder_dead": 0,
     "offer_reconstruct": 3,
+    "offer_shrink": 10,
     "care_sleep": 10,
     "offer_cue": 8,
     "offer_when": 14,

@@ -18,6 +18,7 @@ const habit = (over = {}) => ({
   name: 'Fifty press-ups',
   description: null,
   cue: null,
+  minimum_viable: null,
   frequency: 'daily',
   streak: 0,
   best_streak: 0,
@@ -130,5 +131,40 @@ describe('the form', () => {
   it('says nothing is tracked rather than shouting it in caps', () => {
     renderPanel([]);
     expect(screen.getByText('Nothing tracked yet')).toBeTruthy();
+  });
+});
+
+
+describe('the bad-day version', () => {
+  // A target repeatedly missed is a target set too high for the days it has
+  // to survive. Doing the small version still starts the cue and closes the
+  // reward, which is the loop being built.
+  // The form's own label uses the same words, deliberately — so count the
+  // occurrences rather than matching the phrase and hoping.
+  const badDayMentions = () => screen.getAllByText(/On a bad day/).length;
+
+  it('is shown on the row when there is one', () => {
+    renderPanel([habit({ minimum_viable: 'five of them' })]);
+    expect(screen.getByText('five of them')).toBeTruthy();
+    expect(badDayMentions()).toBe(2);        // the field label, and the row
+  });
+
+  it('is not invented when there is none', () => {
+    renderPanel([habit()]);
+    expect(badDayMentions()).toBe(1);        // the field label only
+  });
+
+  it('can be set when creating the habit', async () => {
+    renderPanel([]);
+    fireEvent.change(screen.getByLabelText('What is it'), { target: { value: 'Run' } });
+    fireEvent.change(screen.getByLabelText(/^On a bad day/), { target: { value: 'put the shoes on' } });
+    fireEvent.click(screen.getByRole('button', { name: /start tracking/i }));
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    expect(api.createHabit.mock.calls[0][0].minimum_viable).toBe('put the shoes on');
+  });
+
+  it('counts the ones still missing it, so the gap is visible', () => {
+    renderPanel([habit({ id: 1 }), habit({ id: 2, minimum_viable: 'one page' })]);
+    expect(screen.getByText(/with no bad-day version/)).toBeTruthy();
   });
 });
