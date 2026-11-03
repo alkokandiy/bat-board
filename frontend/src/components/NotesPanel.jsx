@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Pin, Plus, Trash2 } from 'lucide-react';
 import { api } from '../utils/api.js';
 import { migrateOnce } from '../utils/migrateLocalStorage.js';
-import { PageHeader } from './ui';
+import { PageHeader, Button, EmptyState, IconButton, Segmented, fieldClass } from './ui';
 
 const LEGACY_KEY = 'bat_notes';
 const MIGRATED_FLAG = 'bat_notes_migrated';
@@ -45,6 +46,18 @@ export default function NotesPanel() {
   const pendingRef = useRef({}); // noteId -> timeout id for debounced PUT
   const sfRef = useRef(null);
   const migratedRef = useRef(false);   // legacy import runs once, not per scope
+  const titleRef = useRef(null);
+
+  const flushAll = useCallback(() => {
+    const timers = pendingRef.current;
+    Object.keys(timers).forEach((key) => {
+      clearTimeout(timers[key]);
+      const id = Number(key);
+      const note = notesRef.current.find(n => n.id === id);
+      if (note) api.updateNote(id, toPayload(note)).catch(() => {});
+    });
+    pendingRef.current = {};
+  }, []);
 
   // One-time legacy migration, then load from the API.
   useEffect(() => {
@@ -94,16 +107,9 @@ export default function NotesPanel() {
   // Flush every debounced save on unmount (e.g. switching tabs right after
   // typing); pending edits were silently discarded.
   useEffect(() => () => {
-    const timers = pendingRef.current;
-    Object.keys(timers).forEach((key) => {
-      clearTimeout(timers[key]);
-      const id = Number(key);
-      const note = notesRef.current.find(n => n.id === id);
-      if (note) api.updateNote(id, toPayload(note)).catch(() => {});
-    });
-    pendingRef.current = {};
+    flushAll();
     if (sfRef.current) clearTimeout(sfRef.current);
-  }, []);
+  }, [flushAll]);
 
   const selectedNote = useMemo(() => notes.find(n => n.id === selectedId) || null, [notes, selectedId]);
 
@@ -171,24 +177,35 @@ export default function NotesPanel() {
       setNotes(prev => [note, ...prev]);
       setSelectedId(note.id);
       setSearch('');
-      requestAnimationFrame(() => document.querySelector('input[placeholder="Note title..."]')?.focus());
+      // A ref, not a placeholder lookup: the focus silently stopped working
+      // the moment anybody reworded the placeholder.
+      requestAnimationFrame(() => titleRef.current?.focus());
     } catch {
       // Backend unreachable: no silent local-only note.
     }
   }, []);
 
-  const handleDelete = useCallback((id) => {
-    if (!confirm('Delete this note?')) return;
+  const handleDelete = useCallback((id, title) => {
+    if (!confirm(`Delete "${title || 'Untitled'}"?`)) return;
     if (pendingRef.current[id]) { clearTimeout(pendingRef.current[id]); delete pendingRef.current[id]; }
     setNotes(prev => prev.filter(n => n.id !== id));
-    if (selectedId === id) setSelectedId(null);
+    setSelectedId(prev => (prev === id ? null : prev));
     api.deleteNote(id).catch(() => {});
-  }, [selectedId]);
+  }, []);
 
   const handleSelect = useCallback((id) => {
     flushPending(selectedId);
     setSelectedId(id);
   }, [flushPending, selectedId]);
+
+  // Switching scope throws the list away and loads another, so anything still
+  // sitting in the 800ms debounce goes now rather than after the swap.
+  const handleScope = useCallback((next) => {
+    if (next === scope) return;
+    flushAll();
+    setScope(next);
+    setSelectedId(null);
+  }, [flushAll, scope]);
 
   const togglePin = useCallback(async () => {
     if (!selectedId || !selectedNote) return;
@@ -204,13 +221,12 @@ export default function NotesPanel() {
 
   const hasNotes = notes.length > 0;
   const hasResults = filtered.length > 0;
+  const pinnedCount = notes.filter((n) => n.pinned).length;
 
   // Which set is on screen, and how much of it — "NOTES" alone said neither.
   const noteStats = [
     { label: scope === 'alfred' ? "of Alfred's" : 'notes', value: notes.length },
-    ...(notes.filter((n) => n.pinned).length
-      ? [{ label: 'pinned', value: notes.filter((n) => n.pinned).length, tone: 'self' }]
-      : []),
+    ...(pinnedCount ? [{ label: 'pinned', value: pinnedCount, tone: 'self' }] : []),
   ];
 
   return (
@@ -219,45 +235,31 @@ export default function NotesPanel() {
         <PageHeader
           title="NOTES"
           stats={noteStats}
-          action={(
-            <button
-              onClick={handleNew}
-              className="px-5 py-2 bg-signal-self text-bat-bg font-bold rounded-chip hover:brightness-110 active:scale-[0.98] transition-all duration-200 ease-soft font-body text-sm tracking-wider"
-            >
-              + New Note
-            </button>
-          )}
+          action={<Button tone="self" onClick={handleNew}><Plus size={13} /> New note</Button>}
         />
       </div>
 
-      <div className="flex-1 min-h-0 flex gap-4 p-4">
-        <aside className="w-80 shrink-0 flex flex-col bg-bat-surface rounded-[10px] border border-bat-line overflow-hidden">
-          <div className="shrink-0 p-3 border-b border-bat-line space-y-2">
-            <div className="flex gap-1.5">
-              {[['mine', 'MINE'], ['alfred', "ALFRED'S"]].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => { setScope(key); setSelectedId(null); }}
-                  className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-mono tracking-wider border transition ${
-                    scope === key
-                      ? 'bg-signal-self text-bat-bg font-bold border-signal-self'
-                      : 'bg-transparent border-bat-line text-slate-500 hover:text-slate-300 hover:border-slate-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+      <div className="flex-1 min-h-0 flex gap-gutter p-4">
+        <aside className="w-80 shrink-0 flex flex-col rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile overflow-hidden">
+          <div className="shrink-0 p-3 border-b border-white/[0.04] space-y-2">
+            <Segmented
+              label="Whose notes"
+              value={scope}
+              onChange={handleScope}
+              options={[{ value: 'mine', label: 'Mine' }, { value: 'alfred', label: "Alfred's" }]}
+            />
             <input
               type="text" placeholder="Search notes..." value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full bg-bat-bg border border-bat-line rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-signal-self transition font-body"
+              aria-label="Search notes"
+              className={`${fieldClass} text-sm`}
             />
             <select
               value={sortBy} onChange={e => setSortBy(e.target.value)}
-              className="w-full bg-bat-bg border border-bat-line rounded-lg px-3 py-1.5 text-xs text-slate-400 focus:outline-none focus:border-signal-self transition font-body cursor-pointer"
+              aria-label="Sort notes"
+              className={`${fieldClass} text-xs cursor-pointer`}
             >
-              <option value="edited">Last Edited</option>
+              <option value="edited">Last edited</option>
               <option value="created">Created</option>
               <option value="title">Title</option>
             </select>
@@ -265,68 +267,82 @@ export default function NotesPanel() {
 
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
             {loading ? (
-              <div className="p-6 text-center text-sm text-slate-500 font-body">Loading notes...</div>
+              <div className="p-6 text-center text-xs font-mono uppercase tracking-[0.14em] text-ink-faint">Loading...</div>
             ) : !hasNotes ? (
-              <div className="p-6 text-center text-sm text-slate-500 italic font-body leading-relaxed">
-                &ldquo;The night is darkest just before the dawn.&rdquo;
-              </div>
+              // This was a Batman quote. A quote is not an empty state: it
+              // told you neither what was missing nor what to do about it.
+              <EmptyState compact>
+                {scope === 'alfred' ? 'Alfred has written nothing yet' : 'No notes yet'}
+              </EmptyState>
             ) : !hasResults ? (
-              <div className="p-6 text-center text-sm text-slate-500 font-body">No notes match your search.</div>
+              <EmptyState compact>Nothing matches "{search}"</EmptyState>
             ) : filtered.map(note => (
               <div
                 key={note.id} onClick={() => handleSelect(note.id)}
-                className={`group relative rounded-lg px-3 py-2.5 cursor-pointer transition-all duration-150 border ${
+                className={`group relative rounded-tile px-3 py-2.5 cursor-pointer ring-1
+                  transition-all duration-200 ease-soft ${
                   selectedId === note.id
-                    ? 'bg-[#1a1a2e] border-signal-self/40'
-                    : 'bg-transparent border-transparent hover:bg-[#1a1a2e]/50 hover:border-bat-line'
+                    ? 'bg-bat-raised ring-signal-self/40'
+                    : 'bg-transparent ring-transparent hover:bg-bat-raised/60 hover:ring-bat-line'
                 }`}
               >
                 <div className="flex items-start gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
-                      {note.pinned && <span className="text-signal-self text-[10px]">&#9733;</span>}
-                      <span className={`text-sm truncate font-body ${selectedId === note.id ? 'text-signal-self' : 'text-slate-200'}`}>
+                      {note.pinned && <Pin size={10} className="text-signal-self shrink-0" aria-label="Pinned" />}
+                      <span className={`text-sm truncate ${selectedId === note.id ? 'text-signal-self' : 'text-ink'}`}>
                         {note.title || 'Untitled'}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-500 truncate mt-0.5 font-body">
-                      {note.body ? note.body.replace(/\n/g, ' ') : 'No content'}
+                    <div className="text-[11px] text-ink-faint truncate mt-0.5">
+                      {note.body ? note.body.replace(/\n/g, ' ') : 'Empty'}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       {note.category && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-bat-line text-slate-400 font-body">{note.category}</span>
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-chip bg-bat-surface ring-1 ring-bat-line text-ink-muted">
+                          {note.category}
+                        </span>
                       )}
-                      <span className="text-[9px] text-slate-600 font-body">
+                      <span className="text-[9px] font-mono text-ink-faint">
                         {note.updatedAt ? new Date(note.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={e => { e.stopPropagation(); handleDelete(note.id); }}
-                    className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition text-xs px-1 py-1"
-                  >&#x2715;</button>
+                  {/* This was opacity-0 until hover, with no accessible name.
+                      On a touch screen there is no hover, so the note simply
+                      could not be deleted — which is exactly what was
+                      reported. It is always there now, and it says so. */}
+                  <IconButton
+                    label={`Delete "${note.title || 'Untitled'}"`}
+                    icon={Trash2}
+                    tone="danger"
+                    size={12}
+                    className="opacity-70 group-hover:opacity-100 shrink-0"
+                    onClick={e => { e.stopPropagation(); handleDelete(note.id, note.title); }}
+                  />
                 </div>
               </div>
             ))}
           </div>
         </aside>
 
-        <main className="flex-1 min-w-0 flex flex-col bg-bat-surface rounded-[10px] border border-bat-line overflow-hidden">
+        <main className="flex-1 min-w-0 flex flex-col rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile overflow-hidden">
           {!selectedNote ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center space-y-3">
-                <div className="text-4xl text-slate-700 font-display">&#x270E;</div>
-                <p className="text-sm text-slate-500 italic font-body">Select a note or create a new one</p>
-              </div>
+            <div className="flex-1 flex items-center justify-center p-6">
+              <EmptyState action={<Button tone="self" onClick={handleNew}><Plus size={13} /> New note</Button>}>
+                Pick a note, or start one
+              </EmptyState>
             </div>
           ) : (
             <>
               <div className="shrink-0 p-5 pb-2">
                 <input
-                  type="text" placeholder="Note title..."
+                  ref={titleRef}
+                  type="text" placeholder="Title"
                   value={selectedNote.title}
                   onChange={e => updateField('title', e.target.value)}
-                  className="w-full text-xl font-display text-slate-100 bg-transparent border-none outline-none placeholder-slate-600 tracking-wide"
+                  aria-label="Note title"
+                  className="w-full text-xl font-display text-ink bg-transparent border-none outline-none placeholder-ink-faint tracking-wide"
                 />
               </div>
 
@@ -335,43 +351,50 @@ export default function NotesPanel() {
                   placeholder="Start writing..."
                   value={selectedNote.body}
                   onChange={e => updateField('body', e.target.value)}
-                  className="w-full h-full text-sm text-slate-300 bg-transparent border-none outline-none resize-none font-body leading-relaxed placeholder-slate-600"
+                  aria-label="Note body"
+                  className="w-full h-full text-sm text-ink-muted bg-transparent border-none outline-none resize-none leading-relaxed placeholder-ink-faint"
                 />
               </div>
 
-              <div className="shrink-0 border-t border-bat-line px-5 py-3 flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <input
-                      type="text" placeholder="Tag..." value={selectedNote.category}
-                      onChange={e => updateField('category', e.target.value)}
-                      list="note-tags"
-                      className="w-28 bg-bat-bg border border-bat-line rounded-lg px-2.5 py-1.5 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-signal-self transition font-body"
-                    />
-                    <datalist id="note-tags">
-                      {allTags.map(t => <option key={t} value={t} />)}
-                    </datalist>
-                  </div>
-                  <button
+              <div className="shrink-0 border-t border-white/[0.04] px-5 py-3 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text" placeholder="Tag" value={selectedNote.category}
+                    onChange={e => updateField('category', e.target.value)}
+                    list="note-tags"
+                    aria-label="Tag"
+                    className={`${fieldClass} w-28 text-xs`}
+                  />
+                  <datalist id="note-tags">
+                    {allTags.map(t => <option key={t} value={t} />)}
+                  </datalist>
+                  <Button
+                    size="sm"
                     onClick={togglePin}
-                    className={`text-sm px-2 py-1 rounded-lg transition font-body ${
-                      selectedNote.pinned ? 'text-signal-self bg-signal-self/10' : 'text-slate-500 hover:text-slate-300'
-                    }`}
+                    aria-pressed={selectedNote.pinned}
+                    className={selectedNote.pinned ? 'text-signal-self ring-signal-self/40' : ''}
                   >
-                    {selectedNote.pinned ? '\u2605 Pinned' : '\u2606 Pin'}
-                  </button>
+                    <Pin size={11} /> {selectedNote.pinned ? 'Pinned' : 'Pin'}
+                  </Button>
+                  {/* Deleting used to be possible only from the list, and
+                      only on hover — not from the note you were reading. */}
+                  <IconButton
+                    label={`Delete "${selectedNote.title || 'Untitled'}"`}
+                    icon={Trash2}
+                    tone="danger"
+                    onClick={() => handleDelete(selectedNote.id, selectedNote.title)}
+                  />
                 </div>
 
-                <div className="flex items-center gap-4 text-[11px] text-slate-500 font-body">
+                <div className="flex items-center gap-3 text-[10px] font-mono text-ink-faint tabular-nums">
                   <span>{counts.words} words</span>
                   <span>{counts.chars} chars</span>
-                  <span className="text-slate-600">|</span>
-                  <span className="text-[10px] text-slate-600">
-                    {selectedNote.updatedAt ? new Date(selectedNote.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
-                  </span>
-                  {saving && (
-                    <span className="text-signal-self text-[10px] font-medium transition-opacity">Saved &#10003;</span>
+                  {selectedNote.updatedAt && (
+                    <span>
+                      {new Date(selectedNote.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
                   )}
+                  {saving && <span role="status" className="text-signal-good">Saved</span>}
                 </div>
               </div>
             </>
