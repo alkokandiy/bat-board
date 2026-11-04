@@ -22,6 +22,28 @@ from services.timezones import local_date, user_tz
 
 OUTCOMES = ("done", "skipped", "snoozed")
 
+# The three things a reminder may point at, in the order the link is read.
+LINK_FIELDS = ("mission_id", "habit_id", "work_task_id")
+
+
+def link_of(reminder) -> Optional[tuple]:
+    """What this reminder is about, as (kind, id), or None if it is free text.
+
+    "Take the medicine" points at nothing and should not be offered a focus
+    session: a tablet takes a minute, which is under MIN_FOCUS_MINUTES and
+    would never become a session anyway. "Work on the pricelist" points at a
+    mission, and then there is somewhere real to attach the time.
+    """
+    for field in LINK_FIELDS:
+        value = getattr(reminder, field, None)
+        if value:
+            return field[:-3], int(value)      # "mission_id" -> "mission"
+    return None
+
+
+def can_start_focus(reminder) -> bool:
+    return link_of(reminder) is not None
+
 # How many unanswered occurrences before the reminder suspends itself and
 # Alfred asks about it instead. Three is a run, not an accident — one missed
 # evening says nothing, three in a row says the reminder is not reaching them.
@@ -75,6 +97,24 @@ def record_outcome(db: Session, current_user: models.BatAccount,
     db.commit()
     db.refresh(row)
     return row
+
+
+def check_in_linked_habit(db: Session, current_user: models.BatAccount,
+                          reminder) -> Optional[int]:
+    """"Done" on a habit reminder should check the habit in.
+
+    Otherwise tapping Done records a private note that the message was
+    acknowledged while the habit it exists to drive still shows as not kept —
+    two facts about the same act, disagreeing. Returns the habit id if one
+    was checked in. Safe to call for any reminder.
+    """
+    from services import habit_service
+
+    link = link_of(reminder)
+    if link is None or link[0] != "habit":
+        return None
+    habit = habit_service.check_in_habit(db, current_user, link[1])
+    return habit.id if habit is not None else None
 
 
 def note_unanswered(db: Session, reminder: models.BatReminder) -> None:

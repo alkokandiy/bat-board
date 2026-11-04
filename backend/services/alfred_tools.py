@@ -25,6 +25,7 @@ from services import (
     telegram_service,
     work_service,
 )
+from services import reminder_feedback
 from services.timezones import user_tz
 
 FOCUS_NO_LIVE_SYNC_NOTE = (
@@ -206,6 +207,9 @@ def _reminder_dict(r):
         "id": r.id, "message": r.message, "enabled": r.enabled,
         "recurrence": r.recurrence, "send_time": r.send_time,
         "ends_on": getattr(r, "ends_on", None) or "no end date",
+        # What it is about, if anything. A linked reminder can offer to start
+        # the work; one about taking a tablet cannot and should not.
+        "about": (lambda l: f"{l[0]} {l[1]}" if l else None)(reminder_feedback.link_of(r)),
         # Whether it is actually working. A reminder nobody answers is the
         # one thing he could never see, so he went on treating a dead cue and
         # a relied-on one as the same thing.
@@ -522,7 +526,10 @@ WRITE_TOOLS = [
          "day_of_month": {"type": "integer", "description": "monthly only: 1-31 (clamped to month end)."},
          "run_date": {"type": "string", "description": "once only: YYYY-MM-DD."},
          "ends_on": {"type": "string", "description": "Optional last day, YYYY-MM-DD, inclusive. Use whenever the user bounds it in time ('for one month', 'for two weeks', 'until 1 December') — work out the date from today. Omit for an open-ended reminder."},
-     }, "required": ["message", "recurrence", "send_time"]}},
+         "mission_id": {"type": "integer", "description": "Point the reminder at a mission. A linked reminder gets a 'Start focus' button, so use this whenever the reminder is about doing a specific piece of work. Leave it out for anything that is not work — taking medicine is not a focus session."},
+         "habit_id": {"type": "integer", "description": "Point the reminder at a habit. Tapping 'Done' then checks the habit in as well, so the reminder finishes the thing it exists to start."},
+         "work_task_id": {"type": "integer", "description": "Point the reminder at a work task."},
+}, "required": ["message", "recurrence", "send_time"]}},
     {"name": "update_reminder", "description": "Update an existing reminder (message, time, recurrence, enable/disable). Only pass fields to change.",
      "parameters": {"type": "object", "properties": {
          "reminder_id": {"type": "integer"},
@@ -532,7 +539,10 @@ WRITE_TOOLS = [
          "weekdays": {"type": "string"}, "day_of_month": {"type": "integer"},
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
-     }, "required": ["reminder_id"]}},
+              "mission_id": {"type": "integer", "description": "Point the reminder at a mission. A linked reminder gets a 'Start focus' button, so use this whenever the reminder is about doing a specific piece of work. Leave it out for anything that is not work — taking medicine is not a focus session."},
+         "habit_id": {"type": "integer", "description": "Point the reminder at a habit. Tapping 'Done' then checks the habit in as well, so the reminder finishes the thing it exists to start."},
+         "work_task_id": {"type": "integer", "description": "Point the reminder at a work task."},
+}, "required": ["reminder_id"]}},
     {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the SAME reply. Blocks may not overlap each other (nobody focuses on two things at once) and may not run into the future — if either happens the call is refused and tells you why, so place consecutive blocks end-to-end rather than all at the same hour. Attach it to a mission, a habit or a work task by id, one of the three. No Bat Points for backfilled time.",
      "parameters": {"type": "object", "properties": {
          "minutes": {"type": "integer", "description": "Length of that block in minutes."},
@@ -1110,7 +1120,9 @@ def execute_tool(
                 db, current_user, message=args["message"], recurrence=args["recurrence"],
                 send_time=args["send_time"], weekdays=args.get("weekdays"),
                 day_of_month=args.get("day_of_month"), run_date=args.get("run_date"),
-                ends_on=args.get("ends_on"))
+                ends_on=args.get("ends_on"),
+            mission_id=args.get("mission_id"), habit_id=args.get("habit_id"),
+            work_task_id=args.get("work_task_id"))
         except ValueError as exc:
             return {"error": str(exc)}
         result = {"reminder": _reminder_dict(r)}
@@ -1125,7 +1137,9 @@ def execute_tool(
                 message=args.get("message"), enabled=args.get("enabled"),
                 recurrence=args.get("recurrence"), send_time=args.get("send_time"),
                 weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
-                run_date=args.get("run_date"), ends_on=args.get("ends_on"))
+                run_date=args.get("run_date"), ends_on=args.get("ends_on"),
+            mission_id=args.get("mission_id"), habit_id=args.get("habit_id"),
+            work_task_id=args.get("work_task_id"))
         except ValueError as exc:
             return {"error": str(exc)}
         if r is None:

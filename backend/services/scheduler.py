@@ -123,18 +123,28 @@ def _send(db: Session, user: models.BatAccount, chat_id: str, text: str,
         settings.telegram_bot_token, chat_id, text, reply_markup=reply_markup)
 
 
-def _reminder_keyboard(reminder_id: int) -> dict:
-    """Three taps, from the notification itself.
+def _reminder_keyboard(reminder) -> dict:
+    """What this particular reminder can offer, from the notification itself.
 
     A reminder with no reply path cannot be told apart from one that works,
     so the system kept firing a dead cue for a month. "Not today" matters as
     much as "done": it says the message arrived and was considered.
+
+    "Start focus" appears only when the reminder points at a mission, habit
+    or work task. Putting it on every reminder would be wrong twice over —
+    most reminders are not work, and a reminder to take a tablet is a minute
+    long, under the floor that makes a session count at all.
     """
-    return {"inline_keyboard": [[
-        {"text": "Done", "callback_data": f"rem:done:{reminder_id}"},
-        {"text": "Not today", "callback_data": f"rem:skipped:{reminder_id}"},
-        {"text": "Stop this", "callback_data": f"rem:stop:{reminder_id}"},
-    ]]}
+    rows = [[
+        {"text": "Done", "callback_data": f"rem:done:{reminder.id}"},
+        {"text": "Not today", "callback_data": f"rem:skipped:{reminder.id}"},
+        {"text": "Stop this", "callback_data": f"rem:stop:{reminder.id}"},
+    ]]
+    if reminder_feedback.can_start_focus(reminder):
+        rows.append([
+            {"text": "Start focus", "callback_data": f"rem:focus:{reminder.id}"},
+        ])
+    return {"inline_keyboard": rows}
 
 
 async def _fire_briefings(db: Session, user: models.BatAccount, chat_id: str,
@@ -217,7 +227,7 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
 
         try:
             ok = _send(db, user, chat_id, briefings.render_reminder(user, r),
-                       reply_markup=_reminder_keyboard(r.id))
+                       reply_markup=_reminder_keyboard(r))
         except Exception as exc:
             ok = False
             log.warning("reminder_send_failed", reminder_id=r.id, error=str(exc))
