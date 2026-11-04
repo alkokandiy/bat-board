@@ -177,6 +177,14 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
     habits_pending = [
         h for h in habits
         if not (h.last_completed and local_date(h.last_completed, tz) == today)
+        # Not due today is not outstanding: a Monday-and-Thursday habit was
+        # counted as pending every day of the week, so the signals saw six
+        # failures a week in a habit being kept perfectly.
+        and getattr(h, "due_today", True)
+        # And a rest the person chose is not something to raise with them.
+        # Being nudged about a day you deliberately took off is the same
+        # noise the reminder work was about, wearing a different hat.
+        and not getattr(h, "resting_today", False)
     ]
 
     focus_rows = (

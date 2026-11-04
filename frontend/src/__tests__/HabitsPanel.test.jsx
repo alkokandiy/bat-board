@@ -10,10 +10,16 @@ vi.mock('../utils/api', () => ({
     updateHabit: vi.fn(),
     deleteHabit: vi.fn(),
     checkInHabit: vi.fn(),
+    restHabit: vi.fn(),
+    unrestHabit: vi.fn(),
   },
 }));
 
+// The server never sends last_completed without the matching progress, so
+// neither does this: a fixture that did would be testing a payload that
+// cannot happen, and the panel trusts done_this_period over the date.
 const habit = (over = {}) => ({
+  done_this_period: over.last_completed ? 1 : 0,
   id: 1,
   name: 'Fifty press-ups',
   description: null,
@@ -29,6 +35,8 @@ const habit = (over = {}) => ({
   last_completed: null,
   focus_minutes: 0,
   target_date: null,
+  times_target: 1,
+  resting_today: false,
   ...over,
 });
 
@@ -230,5 +238,150 @@ describe('saying which days a habit is for', () => {
     renderPanel([habit()]);
     expect(screen.queryByText(/^Not due today/)).toBeNull();
     expect(screen.getByRole('button', { name: /check in/i })).toBeTruthy();
+  });
+});
+
+describe('Three times a week', () => {
+  it('shows how far through the week they are', () => {
+    renderPanel([habit({
+      frequency: 'weekly', schedule_label: 'once a week',
+      times_target: 3, done_this_period: 2,
+    })]);
+    expect(screen.getByText(/2 of 3 this week/i)).toBeInTheDocument();
+  });
+
+  it('says nothing extra for an ordinary habit', () => {
+    renderPanel([habit()]);
+    expect(screen.queryByText(/of 1 today/i)).not.toBeInTheDocument();
+  });
+
+  it('two of three is not a kept week', () => {
+    renderPanel([habit({
+      frequency: 'weekly', times_target: 3, done_this_period: 2,
+    })]);
+    expect(screen.getByRole('button', { name: /check in/i })).toBeInTheDocument();
+  });
+
+  it('three of three is', () => {
+    renderPanel([habit({
+      frequency: 'weekly', times_target: 3, done_this_period: 3,
+    })]);
+    expect(screen.queryByRole('button', { name: /check in/i })).not.toBeInTheDocument();
+  });
+
+  it('submits a count and no weekdays, never both', async () => {
+    api.createHabit.mockResolvedValue({ name: 'Gym' });
+    renderPanel([]);
+    fireEvent.change(screen.getByPlaceholderText(/fifty press-ups/i),
+      { target: { value: 'Gym' } });
+    fireEvent.change(screen.getByLabelText(/how often/i),
+      { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: /n times a week/i }));
+    fireEvent.change(screen.getByLabelText(/how many times a week/i),
+      { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: /^start tracking$/i }));
+
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    const sent = api.createHabit.mock.calls[0][0];
+    expect(sent.times_per_period).toBe(3);
+    expect(sent.weekdays).toBeNull();
+  });
+
+  it('drops days already picked when you change your mind', async () => {
+    // The real path to sending both: tick Monday, decide you would rather
+    // say "three times", submit. The server returns 400 for that, and
+    // rightly — naming the days already says how many.
+    api.createHabit.mockResolvedValue({ name: 'Gym' });
+    renderPanel([]);
+    fireEvent.change(screen.getByPlaceholderText(/fifty press-ups/i),
+      { target: { value: 'Gym' } });
+    fireEvent.change(screen.getByLabelText(/how often/i),
+      { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: /^mon$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^thu$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /n times a week/i }));
+    fireEvent.change(screen.getByLabelText(/how many times a week/i),
+      { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: /^start tracking$/i }));
+
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    const sent = api.createHabit.mock.calls[0][0];
+    expect(sent.times_per_period).toBe(3);
+    expect(sent.weekdays).toBeNull();
+  });
+
+  it('and drops a count already typed when you change back', async () => {
+    api.createHabit.mockResolvedValue({ name: 'Gym' });
+    renderPanel([]);
+    fireEvent.change(screen.getByPlaceholderText(/fifty press-ups/i),
+      { target: { value: 'Gym' } });
+    fireEvent.change(screen.getByLabelText(/how often/i),
+      { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: /n times a week/i }));
+    fireEvent.change(screen.getByLabelText(/how many times a week/i),
+      { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: /certain days/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^mon$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^start tracking$/i }));
+
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    const sent = api.createHabit.mock.calls[0][0];
+    expect(sent.weekdays).toBe('0');
+    expect(sent.times_per_period).toBeNull();
+  });
+
+  it('still submits weekdays and no count in the other mode', async () => {
+    api.createHabit.mockResolvedValue({ name: 'Gym' });
+    renderPanel([]);
+    fireEvent.change(screen.getByPlaceholderText(/fifty press-ups/i),
+      { target: { value: 'Gym' } });
+    fireEvent.change(screen.getByLabelText(/how often/i),
+      { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: /^mon$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^start tracking$/i }));
+
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    const sent = api.createHabit.mock.calls[0][0];
+    expect(sent.weekdays).toBe('0');
+    expect(sent.times_per_period).toBeNull();
+  });
+});
+
+describe('Resting is not failing', () => {
+  it('says so on the row', () => {
+    renderPanel([habit({ resting_today: true })]);
+    expect(screen.getByText(/resting today/i)).toBeInTheDocument();
+  });
+
+  it('never calls it skipping', () => {
+    renderPanel([habit({ resting_today: true })]);
+    expect(document.body.textContent).not.toMatch(/skip/i);
+  });
+
+  it('still offers the check-in, because they may change their mind', () => {
+    renderPanel([habit({ resting_today: true })]);
+    expect(screen.getByRole('button', { name: /check in/i })).toBeInTheDocument();
+  });
+
+  it('takes a rest day', async () => {
+    api.restHabit.mockResolvedValue({ resting: true });
+    const { onRefreshHabits } = renderPanel([habit({ id: 7 })]);
+    fireEvent.click(screen.getByRole('button', { name: /take a rest day/i }));
+    await waitFor(() => expect(api.restHabit).toHaveBeenCalledWith(7, {}));
+    await waitFor(() => expect(onRefreshHabits).toHaveBeenCalled());
+  });
+
+  it('comes back off one', async () => {
+    api.unrestHabit.mockResolvedValue({ was_resting: true });
+    renderPanel([habit({ id: 9, resting_today: true })]);
+    fireEvent.click(screen.getByRole('button', { name: /back on/i }));
+    await waitFor(() => expect(api.unrestHabit).toHaveBeenCalledWith(9));
+  });
+
+  it('reports a failure rather than swallowing it', async () => {
+    api.restHabit.mockRejectedValue(new Error('nope'));
+    renderPanel([habit({ id: 3 })]);
+    fireEvent.click(screen.getByRole('button', { name: /take a rest day/i }));
+    expect(await screen.findByText(/nope/i)).toBeInTheDocument();
   });
 });

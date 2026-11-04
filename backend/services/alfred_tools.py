@@ -119,6 +119,15 @@ def _habit_dict(h):
         # "weekly" which day someone meant.
         "schedule": habit_schedule.describe(h),
         "due_today": getattr(h, "due_today", None),
+        # "2 of 3 this week", and whether today was called a rest. Without
+        # these he would read a half-finished week as a missed one, and tell
+        # somebody resting on purpose that they had let it slip.
+        "times_per_period": getattr(h, "times_per_period", None) or 1,
+        "done_this_period": getattr(h, "done_this_period", None),
+        "resting_today": getattr(h, "resting_today", None),
+        "adherence": (
+            f"{h.adherence_done} of the last {h.adherence_window}"
+            if getattr(h, "adherence_window", None) else None),
         "last_completed": _iso(h.last_completed),
     }
 
@@ -395,10 +404,22 @@ WRITE_TOOLS = [
               "weekdays": {"type": "string", "description": "weekly only: which days, e.g. 'Mon,Thu' or '0,3' (Mon=0). ASK which days rather than leaving it out — 'every week' with no day means the habit shows as outstanding all seven days until it is ticked once, which is almost never what someone means."},
          "day_of_month": {"type": "integer", "description": "monthly only: 1-31. The 31st is clamped to the month's last day, so it still happens in February."},
          "interval_days": {"type": "integer", "description": "interval only: every N days, counted from the day the habit was created."},
+         "times_per_period": {"type": "integer", "description": "\"N times a week\", whichever days they land on — the keepable version of a habit somebody does not want pinned to fixed days. Use this OR weekdays, never both: naming the days already says how many. Omit for once per period. Not for an 'interval' habit, which happens once each time it comes round."},
 }, "required": ["name"]}},
     {"name": "check_in_habit", "description": "Check in to a habit (streak + points).",
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
+     }, "required": ["habit_id"]}},
+    {"name": "rest_habit", "description": "Mark a habit as deliberately rested for a day. A planned rest is NOT a failure: the occasion leaves the adherence denominator instead of counting against them, and the run steps over it rather than breaking. Offer this when somebody is ill, travelling or has decided to take a day — it is the honest alternative to either a broken streak or a dishonest check-in. Never use it to paper over a day they simply missed: that is their record, and quietly rewriting it would make every other number meaningless.",
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."},
+         "habit_id": {"type": "integer"},
+         "on": {"type": "string", "description": "Their local day as YYYY-MM-DD. Omit for today."},
+         "note": {"type": "string", "description": "Why, in their words — 'ill', 'travelling'. Only if they said."},
+     }, "required": ["habit_id"]}},
+    {"name": "unrest_habit", "description": "Take back a rest day, so the occasion counts again.",
+     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."},
+         "habit_id": {"type": "integer"},
+         "on": {"type": "string", "description": "Their local day as YYYY-MM-DD. Omit for today."},
      }, "required": ["habit_id"]}},
     {"name": "update_habit", "description": "Update an existing habit's name, description, frequency, cue or minimum_viable. Shrinking a habit that keeps failing (a smaller version, a gentler frequency) is a legitimate fix — offer it, never impose it.",
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
@@ -411,6 +432,7 @@ WRITE_TOOLS = [
               "weekdays": {"type": "string", "description": "weekly only: which days, e.g. 'Mon,Thu' or '0,3' (Mon=0). ASK which days rather than leaving it out — 'every week' with no day means the habit shows as outstanding all seven days until it is ticked once, which is almost never what someone means."},
          "day_of_month": {"type": "integer", "description": "monthly only: 1-31. The 31st is clamped to the month's last day, so it still happens in February."},
          "interval_days": {"type": "integer", "description": "interval only: every N days, counted from the day the habit was created."},
+         "times_per_period": {"type": "integer", "description": "\"N times a week\", whichever days they land on — the keepable version of a habit somebody does not want pinned to fixed days. Use this OR weekdays, never both: naming the days already says how many. Omit for once per period. Not for an 'interval' habit, which happens once each time it comes round."},
 }, "required": ["habit_id"]}},
     {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
      "parameters": {"type": "object", "properties": {
@@ -627,7 +649,7 @@ CAPABILITY_GROUPS = [
         "complete_mission", "delete_mission"]),
     ("Habits", [
         "list_habits", "create_habit", "update_habit", "check_in_habit",
-        "delete_habit"]),
+        "rest_habit", "unrest_habit", "delete_habit"]),
     ("Focus sessions", [
         "start_focus_session", "stop_focus_session", "end_focus_session",
         "get_active_focus_session", "log_past_focus", "suggest_focus_length",
@@ -786,7 +808,7 @@ def _describe_tool_target(
         m = mission_service.list_missions(db, current_user)
         match = next((x for x in m if x.id == int(args.get("mission_id"))), None)
         return match.title if match else None
-    if name in ("check_in_habit", "update_habit"):
+    if name in ("check_in_habit", "update_habit", "rest_habit", "unrest_habit"):
         h = habit_service.list_habits(db, current_user)
         match = next((x for x in h if x.id == int(args.get("habit_id"))), None)
         return match.name if match else None
@@ -803,7 +825,7 @@ def _describe_tool_target(
 # Deletes are covered by DESTRUCTIVE_TOOL_NAMES and go through the same check.
 TARGETED_TOOL_NAMES = {
     "complete_mission", "update_mission",
-    "check_in_habit", "update_habit",
+    "check_in_habit", "update_habit", "rest_habit", "unrest_habit",
     "complete_work_task", "update_work_task",
     "update_note",
 }
@@ -1021,7 +1043,8 @@ def execute_tool(
             description=args.get("description"), frequency=args.get("frequency") or "daily",
             cue=args.get("cue"), minimum_viable=args.get("minimum_viable"),
             weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
-            interval_days=args.get("interval_days"))
+            interval_days=args.get("interval_days"),
+            times_per_period=args.get("times_per_period"))
         return {"habit": _habit_dict(h)}
     if name == "check_in_habit":
         h = habit_service.check_in_habit(db, current_user, int(args["habit_id"]))
@@ -1036,10 +1059,21 @@ def execute_tool(
             minimum_viable=args.get("minimum_viable"),
             weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
             interval_days=args.get("interval_days"),
+            times_per_period=args.get("times_per_period"),
             target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
         if h is None:
             return {"error": "Habit not found"}
         return {"habit": _habit_dict(h)}
+    if name in ("rest_habit", "unrest_habit"):
+        fn = (habit_service.skip_habit if name == "rest_habit"
+              else habit_service.unskip_habit)
+        kwargs = {"on": args.get("on")}
+        if name == "rest_habit":
+            kwargs["note"] = args.get("note")
+        out = fn(db, current_user, int(args["habit_id"]), **kwargs)
+        if out is None:
+            return {"error": "Habit not found"}
+        return out
     if name == "create_event":
         mission_id = args.get("mission_id")
         e = calendar_service.create_event(

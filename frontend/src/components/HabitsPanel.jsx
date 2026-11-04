@@ -1,13 +1,25 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Flag, Trash2 } from 'lucide-react';
+import { Check, Flag, Moon, Sunrise, Trash2 } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
+import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
 
 const FREQUENCY_LABEL = { daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+const PERIOD_WORD = { daily: 'today', weekly: 'this week', monthly: 'this month' };
+
+function target(habit) {
+  return habit.times_target || 1;
+}
+
 function keptThisPeriod(habit) {
+  // "Three times a week" is not kept on the first of the three. The server
+  // counts this properly; trust it when it is there, and fall back to the
+  // date arithmetic for a payload that predates the field.
+  if (habit.done_this_period !== undefined && habit.done_this_period !== null) {
+    return habit.done_this_period >= target(habit);
+  }
   if (!habit.last_completed) return false;
   const last = new Date(habit.last_completed);
   const now = new Date();
@@ -53,7 +65,9 @@ function Adherence({ habit }) {
   );
 }
 
-function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate }) {
+function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest }) {
+  const want = target(habit);
+  const resting = habit.resting_today === true;
   return (
     <div
       className={`group rounded-tile bg-bat-raised ring-1 p-3.5
@@ -69,6 +83,20 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate }) {
             <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ring-bat-line text-ink-faint">
               {habit.schedule_label || FREQUENCY_LABEL[habit.frequency] || habit.frequency}
             </span>
+            {/* How far through the period they are. Without it, two of three
+                reads as a missed week. */}
+            {want > 1 && (
+              <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ring-bat-line text-ink-muted tabular-nums">
+                {habit.done_this_period || 0} of {want} {PERIOD_WORD[habit.frequency] || 'this period'}
+              </span>
+            )}
+            {/* A rest they chose is not a day they failed, and the row has to
+                say so — otherwise it reads as outstanding all day. */}
+            {resting && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ring-bat-line text-signal-work">
+                <Moon size={9} /> Resting today
+              </span>
+            )}
           </div>
 
           {/* The cue is the strongest lever there is, so it reads as the
@@ -105,9 +133,23 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate }) {
               <Check size={12} strokeWidth={3} /> kept
             </span>
           ) : (
-            <Button tone="self" size="sm" onClick={() => onCheckIn(habit.id)}>Check in</Button>
+            // Still offered while resting, and deliberately so: somebody may
+            // change their mind and do it anyway, and refusing the check-in
+            // would make the rest a decision they could not take back.
+            <Button
+              tone={resting ? 'ghost' : 'self'}
+              size="sm"
+              onClick={() => onCheckIn(habit.id)}
+            >
+              Check in
+            </Button>
           )}
-          <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
+          <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 flex items-center gap-1.5">
+            <IconButton
+              label={resting ? `Back on "${habit.name}"` : `Take a rest day on "${habit.name}"`}
+              icon={resting ? Sunrise : Moon}
+              onClick={() => onRest(habit.id, habit.name, resting)}
+            />
             <IconButton
               label={`Delete "${habit.name}"`}
               icon={Trash2}
@@ -150,6 +192,10 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   const [cue, setCue] = useState('');
   const [minimumViable, setMinimumViable] = useState('');
   const [weekdays, setWeekdays] = useState([]);
+  // Particular days, or a number of times — the two are different promises
+  // and the server refuses both at once, so the form has to make you choose.
+  const [weeklyMode, setWeeklyMode] = useState('days');
+  const [timesPerWeek, setTimesPerWeek] = useState('3');
   const [dayOfMonth, setDayOfMonth] = useState('');
   const [intervalDays, setIntervalDays] = useState('');
   const [loading, setLoading] = useState(false);
@@ -176,7 +222,14 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
         frequency,
         cue: cue.trim() || null,
         minimum_viable: minimumViable.trim() || null,
-        weekdays: frequency === 'weekly' && weekdays.length ? weekdays.sort((a, b) => a - b).join(',') : null,
+        weekdays: frequency === 'weekly' && weeklyMode === 'days' && weekdays.length
+          ? weekdays.sort((a, b) => a - b).join(',')
+          : null,
+        // Exactly one of the two ever leaves here. Sending both is a 400,
+        // and rightly so: naming the days already says how many.
+        times_per_period: frequency === 'weekly' && weeklyMode === 'times' && timesPerWeek
+          ? Number(timesPerWeek)
+          : null,
         day_of_month: frequency === 'monthly' && dayOfMonth ? Number(dayOfMonth) : null,
         interval_days: frequency === 'interval' && intervalDays ? Number(intervalDays) : null
       });
@@ -186,6 +239,8 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
       setCue('');
       setMinimumViable('');
       setWeekdays([]);
+      setWeeklyMode('days');
+      setTimesPerWeek('3');
       setDayOfMonth('');
       setIntervalDays('');
       setFrequency('daily');
@@ -221,6 +276,22 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
       await onRefreshAccount();
     } catch (err) {
       setActionError(err.message || "Delete failed");
+    }
+  };
+
+  const handleRest = async (habitId, habitName, resting) => {
+    try {
+      setActionError(null);
+      if (resting) {
+        await api.unrestHabit(habitId);
+        setFlash(`"${habitName}" counts again`);
+      } else {
+        await api.restHabit(habitId, {});
+        setFlash(`Resting "${habitName}" today — it will not count against you`);
+      }
+      await onRefreshHabits();
+    } catch (err) {
+      setActionError(err.message || 'Could not change the rest day');
     }
   };
 
@@ -317,7 +388,41 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                 accessible name is computed from the whole label rather than
                 its own text, so a screen reader announces the same thing
                 seven times. */}
+            {/* Two different promises. Three named days is the stricter one
+                and more than most people can keep; "three times, you pick"
+                is the version that survives a bad Tuesday. The server
+                refuses both at once, so the form makes you choose. */}
             {frequency === 'weekly' && (
+              <div>
+                <span className="mb-1.5 block text-[10px] font-mono uppercase tracking-[0.14em] text-ink-muted">
+                  How you want to keep it
+                </span>
+                <Segmented
+                  label="How you want to keep it"
+                  value={weeklyMode}
+                  onChange={setWeeklyMode}
+                  options={[
+                    { value: 'days', label: 'Certain days' },
+                    { value: 'times', label: 'N times a week' },
+                  ]}
+                />
+              </div>
+            )}
+
+            {frequency === 'weekly' && weeklyMode === 'times' && (
+              <Field label="How many times a week" hint="Whichever days they land on. The week counts as kept once you reach the number.">
+                <input
+                  type="number"
+                  min={1}
+                  max={7}
+                  value={timesPerWeek}
+                  onChange={(e) => setTimesPerWeek(e.target.value)}
+                  className={fieldClass}
+                />
+              </Field>
+            )}
+
+            {frequency === 'weekly' && weeklyMode === 'days' && (
               <div role="group" aria-label="Which days">
                 <span className="mb-1.5 block text-[10px] font-mono uppercase tracking-[0.14em] text-ink-muted">
                   Which days
@@ -400,6 +505,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                   onCheckIn={handleCheckIn}
                   onDelete={handleDelete}
                   onSetTargetDate={handleSetTargetDate}
+                  onRest={handleRest}
                 />
               ))
             )}
@@ -414,7 +520,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                 {notDueToday.map((habit) => (
                   <HabitRow key={habit.id} habit={habit} kept
                     onCheckIn={handleCheckIn} onDelete={handleDelete}
-                    onSetTargetDate={handleSetTargetDate} />
+                    onSetTargetDate={handleSetTargetDate} onRest={handleRest} />
                 ))}
               </div>
             </details>
@@ -436,6 +542,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                     onCheckIn={handleCheckIn}
                     onDelete={handleDelete}
                     onSetTargetDate={handleSetTargetDate}
+                    onRest={handleRest}
                   />
                 ))}
               </div>

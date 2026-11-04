@@ -91,6 +91,8 @@ def test_the_resolver_knows_every_targeted_tool():
             "update_mission": ({"mission_id": m.id}, "A mission"),
             "check_in_habit": ({"habit_id": h.id}, "A habit"),
             "update_habit": ({"habit_id": h.id}, "A habit"),
+            "rest_habit": ({"habit_id": h.id}, "A habit"),
+            "unrest_habit": ({"habit_id": h.id}, "A habit"),
             "update_note": ({"note_id": note.id}, "A note"),
             "complete_work_task": ({"task_id": t.id}, "A work task"),
             "update_work_task": ({"task_id": t.id}, "A work task"),

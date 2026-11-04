@@ -42,6 +42,9 @@ _WEEKDAY_NAMES.update({
 })
 
 MAX_INTERVAL_DAYS = 365
+# "Twelve times a day" is a timer, not a habit; the cap keeps the streak
+# meaning something.
+MAX_TIMES_PER_PERIOD = 20
 
 
 def normalize_weekdays(value) -> Optional[str]:
@@ -227,3 +230,100 @@ def validate(frequency: str, *, weekdays=None, day_of_month=None,
             f"got {frequency!r}.")
 
     return out
+
+
+# --- Occasions -------------------------------------------------------------
+#
+# An "occasion" is one chance to do the habit, and it is the unit everything
+# else counts in: adherence, the streak and the reward.
+#
+# Until now two different units were in play at once. Phase 5 moved the
+# adherence DENOMINATOR to due days, so a Monday-and-Thursday habit had four
+# chances a fortnight — but the NUMERATOR still counted Monday-to-Sunday
+# buckets, of which there are only two. The same habit kept perfectly read
+# "2 of your last 4", and the Thursday check-in landed in a bucket Monday had
+# already filled, so it earned nothing and moved no streak.
+#
+# One unit, chosen by whether the habit says when it happens:
+#
+#   schedule given ("Mon and Thu", "the 1st", "every 3 days")
+#       → each due calendar day is its own occasion
+#   no schedule ("weekly", any day)
+#       → the period is the occasion, exactly as before
+
+def occasion_key(habit, day: date) -> int:
+    """Which occasion this date belongs to.
+
+    Day ordinals for a scheduled habit, period indices otherwise. The two
+    are never compared across habits, so they need not share a space — only
+    be stable and ordered for one habit.
+    """
+    if is_explicitly_scheduled(habit):
+        return day.toordinal()
+    frequency = getattr(habit, "frequency", "daily") or "daily"
+    if frequency == "weekly":
+        return (day.toordinal() - 1) // 7   # ordinal 1 is a Monday: Mon–Sun
+    if frequency == "monthly":
+        return day.year * 12 + day.month
+    return day.toordinal()
+
+
+MAX_LOOKBACK_OCCASIONS = 400
+
+
+def occasions_missed_between(habit, from_key: int, to_key: int,
+                             skipped: frozenset = frozenset(),
+                             cap: int = MAX_LOOKBACK_OCCASIONS) -> int:
+    """Chances strictly between two occasions that went by untaken.
+
+    Skipped occasions do not count: a rest day the person planned is not a
+    day they failed. Capped, so a habit returned to after a year costs one
+    bounded loop rather than a scan back to its creation — anything past the
+    cap is already far more than a broken run.
+    """
+    if to_key <= from_key + 1:
+        return 0
+
+    if is_explicitly_scheduled(habit):
+        missed = 0
+        for ordinal in range(from_key + 1, min(to_key, from_key + 1 + cap)):
+            day = date.fromordinal(ordinal)
+            if is_due_on(habit, day) and ordinal not in skipped:
+                missed += 1
+                if missed >= cap:
+                    break
+        return missed
+
+    span = min(to_key - from_key - 1, cap)
+    between = range(from_key + 1, from_key + 1 + span)
+    return sum(1 for k in between if k not in skipped)
+
+
+def validate_times(frequency: str, times_per_period, weekdays=None) -> Optional[int]:
+    """Check "N times per period". Returns the value to store, or None for 1.
+
+    Refused alongside chosen weekdays, because the two are different answers
+    to the same question and together they contradict: "Mon and Thu" already
+    says which days and how many, while "3 times a week" deliberately says
+    neither. Allowing both would leave the screen to guess which one the
+    streak was counting.
+    """
+    if times_per_period is None:
+        return None
+    times = int(times_per_period)
+    if times < 1:
+        raise ValueError("times_per_period must be at least 1.")
+    if times == 1:
+        return None     # the default; stored as NULL so nothing changes
+    if times > MAX_TIMES_PER_PERIOD:
+        raise ValueError(
+            f"times_per_period must be at most {MAX_TIMES_PER_PERIOD}.")
+    if frequency == "weekly" and weekday_list(weekdays):
+        raise ValueError(
+            "Choose particular days or a number of times a week, not both.")
+    if frequency == "weekly" and times > 7:
+        raise ValueError("A week has seven days.")
+    if frequency == "interval":
+        raise ValueError(
+            "An 'every N days' habit happens once each time it comes round.")
+    return times

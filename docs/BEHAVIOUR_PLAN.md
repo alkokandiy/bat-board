@@ -188,16 +188,35 @@ piece was needed to make the first safe: once Alfred's own messages are in
 the history, two assistant turns in a row became ordinary, which Anthropic
 rejects outright — so history is normalised before it is sent.
 
-### Phase 7 — "X times per week", and skip as a state
+### Phase 7 — "X times per week", and rest as a state *(done)*
 
 Carried over from Phase 5, which deliberately stopped short of it.
 
 - `times_per_period`: a habit can be "three times a week", and the period
-  counts as kept once the target is met, whichever days those were.
-- Streaks judged against the target rather than against consecutive periods.
-- A planned rest or skip day as a first-class state, removed from the
-  adherence denominator rather than counted as a failure. TickTick has no
-  such thing, and it is the most-criticised gap in its habit tracker.
+  counts as kept once the target is met, whichever days those were. Every
+  counting check-in earns; only the one that reaches the target moves the
+  run. Refused alongside chosen weekdays, because naming the days already
+  says how many and the two together contradict.
+- Streaks judged against occasions kept rather than consecutive periods.
+- A planned rest as a first-class state, removed from the adherence
+  denominator rather than counted as a failure, with the run stepping over
+  it. TickTick has no such thing, and it is the most-criticised gap in its
+  habit tracker. Never "skip" in the interface: resting is not failing, and
+  the word has to say so.
+
+Building it surfaced a unit mismatch Phase 5 had left behind: the adherence
+denominator had moved to due days while the numerator still counted
+Monday-to-Sunday buckets, so a Monday-and-Thursday habit kept perfectly read
+"2 of your last 4" and the Thursday check-in earned nothing. Both sides now
+count **occasions** — the due day for a habit that says when it happens, the
+period for one that does not.
+
+Two more things fell out of it. `PUT /api/habits/{id}` was setting columns
+directly rather than going through its service, so none of Phase 5's
+validation applied to the website while all of it applied to Alfred. And the
+nudge engine treated a habit as outstanding every day of the week regardless
+of whether it was due, so a Mon/Thu habit kept perfectly looked like five
+failures a week.
 
 ---
 
