@@ -6,3 +6,4 @@ export { default as Button } from './Button';
 export { default as Field, fieldClass } from './Field';
 export { default as IconButton } from './IconButton';
 export { default as Segmented } from './Segmented';
+export { default as Picker } from './Picker';

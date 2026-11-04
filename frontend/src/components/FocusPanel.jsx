@@ -1,7 +1,7 @@
 import React from 'react';
 import { trackPresets } from './AudioPlayer';
 import BatFocusTimer from './BatFocusTimer';
-import { PageHeader, Panel } from './ui';
+import { PageHeader, Panel, Picker } from './ui';
 
 export default function FocusPanel({
   activeTrack,
@@ -64,13 +64,22 @@ export default function FocusPanel({
   const targetValue = focusSelectedMissionId
     ? `m:${focusSelectedMissionId}`
     : focusSelectedHabitId ? `h:${focusSelectedHabitId}` : '';
-  const handleTargetChange = (e) => {
-    const v = e.target.value;
+  const handleTargetChange = (v) => {
     if (v.startsWith('m:')) { onFocusMissionChange(v.slice(2)); onFocusHabitChange(''); }
     else if (v.startsWith('h:')) { onFocusHabitChange(v.slice(2)); onFocusMissionChange(''); }
     else { onFocusMissionChange(''); onFocusHabitChange(''); }
   };
   const openMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
+  // Built here rather than inside the Picker so the encoding ("m:<id>") stays
+  // in the one place that also decodes it.
+  const targetGroups = [
+    ...(openMissions.length
+      ? [{ label: 'Missions', options: openMissions.map(m => ({ value: `m:${m.id}`, label: m.title })) }]
+      : []),
+    ...(habits.length
+      ? [{ label: 'Habits', options: habits.map(h => ({ value: `h:${h.id}`, label: h.name })) }]
+      : []),
+  ];
 
   const selectedHabit = habits.find(h => String(h.id) === focusSelectedHabitId);
   const targetLabel = selectedMission ? selectedMission.title
@@ -136,33 +145,22 @@ export default function FocusPanel({
         <div className="space-y-4">
           <Panel title="Parameters">
             <div className="text-xs">
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Focus Target</label>
-              <select
+              {/* A labelled group, not a <label>: the control is a button,
+                  and the browser-drawn <select> this replaced could not be
+                  styled, searched, or stopped from running off the screen. */}
+              <span className="block text-ink-muted mb-1 font-mono uppercase tracking-wider text-[10px]">Focus Target</span>
+              <Picker
+                label="Focus Target"
                 value={targetValue}
                 onChange={handleTargetChange}
                 disabled={focusRunning}
-                className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 font-mono focus:outline-none focus:border-electric-bat-yellow disabled:opacity-50"
-              >
-                <option value="">— No target (free focus) —</option>
-                {openMissions.length > 0 && (
-                  <optgroup label="Missions">
-                    {openMissions.map(m => (
-                      <option key={`m${m.id}`} value={`m:${m.id}`}>{m.title}</option>
-                    ))}
-                  </optgroup>
-                )}
-                {habits.length > 0 && (
-                  <optgroup label="Habits">
-                    {habits.map(h => (
-                      <option key={`h${h.id}`} value={`h:${h.id}`}>{h.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              <p className="mt-1 text-[10px] text-slate-500 font-mono">One target per session — a mission or a habit.</p>
+                emptyOption={{ value: '', label: '— No target (free focus) —' }}
+                groups={targetGroups}
+              />
+              <p className="mt-1 text-[10px] text-ink-faint font-mono">One target per session — a mission or a habit.</p>
             </div>
             <div className="text-xs">
-              <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Session Length (Minutes)</label>
+              <label className="block text-ink-muted mb-1 font-mono uppercase tracking-wider text-[10px]">Session Length (Minutes)</label>
               <input
                 type="number"
                 min="5"
@@ -189,8 +187,8 @@ export default function FocusPanel({
                     onClick={() => handleTrackSelect(track)}
                     className={`w-full text-left px-3.5 py-2.5 rounded border transition flex items-center justify-between ${
                       isSelected
-                        ? 'bg-electric-bat-yellow/10 border-electric-bat-yellow text-electric-bat-yellow'
-                        : 'bg-matte-obsidian border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                        ? 'bg-signal-self/10 border-signal-self text-signal-self'
+                        : 'bg-bat-raised border-bat-line text-ink-muted hover:border-bat-line-strong hover:text-ink'
                     }`}
                   >
                     <span className="font-semibold text-[11px] tracking-wide truncate">{track.title}</span>
