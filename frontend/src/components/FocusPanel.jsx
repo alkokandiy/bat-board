@@ -140,6 +140,34 @@ export default function FocusPanel({
             mode={timerMode}
             onModeChange={onTimerModeChange}
           />
+
+          {/* Three tracks in a row, under the clock, rather than a stack in
+              the side column. Three one-line buttons never needed a column
+              of their own, and holding one there squeezed the focus target
+              above it into a few rows. */}
+          <Panel title="Soundtrack" className="mt-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              {trackPresets.map((track) => {
+                const isSelected = activeTrack?.id === track.id;
+                return (
+                  <button
+                    key={track.id}
+                    onClick={() => handleTrackSelect(track)}
+                    className={`text-left px-3.5 py-2.5 rounded-tile border transition-all duration-200 ease-soft ${
+                      isSelected
+                        ? 'bg-signal-self/10 border-signal-self text-signal-self'
+                        : 'bg-bat-raised border-bat-line text-ink-muted hover:border-bat-line-strong hover:text-ink'
+                    }`}
+                  >
+                    <span className="block font-semibold text-[11px] tracking-wide truncate">{track.title}</span>
+                    <span className="mt-0.5 block text-[10px] font-mono text-ink-faint">
+                      {isSelected && isPlaying ? 'PLAYING' : isSelected ? 'PAUSED' : 'OFFLINE'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Panel>
         </div>
 
         <div className="space-y-4">
@@ -177,27 +205,6 @@ export default function FocusPanel({
             </div>
           </Panel>
 
-          <Panel title="Soundtrack">
-            <div className="text-xs space-y-2">
-              {trackPresets.map((track) => {
-                const isSelected = activeTrack?.id === track.id;
-                return (
-                  <button
-                    key={track.id}
-                    onClick={() => handleTrackSelect(track)}
-                    className={`w-full text-left px-3.5 py-2.5 rounded border transition flex items-center justify-between ${
-                      isSelected
-                        ? 'bg-signal-self/10 border-signal-self text-signal-self'
-                        : 'bg-bat-raised border-bat-line text-ink-muted hover:border-bat-line-strong hover:text-ink'
-                    }`}
-                  >
-                    <span className="font-semibold text-[11px] tracking-wide truncate">{track.title}</span>
-                    <span className="text-[10px] font-mono">{isSelected && isPlaying ? 'PLAYING' : isSelected ? 'PAUSED' : 'OFFLINE'}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </Panel>
         </div>
       </div>
     </div>

@@ -44,53 +44,53 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-matte-obsidian text-slate-100 flex flex-col items-center justify-center font-sans px-4">
+    <div className="min-h-screen bg-bat-bg text-ink flex flex-col items-center justify-center font-sans px-4">
       <div className="max-w-sm w-full space-y-8">
         <div className="text-center space-y-2">
-          <div className="text-electric-bat-yellow text-5xl font-bold tracking-widest">BAT-BOARD</div>
-          <p className="text-xs text-slate-500 font-mono tracking-widest">SECURE GATEWAY</p>
+          <div className="text-signal-self text-5xl font-bold tracking-widest">BAT-BOARD</div>
+          <p className="text-xs text-ink-faint font-mono tracking-widest">SECURE GATEWAY</p>
         </div>
-        <form onSubmit={handleSubmit} className="bg-dark-slate p-6 rounded-lg border border-slate-800 space-y-4">
-          <h2 className="text-sm font-mono uppercase tracking-widest text-slate-300">
+        <form onSubmit={handleSubmit} className="bg-bat-surface p-6 rounded-lg border border-bat-line space-y-4">
+          <h2 className="text-sm font-mono uppercase tracking-widest text-ink-muted">
             {isRegister ? 'Establish Identity' : 'Authenticate'}
           </h2>
           {error && (
-            <div className="p-3 bg-red-950/40 border border-red-900 rounded text-red-400 text-xs">{error}</div>
+            <div className="p-3 bg-signal-late/10 border border-signal-late/30 rounded text-signal-late text-xs">{error}</div>
           )}
           <div>
-            <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Username</label>
+            <label className="block text-ink-muted mb-1 font-mono uppercase tracking-wider text-[10px]">Username</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="The Dark Knight"
-              className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+              className="w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-ink placeholder-ink-faint focus:outline-none focus:border-signal-self"
               required
               autoFocus
             />
           </div>
           <div>
-            <label className="block text-slate-400 mb-1 font-mono uppercase tracking-wider text-[10px]">Password</label>
+            <label className="block text-ink-muted mb-1 font-mono uppercase tracking-wider text-[10px]">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow"
+              className="w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-ink placeholder-ink-faint focus:outline-none focus:border-signal-self"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-electric-bat-yellow text-matte-obsidian font-bold rounded hover:bg-yellow-400 transition font-mono tracking-widest disabled:opacity-50"
+            className="w-full py-2.5 bg-signal-self text-bat-bg font-bold rounded hover:brightness-110 transition font-mono tracking-widest disabled:opacity-50"
           >
             {loading ? 'AUTHORIZING...' : isRegister ? 'REGISTER IDENTITY' : 'GAIN ACCESS'}
           </button>
           <button
             type="button"
             onClick={() => { setIsRegister(!isRegister); setError(null); }}
-            className="w-full text-xs text-slate-500 hover:text-slate-300 transition font-mono tracking-wider"
+            className="w-full text-xs text-ink-faint hover:text-ink-muted transition font-mono tracking-wider"
           >
             {isRegister ? 'Already have access? Sign in' : 'New operative? Register'}
           </button>
@@ -483,10 +483,10 @@ export default function App() {
 
   if (loading && localStorage.getItem('bat_access_token')) {
     return (
-      <div className="min-h-screen bg-matte-obsidian text-slate-100 flex flex-col items-center justify-center font-sans">
+      <div className="min-h-screen bg-bat-bg text-ink flex flex-col items-center justify-center font-sans">
         <div className="text-center space-y-4">
-          <div className="text-electric-bat-yellow text-4xl animate-pulse font-bold tracking-widest">BAT-BOARD</div>
-          <div className="text-xs text-slate-500 font-mono tracking-widest">DECRYPTING SECURITY LEDGER...</div>
+          <div className="text-signal-self text-4xl animate-pulse font-bold tracking-widest">BAT-BOARD</div>
+          <div className="text-xs text-ink-faint font-mono tracking-widest">DECRYPTING SECURITY LEDGER...</div>
         </div>
       </div>
     );
@@ -498,14 +498,14 @@ export default function App() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-matte-obsidian text-slate-100 flex flex-col items-center justify-center font-sans px-4">
-        <div className="max-w-md w-full bg-dark-slate p-6 rounded-lg border border-red-950 text-center space-y-4">
-          <div className="text-red-500 text-3xl font-bold">BOOT CRITICAL ERROR</div>
-          <p className="text-sm text-slate-300">{error}</p>
+      <div className="min-h-screen bg-bat-bg text-ink flex flex-col items-center justify-center font-sans px-4">
+        <div className="max-w-md w-full bg-bat-surface p-6 rounded-lg border border-signal-late/30 text-center space-y-4">
+          <div className="text-signal-late text-3xl font-bold">BOOT CRITICAL ERROR</div>
+          <p className="text-sm text-ink-muted">{error}</p>
           <div className="pt-2">
             <button
               onClick={fetchAllData}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold rounded text-xs transition duration-200"
+              className="px-4 py-2 bg-bat-raised hover:bg-bat-line-strong text-ink font-semibold rounded text-xs transition duration-200"
             >
               RETRY BOOT SEQUENCING
             </button>
