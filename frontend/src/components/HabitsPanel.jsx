@@ -42,8 +42,10 @@ function dateKey(value) {
  * The row used to lead with the consecutive streak and award an "ON FIRE"
  * badge above three — which is the chain framing this codebase bans outright,
  * and the reason a single blameless missed day reads as total failure. The
- * reward has followed recent adherence for a while; the screen simply never
- * showed it. Now the honest measure is the headline and the run is a footnote.
+ * screen simply never showed it. Now the honest measure is the headline and
+ * the run is a footnote. The points say nothing about how it is going — a
+ * check-in is worth the same whatever kind of week it has been — so this is
+ * the only thing on the row that does.
  */
 function Adherence({ habit }) {
   const window = habit.adherence_window || 0;
