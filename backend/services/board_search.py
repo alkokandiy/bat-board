@@ -24,12 +24,30 @@ import models
 
 # Below this, two titles are not plausibly the same thing.
 MATCH_FLOOR = 0.45
+# Above the floor but below this, a match is a candidate to ask about, not
+# one to act on.
+CONFIDENT_MATCH = 0.6
 MAX_RESULTS = 8
 _WORD = re.compile(r"[^\w\s]", re.UNICODE)
 
 
 def _norm(text: str) -> str:
     return " ".join(_WORD.sub(" ", (text or "").lower()).split())
+
+
+def _contains_whole(haystack: str, needle: str) -> bool:
+    """Is `needle` present in `haystack` as whole words?
+
+    This used to be a bare `needle in haystack`, which matched raw characters:
+    score("a", "Learn dots") came back 0.92, so ANY single letter appearing
+    anywhere in a title was a confident match. A vague query therefore landed
+    on a near-random item with high confidence, and the tool note told the
+    model to go ahead and use it — which is how "change its time" was answered
+    with "I have found the mission to learn dots, sir."
+    """
+    if not needle:
+        return False
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
 
 
 def score(query: str, title: str) -> float:
@@ -39,7 +57,7 @@ def score(query: str, title: str) -> float:
         return 0.0
     if q == t:
         return 1.0
-    if q in t or t in q:
+    if _contains_whole(t, q) or _contains_whole(q, t):
         return 0.92
     ratio = difflib.SequenceMatcher(None, q, t).ratio()
     # Shared words matter more than character order: "screen time challenge"
@@ -102,7 +120,19 @@ def search(db: Session, user: models.BatAccount, query: str,
             "Nothing matched. Before telling them it does not exist, consider "
             "listing that kind of item and reading the titles yourself — they "
             "may have described it rather than named it.")
+    elif scored[0]["match"] < CONFIDENT_MATCH:
+        # Something came back, but nothing came back convincingly. Saying so
+        # outright matters more than it looks: the note is the only thing
+        # standing between a weak match and "I have found the mission to
+        # learn dots, sir" in answer to a sentence that named no mission.
+        out["confident"] = False
+        out["note"] = (
+            "NO CONFIDENT MATCH — the best score is below "
+            f"{CONFIDENT_MATCH}. Do not act on any of these. Ask the user "
+            "which they meant, or say plainly that you are not sure what "
+            "they are referring to.")
     else:
+        out["confident"] = True
         out["note"] = (
             "Use the id of the match you believe they meant, and pass its "
             "exact title as expected_title. If two are close, ask which.")

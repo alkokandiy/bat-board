@@ -157,9 +157,13 @@ def test_send_one_falls_back_to_plain_on_400(monkeypatch):
 
     monkeypatch.setattr(telegram_service.httpx, "post", fake_post)
 
-    ok = telegram_service._send_one("tok", "chat", "**hi**", 5.0, None)
+    # _send_one now returns Telegram's message_id (or None if it failed), so
+    # the reply to a message can be matched back to what it said. The fake
+    # response has no body, so a successful send reports the 0 sentinel —
+    # "sent, id unreadable", which is still not a failure.
+    sent = telegram_service._send_one("tok", "chat", "**hi**", 5.0, None)
 
-    assert ok is True
+    assert sent is not None
     assert len(calls) == 2
     assert calls[0]["parse_mode"] == "HTML"
     assert calls[0]["text"] == "<b>hi</b>"
@@ -167,7 +171,7 @@ def test_send_one_falls_back_to_plain_on_400(monkeypatch):
     assert calls[1]["text"] == "hi"
 
 
-def test_send_one_returns_false_when_both_fail(monkeypatch):
+def test_send_one_returns_none_when_both_fail(monkeypatch):
     calls = []
 
     class _Resp:
@@ -179,7 +183,7 @@ def test_send_one_returns_false_when_both_fail(monkeypatch):
 
     monkeypatch.setattr(telegram_service.httpx, "post", fake_post)
 
-    assert telegram_service._send_one("tok", "chat", "**hi**", 5.0, None) is False
+    assert telegram_service._send_one("tok", "chat", "**hi**", 5.0, None) is None
     assert len(calls) == 2
     assert "parse_mode" not in calls[1]
 

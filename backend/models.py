@@ -321,6 +321,17 @@ class BatAlfredMessage(Base):
     session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     session = relationship("BatAlfredSession", back_populates="messages")
 
+    # What Telegram called this message, so a reply to it can be resolved back
+    # to what it actually said. NULL for anything not sent over Telegram.
+    telegram_message_id = Column(Integer, nullable=True, index=True)
+    # NULL/"chat" for a turn the user started; otherwise what sent it on
+    # Alfred's own initiative ("reminder", "briefing", "nudge", ...).
+    origin = Column(String, nullable=True)
+    # What the message was about ("reminder", 12). A reply inherits this as a
+    # hard target rather than searching the board for one.
+    about_kind = Column(String, nullable=True)
+    about_id = Column(Integer, nullable=True)
+
 
 class BatPendingAlfredAction(Base):
     """Deterministic confirmation gate for destructive actions.

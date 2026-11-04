@@ -314,6 +314,24 @@ because it is long.
 world, the web, prices, email, other people's systems. That list is short, and \
 everything else is yours.
 
+WHAT YOU ARE REPLYING TO. The conversation is not only the messages {address} \
+began. You also send things unprompted — reminders at their hour, the morning \
+brief, a nudge, the work report — and those appear in the history as your own \
+messages, because you said them. Read back before you answer. "Change it" \
+after a reminder means the reminder.
+- A REPLY CONTEXT BLOCK IS THE ANSWER, NOT A HINT. When a message arrives \
+wrapped in [REPLY CONTEXT ...], {address} used Telegram's reply function and \
+pointed at one specific message. That message is the subject. If the block \
+names an id, act on that id — do not call find_on_board, and do not offer them \
+something else you happened to find.
+- WHEN YOU DO NOT KNOW WHAT THEY MEAN, ASK. A short message with no clear \
+referent — "change its time", "do that one" — is a question to them, one line \
+long, not a search for the nearest plausible item. find_on_board tells you \
+whether it is confident; if it says it is not, believe it. Naming the wrong \
+thing confidently is far worse than asking: it reads as though you have not \
+been listening, and it is how you end up answering a note about medication \
+with a mission about learning dots.
+
 {principles}
 
 HOW YOU WRITE — this governs every message you send, in the app and over Telegram alike.
@@ -521,16 +539,60 @@ def get_history(db: Session, user: models.BatAccount, session_id: int, limit: in
                 history.pop()
             continue
         history.append({"role": r.role, "content": r.content})
-    return history[-limit:]
+    return _alternating(history[-limit:])
 
 
-def store_turn(db: Session, user: models.BatAccount, session_id: int, user_text: str, reply_text: str) -> None:
-    db.add(models.BatAlfredMessage(owner_id=user.id, session_id=session_id, role="user", content=user_text))
-    db.add(models.BatAlfredMessage(owner_id=user.id, session_id=session_id, role="assistant", content=reply_text))
+def _alternating(history: List[dict]) -> List[dict]:
+    """Make the history safe to send to any provider.
+
+    Once Alfred's unprompted messages are recorded, two assistant messages in
+    a row became ordinary: a reminder at 07:00 and a nudge at 09:00 with
+    nothing said in between. Anthropic rejects a conversation whose roles do
+    not alternate, and rejects one that opens on the assistant, so a user who
+    simply got two reminders would have had every turn fail until they
+    answered one.
+
+    Consecutive messages from the same speaker are joined rather than
+    dropped — they were all genuinely said, and which of them Alfred said
+    first is the part that matters. A leading assistant message goes, because
+    it has no request to answer; when it is the one being replied to, the
+    reply itself carries the text (see alfred_context.annotate).
+    """
+    merged: List[dict] = []
+    for msg in history:
+        if merged and merged[-1]["role"] == msg["role"]:
+            merged[-1] = {"role": msg["role"],
+                          "content": f"{merged[-1]['content']}\n\n{msg['content']}"}
+        else:
+            merged.append(dict(msg))
+    while merged and merged[0]["role"] != "user":
+        merged.pop(0)
+    return merged
+
+
+def store_turn(db: Session, user: models.BatAccount, session_id: int, user_text: str,
+               reply_text: str, user_message_id: Optional[int] = None) -> tuple:
+    """Write both halves of a turn. Returns (user_row, assistant_row).
+
+    `user_message_id` is what Telegram called the incoming message. The
+    reply's own id cannot be set here — it does not exist until the reply has
+    been sent — so the router fills it in afterwards via
+    alfred_context.attach_reply_id. Without both, a reply to something said
+    in conversation cannot be matched back to what was said.
+    """
+    asked = models.BatAlfredMessage(
+        owner_id=user.id, session_id=session_id, role="user", content=user_text,
+        origin="chat", telegram_message_id=user_message_id or None)
+    answered = models.BatAlfredMessage(
+        owner_id=user.id, session_id=session_id, role="assistant",
+        content=reply_text, origin="chat")
+    db.add(asked)
+    db.add(answered)
     session = db.query(models.BatAlfredSession).filter_by(id=session_id).first()
     if session:
         session.updated_at = _utcnow()
     db.commit()
+    return asked, answered
 
 
 # --- Usage guard (Part 7) ---
@@ -1201,6 +1263,7 @@ async def run_turn(
     images: Optional[List[dict]] = None,
     store_text: Optional[str] = None,
     media_sink: Optional[list] = None,
+    user_message_id: Optional[int] = None,
 ) -> str:
     """Process one user message. Always returns the exact reply string.
 
@@ -1209,22 +1272,30 @@ async def run_turn(
     user message for vision models; they are never stored. `store_text` is what
     gets saved to history (defaults to user_text). `media_sink`, when given,
     collects image outputs (charts) for the caller to deliver (Telegram).
+    `user_message_id` is what Telegram called the incoming message, kept so a
+    later reply to it can be resolved back to what was said.
     """
     if session_id is None:
         session = create_session(db, user)
         session_id = session.id
         set_active_session(db, user, session_id)
 
-    status, reply = check_pending_action(db, user, user_text)
+    # The gate matches a bare "YES", so it must see what the person actually
+    # typed — not `user_text`, which may be wrapped in a reply-context block
+    # by then. Without this, confirming a deletion by REPLYING to the
+    # question would cancel it instead.
+    status, reply = check_pending_action(db, user, store_text or user_text)
     if status == "handled":
-        store_turn(db, user, session_id, user_text, reply)
+        store_turn(db, user, session_id, store_text or user_text, reply,
+                   user_message_id=user_message_id)
         return reply
     cancelled_confirmation = reply if status == "fallthrough" else None
 
     try:
         adapter = resolve_adapter_for_user(db, user)
     except NoProviderConfiguredError:
-        store_turn(db, user, session_id, user_text, SETUP_REPLY)
+        store_turn(db, user, session_id, store_text or user_text, SETUP_REPLY,
+                   user_message_id=user_message_id)
         return SETUP_REPLY
 
     # Free-tier users (operator-funded key, no BYOK) get a smaller daily cap and
@@ -1281,7 +1352,8 @@ async def run_turn(
         logger.error("alfred_turn_failed", error_type=type(exc).__name__, error=str(exc))
         final_text = SNAG_REPLY
 
-    store_turn(db, user, session_id, store_text or user_text, final_text)
+    store_turn(db, user, session_id, store_text or user_text, final_text,
+               user_message_id=user_message_id)
 
     # Auto-title after first exchange
     session = db.query(models.BatAlfredSession).filter_by(id=session_id).first()

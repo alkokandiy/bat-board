@@ -301,7 +301,7 @@ def test_no_automatic_work_report_while_off(client, auth_headers, monkeypatch):
 
     sent = []
     monkeypatch.setattr(scheduler, "_send",
-                        lambda db, user, chat_id, text: sent.append(text) or True)
+                        lambda db, user, chat_id, text, *a, **kw: sent.append(text) or True)
 
     db = SessionLocal()
     try:

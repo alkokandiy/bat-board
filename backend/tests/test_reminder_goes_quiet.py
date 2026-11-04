@@ -87,6 +87,18 @@ def test_it_goes_out_with_something_to_press(sink):
     assert all(b["callback_data"].startswith("rem:") for b in buttons)
 
 
+def _reminders_in(sink):
+    """The reminder firings in what was sent, and nothing else.
+
+    Identified by the Done/Not today keyboard, which only a reminder
+    carries. Matching on the reminder's words instead was wrong: when a
+    reminder is retired Alfred says SO, by name, and that message quotes it
+    — which is the whole point of retiring it out loud rather than silently.
+    """
+    return [m for m in sink
+            if "rem:" in str(m.get("markup") or "")]
+
+
 def test_a_run_of_silence_retires_it(sink):
     """Three unanswered occurrences and it stops, instead of a month of them."""
     uid = _mk_user()
@@ -107,7 +119,7 @@ def test_a_run_of_silence_retires_it(sink):
 
     summary = _tick()
     assert summary["reminders_suspended"] == 1
-    assert not [m for m in sink if "medicine" in m["text"]]
+    assert not _reminders_in(sink)
 
     db = SessionLocal()
     try:
@@ -127,7 +139,7 @@ def test_a_suspended_reminder_stays_quiet_on_later_ticks(sink):
         db.close()
 
     _tick()
-    assert not [m for m in sink if "medicine" in m["text"]]
+    assert not _reminders_in(sink)
 
 
 def test_one_that_is_being_answered_is_left_alone(sink):
@@ -146,7 +158,9 @@ def test_one_that_is_being_answered_is_left_alone(sink):
         db.close()
 
     _tick()
-    assert [m for m in sink if "medicine" in m["text"]], "a reminder in use was silenced"
+    # Also the positive control for _reminders_in: if this were vacuous, the
+    # "stays quiet" assertions above would pass whatever the scheduler did.
+    assert _reminders_in(sink), "a reminder in use was silenced"
 
 
 def test_an_unanswered_occurrence_is_counted_when_the_next_one_comes_due(sink):

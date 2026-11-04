@@ -156,6 +156,49 @@ Everything above produces data Alfred currently cannot see. This phase is
 about him using it: naming the pattern ("you have never once done this on a
 Tuesday"), proposing the revision, and holding the contract.
 
+### Phase 6 — Alfred knows what he said *(from the owner, 4 Nov 2026)*
+
+> "it's just firing messages without knowing the context, what sent last time
+> and what received. and if i reply to older message it doesn't know i am
+> replying. and the shittest thing here is telling me to another mission,
+> which is unbelievably wrong thing that Alfred can say."
+
+Not a prompt problem. Three structural holes, found by reading the code:
+
+1. **Nothing Alfred said on his own initiative was ever written down.** Every
+   reminder, briefing, nudge and work report went from the scheduler straight
+   to Telegram, bypassing `bat_alfred_messages` entirely. His history held
+   only turns the user began, so an hour after sending a message he had no
+   record of having sent it.
+2. **`reply_to_message` was never read.** Telegram names the message a reply
+   answers; the webhook ignored it, so replying to one message out of twenty
+   was identical to typing the words cold.
+3. **The board matcher scored any substring at 0.92.** `score("a", "Learn
+   dots")` returned 0.92 — a single letter appearing anywhere in a title was
+   a confident match. A context-less Alfred asking "what did they mean?" got
+   a near-random item back, labelled certain.
+
+Together those produce the screenshot exactly: a reply to a medication
+reminder, answered with a mission about learning dots.
+
+Fixed by recording outbound messages at the scheduler's one chokepoint,
+resolving `reply_to_message` into an explicit referent handed to the model,
+and requiring whole-word matches plus an honest confidence flag. A fourth
+piece was needed to make the first safe: once Alfred's own messages are in
+the history, two assistant turns in a row became ordinary, which Anthropic
+rejects outright — so history is normalised before it is sent.
+
+### Phase 7 — "X times per week", and skip as a state
+
+Carried over from Phase 5, which deliberately stopped short of it.
+
+- `times_per_period`: a habit can be "three times a week", and the period
+  counts as kept once the target is met, whichever days those were.
+- Streaks judged against the target rather than against consecutive periods.
+- A planned rest or skip day as a first-class state, removed from the
+  adherence denominator rather than counted as a failure. TickTick has no
+  such thing, and it is the most-criticised gap in its habit tracker.
+
 ---
 
 ## Rules carried into all of it
