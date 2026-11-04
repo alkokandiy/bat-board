@@ -261,3 +261,46 @@ describe('Getting out of the way', () => {
     expect(screen.getByRole('listbox')).toHaveAttribute('aria-label', 'Focus Target');
   });
 });
+
+describe('Escaping the panel that clips it', () => {
+  it('renders the list outside its own subtree', () => {
+    // Panel has overflow-hidden, which cut the list down to the three rows
+    // that happened to fit inside it. A portal is the only reliable way out
+    // of an ancestor's clipping — so the list must NOT be a descendant of
+    // the element the Picker was declared in.
+    const { container } = render(
+      <div className="overflow-hidden" data-testid="clipper">
+        <Picker
+          label="Focus Target"
+          value=""
+          onChange={() => {}}
+          emptyOption={EMPTY}
+          groups={[missions(3), habits]}
+        />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /focus target/i }));
+    const list = screen.getByRole('listbox');
+    expect(screen.getByTestId('clipper').contains(list)).toBe(false);
+    expect(container.contains(list)).toBe(false);
+    expect(document.body.contains(list)).toBe(true);
+  });
+
+  it('positions against the viewport, not the parent', () => {
+    renderPicker();
+    fireEvent.click(trigger());
+    const panel = screen.getByRole('listbox').parentElement;
+    expect(panel.style.position).toBe('fixed');
+  });
+
+  it('moves one row per keypress, not two', () => {
+    // A React portal bubbles events up the REACT tree, so a key handler on
+    // both the panel and the wrapper fires twice for one press.
+    const { onChange } = renderPicker();
+    fireEvent.keyDown(trigger(), { key: 'ArrowDown' });   // opens, on "no target"
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('m:1');
+  });
+});

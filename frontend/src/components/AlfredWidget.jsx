@@ -227,7 +227,7 @@ export default function AlfredWidget({ account }) {
       <button
         onClick={() => { setOpen(true); setMinimized(false); }}
         title="Summon Alfred"
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-electric-bat-yellow text-matte-obsidian flex items-center justify-center shadow-lg hover:brightness-110 transition"
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-signal-self text-bat-bg flex items-center justify-center shadow-lg hover:brightness-110 transition"
       >
         <Bot size={26} />
       </button>
@@ -238,7 +238,7 @@ export default function AlfredWidget({ account }) {
     return (
       <button
         onClick={() => setMinimized(false)}
-        className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-full bg-dark-slate border border-electric-bat-yellow/40 text-electric-bat-yellow text-xs font-mono tracking-widest hover:border-electric-bat-yellow transition flex items-center gap-2"
+        className="fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-full bg-bat-surface border border-signal-self/40 text-signal-self text-xs font-mono tracking-widest hover:border-signal-self transition flex items-center gap-2"
       >
         <Bot size={16} /> ALFRED
       </button>
@@ -248,29 +248,29 @@ export default function AlfredWidget({ account }) {
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[22rem] max-w-[calc(100vw-3rem)] h-[28rem] max-h-[calc(100vh-6rem)] bg-dark-slate border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed bottom-6 right-6 z-50 w-[22rem] max-w-[calc(100vw-3rem)] h-[28rem] max-h-[calc(100vh-6rem)] bg-bat-surface border border-bat-line rounded-xl shadow-2xl flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-slate-800 bg-matte-obsidian">
-        <div className="flex items-center gap-2 text-electric-bat-yellow">
+      <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-bat-line bg-bat-raised">
+        <div className="flex items-center gap-2 text-signal-self">
           <Bot size={16} />
           <span className="text-xs font-mono tracking-widest">ALFRED</span>
           {activeSession && (
-            <span className="text-[10px] text-slate-500 font-body truncate max-w-[120px]">
+            <span className="text-[10px] text-ink-faint font-body truncate max-w-[120px]">
               {activeSession.title}
             </span>
           )}
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={() => setShowSidebar(!showSidebar)} title="Conversations" className="p-1.5 text-slate-500 hover:text-electric-bat-yellow transition">
+          <button onClick={() => setShowSidebar(!showSidebar)} title="Conversations" className="p-1.5 text-ink-faint hover:text-signal-self transition">
             <MessageSquare size={14} />
           </button>
-          <button onClick={openSettings} title="Model settings" className="p-1.5 text-slate-500 hover:text-electric-bat-yellow transition">
+          <button onClick={openSettings} title="Model settings" className="p-1.5 text-ink-faint hover:text-signal-self transition">
             <Settings size={14} />
           </button>
-          <button onClick={() => setMinimized(true)} title="Minimize" className="p-1.5 text-slate-500 hover:text-slate-200 transition">
+          <button onClick={() => setMinimized(true)} title="Minimize" className="p-1.5 text-ink-faint hover:text-ink transition">
             <Minus size={14} />
           </button>
-          <button onClick={() => setOpen(false)} title="Dismiss" className="p-1.5 text-slate-500 hover:text-red-400 transition">
+          <button onClick={() => setOpen(false)} title="Dismiss" className="p-1.5 text-ink-faint hover:text-signal-late transition">
             <X size={14} />
           </button>
         </div>
@@ -278,23 +278,23 @@ export default function AlfredWidget({ account }) {
 
       {/* Session sidebar */}
       {showSidebar && (
-        <div className="shrink-0 border-b border-slate-800 bg-matte-obsidian max-h-[14rem] overflow-y-auto">
+        <div className="shrink-0 border-b border-bat-line bg-bat-raised max-h-[14rem] overflow-y-auto">
           <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-[10px] font-mono text-slate-500 tracking-widest">CONVERSATIONS</span>
-            <button onClick={newChat} className="p-1 text-electric-bat-yellow hover:brightness-110 transition" title="New chat">
+            <span className="text-[10px] font-mono text-ink-faint tracking-widest">CONVERSATIONS</span>
+            <button onClick={newChat} className="p-1 text-signal-self hover:brightness-110 transition" title="New chat">
               <Plus size={12} />
             </button>
           </div>
           {sessions.length === 0 && (
-            <div className="px-3 pb-2 text-[11px] text-slate-600 font-body">No conversations yet.</div>
+            <div className="px-3 pb-2 text-[11px] text-ink-faint font-body">No conversations yet.</div>
           )}
           {sessions.map(s => (
             <div
               key={s.id}
               className={`group flex items-center gap-1 pr-1.5 transition ${
                 s.id === activeSessionId
-                  ? 'bg-electric-bat-yellow/10 text-electric-bat-yellow'
-                  : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                  ? 'bg-signal-self/10 text-signal-self'
+                  : 'text-ink-muted hover:bg-bat-line/50 hover:text-ink'
               }`}
             >
               {editingId === s.id ? (
@@ -309,9 +309,9 @@ export default function AlfredWidget({ account }) {
                     onChange={e => setEditTitle(e.target.value)}
                     onBlur={commitRename}
                     onKeyDown={e => { if (e.key === 'Escape') setEditingId(null); }}
-                    className="flex-1 min-w-0 bg-dark-slate border border-slate-700 rounded px-1.5 py-0.5 text-[12px] text-slate-200 focus:outline-none focus:border-electric-bat-yellow font-body"
+                    className="flex-1 min-w-0 bg-bat-raised border border-bat-line rounded px-1.5 py-0.5 text-[12px] text-ink focus:outline-none focus:border-signal-self font-body"
                   />
-                  <button type="submit" title="Save" className="p-1 text-slate-400 hover:text-electric-bat-yellow">
+                  <button type="submit" title="Save" className="p-1 text-ink-muted hover:text-signal-self">
                     <Check size={12} />
                   </button>
                 </form>
@@ -322,13 +322,13 @@ export default function AlfredWidget({ account }) {
                     className="flex-1 min-w-0 text-left px-3 py-1.5 text-[12px] font-body"
                   >
                     <div className="truncate">{s.title || 'Untitled'}</div>
-                    <div className="text-[10px] text-slate-600">{new Date(s.updated_at).toLocaleDateString()}</div>
+                    <div className="text-[10px] text-ink-faint">{new Date(s.updated_at).toLocaleDateString()}</div>
                   </button>
                   <div className="flex items-center sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition">
-                    <button onClick={() => startRename(s)} title="Rename" aria-label={`Rename ${s.title || 'conversation'}`} className="p-1 text-slate-500 hover:text-electric-bat-yellow">
+                    <button onClick={() => startRename(s)} title="Rename" aria-label={`Rename ${s.title || 'conversation'}`} className="p-1 text-ink-faint hover:text-signal-self">
                       <Pencil size={12} />
                     </button>
-                    <button onClick={() => deleteChat(s)} title="Delete" aria-label={`Delete ${s.title || 'conversation'}`} className="p-1 text-slate-500 hover:text-red-400">
+                    <button onClick={() => deleteChat(s)} title="Delete" aria-label={`Delete ${s.title || 'conversation'}`} className="p-1 text-ink-faint hover:text-signal-late">
                       <Trash2 size={12} />
                     </button>
                   </div>
@@ -341,18 +341,18 @@ export default function AlfredWidget({ account }) {
 
       {/* Provider settings */}
       {showSettings && (
-        <div className="shrink-0 border-b border-slate-800 bg-matte-obsidian px-3 py-2.5 space-y-2 max-h-[16rem] overflow-y-auto">
-          <span className="text-[10px] font-mono text-slate-500 tracking-widest">MODEL SETTINGS</span>
+        <div className="shrink-0 border-b border-bat-line bg-bat-raised px-3 py-2.5 space-y-2 max-h-[16rem] overflow-y-auto">
+          <span className="text-[10px] font-mono text-ink-faint tracking-widest">MODEL SETTINGS</span>
           {providerStatus?.configured ? (
             <div className="space-y-2">
-              <div className="text-[12px] font-body text-slate-300">
-                {providerStatus.provider} · <span className="text-slate-500">{providerStatus.model_name}</span>
+              <div className="text-[12px] font-body text-ink-muted">
+                {providerStatus.provider} · <span className="text-ink-faint">{providerStatus.model_name}</span>
               </div>
-              <div className="text-[11px] font-body text-slate-600">Key stored — never shown again.</div>
+              <div className="text-[11px] font-body text-ink-faint">Key stored — never shown again.</div>
               <button
                 onClick={removeProvider}
                 disabled={provBusy}
-                className="px-3 py-1.5 border border-red-400/40 text-red-400 rounded-lg text-[11px] font-mono tracking-widest hover:bg-red-400/10 transition disabled:opacity-50"
+                className="px-3 py-1.5 border border-signal-late/40 text-signal-late rounded-lg text-[11px] font-mono tracking-widest hover:bg-signal-late/10 transition disabled:opacity-50"
               >
                 REMOVE
               </button>
@@ -362,7 +362,7 @@ export default function AlfredWidget({ account }) {
               <select
                 value={provProvider}
                 onChange={e => { setProvProvider(e.target.value); setProvTest(null); }}
-                className="w-full bg-dark-slate border border-slate-800 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 focus:outline-none focus:border-electric-bat-yellow font-body"
+                className="w-full bg-bat-raised border border-bat-line rounded-lg px-2.5 py-1.5 text-[12px] text-ink focus:outline-none focus:border-signal-self font-body"
               >
                 {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
@@ -371,7 +371,7 @@ export default function AlfredWidget({ account }) {
                 value={provModel}
                 onChange={e => setProvModel(e.target.value)}
                 placeholder={MODEL_HINTS[provProvider]}
-                className="w-full bg-dark-slate border border-slate-800 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow font-body"
+                className="w-full bg-bat-raised border border-bat-line rounded-lg px-2.5 py-1.5 text-[12px] text-ink placeholder-ink-faint focus:outline-none focus:border-signal-self font-body"
               />
               <input
                 type="password"
@@ -379,10 +379,10 @@ export default function AlfredWidget({ account }) {
                 onChange={e => setProvKey(e.target.value)}
                 placeholder="API key"
                 autoComplete="off"
-                className="w-full bg-dark-slate border border-slate-800 rounded-lg px-2.5 py-1.5 text-[12px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow font-body"
+                className="w-full bg-bat-raised border border-bat-line rounded-lg px-2.5 py-1.5 text-[12px] text-ink placeholder-ink-faint focus:outline-none focus:border-signal-self font-body"
               />
               {provTest && (
-                <div className={`text-[11px] font-body ${provTest.ok ? 'text-green-400' : 'text-red-400'}`}>
+                <div className={`text-[11px] font-body ${provTest.ok ? 'text-signal-good' : 'text-signal-late'}`}>
                   {provTest.ok ? '✓ ' : '✗ '}{provTest.message}
                 </div>
               )}
@@ -390,7 +390,7 @@ export default function AlfredWidget({ account }) {
                 <button
                   onClick={testProvider}
                   disabled={provBusy || !provModel.trim() || !provKey.trim()}
-                  className="px-3 py-1.5 border border-slate-700 text-slate-300 rounded-lg text-[11px] font-mono tracking-widest hover:border-electric-bat-yellow transition disabled:opacity-50"
+                  className="px-3 py-1.5 border border-bat-line text-ink-muted rounded-lg text-[11px] font-mono tracking-widest hover:border-signal-self transition disabled:opacity-50"
                 >
                   TEST
                 </button>
@@ -398,7 +398,7 @@ export default function AlfredWidget({ account }) {
                   onClick={saveProvider}
                   disabled={!testPassedCurrent || provBusy}
                   title={testPassedCurrent ? 'Save tested key' : 'Test the key first'}
-                  className="px-3 py-1.5 bg-electric-bat-yellow text-matte-obsidian font-bold rounded-lg text-[11px] font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+                  className="px-3 py-1.5 bg-signal-self text-bat-bg font-bold rounded-lg text-[11px] font-mono tracking-widest hover:brightness-110 transition disabled:opacity-50"
                 >
                   SAVE
                 </button>
@@ -415,8 +415,8 @@ export default function AlfredWidget({ account }) {
             <div
               className={`max-w-[85%] px-3 py-2 rounded-lg text-[13px] font-body leading-relaxed whitespace-pre-wrap ${
                 m.role === 'user'
-                  ? 'bg-electric-bat-yellow/10 border border-electric-bat-yellow/30 text-slate-100'
-                  : 'bg-matte-obsidian border border-slate-800 text-slate-300'
+                  ? 'bg-signal-self/10 border border-signal-self/30 text-ink'
+                  : 'bg-bat-raised border border-bat-line text-ink-muted'
               }`}
             >
               {m.text}
@@ -425,7 +425,7 @@ export default function AlfredWidget({ account }) {
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="px-3 py-2 rounded-lg bg-matte-obsidian border border-slate-800 text-[11px] text-slate-500 font-mono animate-pulse">
+            <div className="px-3 py-2 rounded-lg bg-bat-raised border border-bat-line text-[11px] text-ink-faint font-mono animate-pulse">
               Alfred is thinking...
             </div>
           </div>
@@ -434,7 +434,7 @@ export default function AlfredWidget({ account }) {
       </div>
 
       {/* Input */}
-      <div className="shrink-0 flex gap-2 p-3 border-t border-slate-800">
+      <div className="shrink-0 flex gap-2 p-3 border-t border-bat-line">
         <input
           type="text"
           value={input}
@@ -443,12 +443,12 @@ export default function AlfredWidget({ account }) {
           placeholder="Ask Alfred..."
           maxLength={2000}
           disabled={sending || !activeSessionId}
-          className="flex-1 bg-matte-obsidian border border-slate-800 rounded-lg px-3 py-2 text-[13px] text-slate-200 placeholder-slate-600 focus:outline-none focus:border-electric-bat-yellow transition font-body disabled:opacity-50"
+          className="flex-1 bg-bat-raised border border-bat-line rounded-lg px-3 py-2 text-[13px] text-ink placeholder-ink-faint focus:outline-none focus:border-signal-self transition font-body disabled:opacity-50"
         />
         <button
           onClick={send}
           disabled={sending || !input.trim() || !activeSessionId}
-          className="px-4 py-2 bg-electric-bat-yellow text-matte-obsidian font-bold rounded-lg text-[11px] font-mono tracking-widest hover:bg-yellow-400 transition disabled:opacity-50"
+          className="px-4 py-2 bg-signal-self text-bat-bg font-bold rounded-lg text-[11px] font-mono tracking-widest hover:brightness-110 transition disabled:opacity-50"
         >
           SEND
         </button>

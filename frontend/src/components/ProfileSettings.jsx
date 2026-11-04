@@ -138,7 +138,7 @@ function AdminPanel() {
                         <button
                           disabled={busyId === u.id}
                           onClick={() => act(api.deleteUser, u.id)}
-                          className="px-2 py-1 border border-red-500/50 text-signal-late rounded text-[10px] font-mono hover:bg-red-500/10 disabled:opacity-50"
+                          className="px-2 py-1 border border-signal-late/50 text-signal-late rounded text-[10px] font-mono hover:bg-signal-late/10 disabled:opacity-50"
                         >YES</button>
                         <button
                           onClick={() => setConfirmDeleteId(null)}
@@ -157,13 +157,13 @@ function AdminPanel() {
                           <button
                             disabled={busyId === u.id}
                             onClick={() => act(api.enableUser, u.id)}
-                            className="px-2 py-1 border border-bat-line text-signal-good rounded text-[10px] font-mono tracking-wider hover:border-green-400/60 disabled:opacity-50"
+                            className="px-2 py-1 border border-bat-line text-signal-good rounded text-[10px] font-mono tracking-wider hover:border-signal-good/60 disabled:opacity-50"
                           >ENABLE</button>
                         )}
                         <button
                           disabled={busyId === u.id}
                           onClick={() => setConfirmDeleteId(u.id)}
-                          className="px-2 py-1 border border-red-500/40 text-signal-late/90 rounded text-[10px] font-mono tracking-wider hover:bg-red-500/10 disabled:opacity-50"
+                          className="px-2 py-1 border border-signal-late/40 text-signal-late/90 rounded text-[10px] font-mono tracking-wider hover:bg-signal-late/10 disabled:opacity-50"
                         >DELETE</button>
                       </span>
                     )}
@@ -536,7 +536,7 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 onChange={e => { setAddressDraft(e.target.value); setAddressMsg(null); }}
                 maxLength={60}
                 placeholder={account?.username || 'e.g. Master Wayne'}
-                className="flex-1 min-w-0 bg-bat-raised border border-bat-line rounded px-3 py-2 text-xs text-ink placeholder-slate-600 focus:outline-none focus:border-signal-self"
+                className="flex-1 min-w-0 bg-bat-raised border border-bat-line rounded px-3 py-2 text-xs text-ink placeholder-ink-faint focus:outline-none focus:border-signal-self"
               />
               <button
                 type="submit"
@@ -598,7 +598,7 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                 className={`px-5 py-2 font-bold rounded text-xs font-mono tracking-widest transition disabled:opacity-50 border ${
                   workEnabled
                     ? 'bg-bat-raised ring-1 ring-bat-line text-ink-muted hover:text-ink hover:ring-bat-line-strong'
-                    : 'bg-sky-900/40 border-sky-700 text-sky-200 hover:bg-sky-900/60'
+                    : 'bg-signal-work/10 border-signal-work/40 text-signal-work hover:bg-signal-work/20'
                 }`}
               >
                 {workBusy ? 'SAVING...' : workEnabled ? 'TURN WORK OFF' : 'TURN WORK ON'}
@@ -630,7 +630,7 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
               {resetting ? 'RESETTING...' : 'RESET BAT POINTS'}
             </button>
 
-            <div className="mt-6 pt-4 border-t border-red-900/30">
+            <div className="mt-6 pt-4 border-t border-signal-late/20">
               <p className="text-xs text-ink-muted mb-3">
                 Start fresh with Alfred by permanently deleting your conversations.
               </p>
@@ -639,12 +639,12 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                   type="checkbox"
                   checked={eraseMemory}
                   onChange={e => setEraseMemory(e.target.checked)}
-                  className="accent-red-500"
+                  className="accent-signal-late"
                 />
                 Also erase everything Alfred remembers about me (its memory notes)
               </label>
               {confirmingAlfredReset ? (
-                <div role="alertdialog" aria-label="Confirm Alfred reset" className="rounded-tile border border-red-900/60 bg-red-950/20 p-4 space-y-3">
+                <div role="alertdialog" aria-label="Confirm Alfred reset" className="rounded-tile border border-signal-late/40 bg-signal-late/10 p-4 space-y-3">
                   <div className="text-xs font-bold text-signal-late">This cannot be undone.</div>
                   <div>
                     <div className="text-[10px] font-mono uppercase tracking-widest text-signal-late mb-1">Will be deleted</div>
@@ -664,7 +664,7 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
                   <div className="flex gap-2 pt-1">
                     <button
                       onClick={handleResetAlfred}
-                      className="px-4 py-2 bg-red-700 text-white font-bold rounded text-xs font-mono tracking-widest hover:bg-red-600 transition"
+                      className="px-4 py-2 bg-signal-late text-bat-bg font-bold rounded text-xs font-mono tracking-widest hover:brightness-110 transition"
                     >
                       DELETE PERMANENTLY
                     </button>

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search } from 'lucide-react';
 
 /**
@@ -11,18 +12,26 @@ import { Check, ChevronDown, Search } from 'lucide-react';
  * screen and off the bottom, and there was no way to search it — finding one
  * mission meant reading thirty titles, several of them a sentence long.
  *
- * So: our own listbox. Scrolls inside a fixed height instead of swallowing the
- * page, filters once the list is long enough to need it, keeps the group
- * headings, and truncates a long title to one line while keeping the whole
- * thing in a tooltip.
+ * The open list is rendered through a PORTAL rather than as a child. Panel
+ * clips its contents (`overflow-hidden`, so children cannot escape its
+ * rounded corners), which cut the list down to the three rows that happened
+ * to fit inside the panel — a scrolling list trapped in a box too short to
+ * scroll it. Nesting is the wrong relationship for an overlay: it has to be
+ * measured against the viewport and owe nothing to whatever it was declared
+ * inside.
  *
  * Built rather than installed, because one combobox does not justify a
- * dependency, and the keyboard and ARIA behaviour here is about forty lines.
+ * dependency, and the keyboard and ARIA behaviour here is about sixty lines.
  */
 
 // Below this many options a search box is noise — it costs a row of chrome
 // and a keystroke to filter five things you can already see.
 const SEARCH_FROM = 8;
+
+// How tall the floating list may get, and how far it sits off the trigger.
+const MAX_PANEL = 320;
+const GAP = 4;
+const SEARCH_ROW = 37;
 
 export default function Picker({
   label,
@@ -37,7 +46,9 @@ export default function Picker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const [box, setBox] = useState(null);
   const wrapRef = useRef(null);
+  const panelRef = useRef(null);
   const listRef = useRef(null);
   const searchRef = useRef(null);
 
@@ -63,12 +74,51 @@ export default function Picker({
   const total = groups.reduce((n, g) => n + (g.options || []).length, 0);
   const searchable = total >= SEARCH_FROM;
 
-  // Close on a click anywhere else. mousedown, not click: a click that starts
-  // outside and ends inside would otherwise leave it open.
+  // Position against the VIEWPORT, and open upwards when there is more room
+  // up there — otherwise a control low on the page drops its list off the
+  // bottom of the window, which is half of what went wrong here.
+  const place = () => {
+    const el = wrapRef.current;
+    if (!el || typeof el.getBoundingClientRect !== 'function') return;
+    const r = el.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - GAP;
+    const above = r.top - GAP;
+    const downwards = below >= 240 || below >= above;
+    setBox({
+      left: r.left,
+      width: r.width,
+      top: downwards ? r.bottom + GAP : undefined,
+      bottom: downwards ? undefined : window.innerHeight - r.top + GAP,
+      maxHeight: Math.max(160, Math.min(MAX_PANEL, downwards ? below : above)),
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    place();
+    // Scrolling or resizing moves the trigger, and a fixed overlay does not
+    // follow it on its own.
+    const onMove = () => place();
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Close on a click anywhere else. The list is portalled out of this
+  // subtree, so "elsewhere" means neither the trigger nor the floating panel
+  // — containment alone would close it the instant an option was hit.
+  // mousedown, not click: a drag starting outside and ending inside would
+  // otherwise leave it open.
   useEffect(() => {
     if (!open) return undefined;
     const onDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+      const inTrigger = wrapRef.current && wrapRef.current.contains(e.target);
+      const inPanel = panelRef.current && panelRef.current.contains(e.target);
+      if (!inTrigger && !inPanel) setOpen(false);
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -111,7 +161,89 @@ export default function Picker({
     }
   };
 
-  let idx = -1;   // running index into `flat`, so data-idx matches the keys
+  const listHeight = box
+    ? Math.max(120, box.maxHeight - (searchable ? SEARCH_ROW : 0))
+    : 256;
+
+  const panel = (
+    <div
+      ref={panelRef}
+      // No onKeyDown here. A React portal still bubbles events up the REACT
+      // tree, not the DOM one, so a handler here AND on the wrapper below
+      // fires twice for one keypress — every ArrowDown moved two rows.
+      style={box ? {
+        position: 'fixed',
+        left: box.left,
+        width: box.width,
+        top: box.top,
+        bottom: box.bottom,
+      } : undefined}
+      className="z-[1000] rounded-tile bg-bat-surface ring-1 ring-bat-line-strong shadow-lift overflow-hidden"
+    >
+      {searchable && (
+        <div className="flex items-center gap-2 border-b border-bat-line px-2.5 py-2">
+          <Search size={12} className="shrink-0 text-ink-faint" />
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+            placeholder="Search"
+            aria-label={`Search ${label}`}
+            className="w-full bg-transparent font-mono text-xs text-ink
+              placeholder:text-ink-faint focus:outline-none"
+          />
+        </div>
+      )}
+
+      {/* A bounded height, because the whole point is that it stops covering
+          the screen when there are thirty of them. */}
+      <div
+        ref={listRef}
+        role="listbox"
+        aria-label={label}
+        style={{ maxHeight: listHeight }}
+        className="max-h-80 overflow-y-auto py-1"
+      >
+        {flat.length === 0 && (
+          <p className="px-3 py-3 font-mono text-[11px] text-ink-faint">Nothing matches that.</p>
+        )}
+        {flat.map((o, i) => {
+          const showHeading = o.group && (i === 0 || flat[i - 1].group !== o.group);
+          const on = i === active;
+          const isSelected = o.value === value;
+          return (
+            <React.Fragment key={`${o.group || ''}:${o.value}`}>
+              {showHeading && (
+                <div className="px-3 pt-2 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-faint">
+                  {o.group}
+                </div>
+              )}
+              <button
+                type="button"
+                data-idx={i}
+                role="option"
+                aria-selected={isSelected}
+                onMouseEnter={() => setActive(i)}
+                onClick={() => choose(o)}
+                title={o.label}
+                className={`w-full flex items-center gap-2 px-3 py-1.5 text-left
+                  font-mono text-xs transition-colors duration-150 ease-soft
+                  ${on ? 'bg-bat-raised text-ink' : 'text-ink-muted'}
+                  ${isSelected ? 'text-signal-self' : ''}`}
+              >
+                <Check
+                  size={11}
+                  className={`shrink-0 ${isSelected ? 'text-signal-self' : 'opacity-0'}`}
+                />
+                <span className="truncate">{o.label}</span>
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <div className="relative" ref={wrapRef} onKeyDown={onKeyDown}>
@@ -137,67 +269,7 @@ export default function Picker({
         />
       </button>
 
-      {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-tile bg-bat-surface ring-1 ring-bat-line-strong shadow-lift overflow-hidden">
-          {searchable && (
-            <div className="flex items-center gap-2 border-b border-bat-line px-2.5 py-2">
-              <Search size={12} className="shrink-0 text-ink-faint" />
-              <input
-                ref={searchRef}
-                type="text"
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setActive(0); }}
-                placeholder="Search"
-                aria-label={`Search ${label}`}
-                className="w-full bg-transparent font-mono text-xs text-ink
-                  placeholder:text-ink-faint focus:outline-none"
-              />
-            </div>
-          )}
-
-          {/* A fixed height, because the whole point is that it stops
-              covering the screen when there are thirty of them. */}
-          <div ref={listRef} role="listbox" aria-label={label} className="max-h-64 overflow-y-auto py-1">
-            {flat.length === 0 && (
-              <p className="px-3 py-3 font-mono text-[11px] text-ink-faint">Nothing matches that.</p>
-            )}
-            {flat.map((o, i) => {
-              idx = i;
-              const showHeading = o.group && (i === 0 || flat[i - 1].group !== o.group);
-              const on = i === active;
-              const isSelected = o.value === value;
-              return (
-                <React.Fragment key={`${o.group || ''}:${o.value}`}>
-                  {showHeading && (
-                    <div className="px-3 pt-2 pb-1 font-mono text-[9px] uppercase tracking-[0.14em] text-ink-faint">
-                      {o.group}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    data-idx={idx}
-                    role="option"
-                    aria-selected={isSelected}
-                    onMouseEnter={() => setActive(i)}
-                    onClick={() => choose(o)}
-                    title={o.label}
-                    className={`w-full flex items-center gap-2 px-3 py-1.5 text-left
-                      font-mono text-xs transition-colors duration-150 ease-soft
-                      ${on ? 'bg-bat-raised text-ink' : 'text-ink-muted'}
-                      ${isSelected ? 'text-signal-self' : ''}`}
-                  >
-                    <Check
-                      size={11}
-                      className={`shrink-0 ${isSelected ? 'text-signal-self' : 'opacity-0'}`}
-                    />
-                    <span className="truncate">{o.label}</span>
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {open && (typeof document !== 'undefined' ? createPortal(panel, document.body) : panel)}
     </div>
   );
 }

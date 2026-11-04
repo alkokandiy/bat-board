@@ -11,20 +11,20 @@ import { api } from '../utils/api';
 // Bat Points — that is the reason it is never yellow.
 const STATUS_META = {
   todo: {
-    label: 'To do', tone: 'text-slate-300', box: 'border-slate-800',
-    rail: 'bg-slate-600', head: 'text-slate-400 border-slate-700',
+    label: 'To do', tone: 'text-ink-muted', box: 'border-bat-line',
+    rail: 'bg-bat-line-strong', head: 'text-ink-muted border-bat-line',
   },
   doing: {
-    label: 'In hand', tone: 'text-sky-300', box: 'border-sky-900/40',
-    rail: 'bg-sky-400', head: 'text-sky-300 border-sky-800/60',
+    label: 'In hand', tone: 'text-signal-work', box: 'border-signal-work/30',
+    rail: 'bg-signal-work', head: 'text-signal-work border-signal-work/30',
   },
   blocked: {
-    label: 'Blocked', tone: 'text-amber-300', box: 'border-amber-900/40',
-    rail: 'bg-amber-400', head: 'text-amber-300 border-amber-800/60',
+    label: 'Blocked', tone: 'text-signal-warn', box: 'border-signal-warn/30',
+    rail: 'bg-signal-warn', head: 'text-signal-warn border-signal-warn/30',
   },
   done: {
-    label: 'Done', tone: 'text-emerald-300', box: 'border-emerald-900/40',
-    rail: 'bg-emerald-400', head: 'text-emerald-300 border-emerald-800/60',
+    label: 'Done', tone: 'text-signal-good', box: 'border-signal-good/30',
+    rail: 'bg-signal-good', head: 'text-signal-good border-signal-good/30',
   },
 };
 const OPEN_STATUSES = ['todo', 'doing', 'blocked'];
@@ -98,10 +98,10 @@ function SetupCard({ status, onSaved }) {
   };
 
   return (
-    <div className="bg-dark-slate rounded border border-sky-900/40 p-5 space-y-4">
+    <div className="bg-bat-surface rounded border border-signal-work/30 p-5 space-y-4">
       <div>
-        <h2 className="text-sm font-mono uppercase tracking-widest text-sky-300">Set up your work</h2>
-        <p className="text-xs text-slate-400 mt-1">
+        <h2 className="text-sm font-mono uppercase tracking-widest text-signal-work">Set up your work</h2>
+        <p className="text-xs text-ink-muted mt-1">
           Your days and hours are all this needs. They let the reports say
           &ldquo;32h of about 40 expected&rdquo; instead of a bare number — and stop Alfred
           asking whether you&rsquo;re drifting at 3pm on a working Tuesday.
@@ -109,7 +109,7 @@ function SetupCard({ status, onSaved }) {
       </div>
 
       <div className="space-y-2">
-        <div className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Working days</div>
+        <div className="text-[10px] font-mono uppercase tracking-wider text-ink-muted">Working days</div>
         <div className="flex flex-wrap gap-2">
           {WEEKDAYS.map((label, i) => (
             <button
@@ -118,8 +118,8 @@ function SetupCard({ status, onSaved }) {
               onClick={() => toggleDay(i)}
               className={`px-3 py-1.5 rounded text-xs font-mono border transition ${
                 days.has(i)
-                  ? 'bg-sky-900/40 border-sky-700 text-sky-200'
-                  : 'bg-matte-obsidian border-slate-800 text-slate-500 hover:border-slate-600'
+                  ? 'bg-signal-work/10 border-signal-work/40 text-signal-work'
+                  : 'bg-bat-raised border-bat-line text-ink-faint hover:border-bat-line-strong'
               }`}
             >
               {label}
@@ -130,46 +130,46 @@ function SetupCard({ status, onSaved }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <label className="block">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">From</span>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted">From</span>
           <input
             type="time"
             value={start}
             onChange={(e) => setStart(e.target.value)}
-            className="mt-1 w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sky-600"
+            className="mt-1 w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-sm text-ink focus:outline-none focus:border-signal-work"
           />
         </label>
         <label className="block">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">To</span>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted">To</span>
           <input
             type="time"
             value={end}
             onChange={(e) => setEnd(e.target.value)}
-            className="mt-1 w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-sky-600"
+            className="mt-1 w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-sm text-ink focus:outline-none focus:border-signal-work"
           />
         </label>
         <label className="block">
-          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">Employer (optional)</span>
+          <span className="text-[10px] font-mono uppercase tracking-wider text-ink-muted">Employer (optional)</span>
           <input
             type="text"
             value={employer}
             onChange={(e) => setEmployer(e.target.value)}
             placeholder="Wayne Enterprises"
-            className="mt-1 w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-600"
+            className="mt-1 w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-sm text-ink placeholder-ink-faint focus:outline-none focus:border-signal-work"
           />
         </label>
       </div>
 
-      {error && <div className="text-xs text-red-400">{error}</div>}
+      {error && <div className="text-xs text-signal-late">{error}</div>}
 
       <div className="flex items-center gap-3">
         <button
           onClick={save}
           disabled={saving}
-          className="px-4 py-2 bg-sky-700 hover:bg-sky-600 text-slate-50 text-xs font-bold rounded font-mono tracking-wider disabled:opacity-50"
+          className="px-4 py-2 bg-signal-work hover:brightness-110 text-bat-bg text-xs font-bold rounded font-mono tracking-wider disabled:opacity-50"
         >
           {saving ? 'SAVING...' : 'SAVE SCHEDULE'}
         </button>
-        <span className="text-[10px] text-slate-500">
+        <span className="text-[10px] text-ink-faint">
           Or just tell Alfred &mdash; &ldquo;set up work&rdquo; does the same thing.
         </span>
       </div>
@@ -195,18 +195,18 @@ function TaskCard({ task, onMove, onComplete, onDelete, onLogHours, busy }) {
     setLogging(false);
   };
   return (
-    <div className={`relative bg-matte-obsidian rounded border ${meta.box} p-3 pl-4 space-y-2 overflow-hidden`}>
+    <div className={`relative bg-bat-raised rounded border ${meta.box} p-3 pl-4 space-y-2 overflow-hidden`}>
       {/* The status is readable from the edge of the card, before reading a word. */}
       <span className={`absolute left-0 top-0 bottom-0 w-[3px] ${meta.rail}`} aria-hidden="true" />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className={`text-sm ${task.status === 'done' ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
+          <div className={`text-sm ${task.status === 'done' ? 'text-ink-faint line-through' : 'text-ink'}`}>
             {task.title}
           </div>
-          {task.detail && <div className="text-[11px] text-slate-500 mt-0.5">{task.detail}</div>}
-          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] font-mono text-slate-500">
+          {task.detail && <div className="text-[11px] text-ink-faint mt-0.5">{task.detail}</div>}
+          <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[10px] font-mono text-ink-faint">
             {task.project && (
-              <span className="px-1.5 py-0.5 rounded bg-dark-slate border border-slate-800 text-slate-400">
+              <span className="px-1.5 py-0.5 rounded bg-bat-surface border border-bat-line text-ink-muted">
                 {task.project}
               </span>
             )}
@@ -220,7 +220,7 @@ function TaskCard({ task, onMove, onComplete, onDelete, onLogHours, busy }) {
               onClick={() => onComplete(task)}
               disabled={busy}
               title="Mark done (no Bat Points — this is the job)"
-              className="p-1.5 rounded border border-slate-800 text-slate-500 hover:text-emerald-300 hover:border-emerald-900/60 transition disabled:opacity-40"
+              className="p-1.5 rounded border border-bat-line text-ink-faint hover:text-signal-good hover:border-signal-good/40 transition disabled:opacity-40"
             >
               <Check size={13} />
             </button>
@@ -238,7 +238,7 @@ function TaskCard({ task, onMove, onComplete, onDelete, onLogHours, busy }) {
             onClick={() => onDelete(task)}
             disabled={busy}
             title="Delete"
-            className="p-1.5 rounded border border-slate-800 text-slate-500 hover:text-red-400 hover:border-red-900/60 transition disabled:opacity-40"
+            className="p-1.5 rounded border border-bat-line text-ink-faint hover:text-signal-late hover:border-signal-late/40 transition disabled:opacity-40"
           >
             <Trash2 size={13} />
           </button>
@@ -276,8 +276,8 @@ function TaskCard({ task, onMove, onComplete, onDelete, onLogHours, busy }) {
               aria-current={active ? 'true' : undefined}
               className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border transition
                 ${active
-                  ? `${m.tone} ${m.box} bg-dark-slate cursor-default`
-                  : 'text-slate-500 border-slate-800 hover:text-slate-300 hover:border-slate-600'}
+                  ? `${m.tone} ${m.box} bg-bat-surface cursor-default`
+                  : 'text-ink-faint border-bat-line hover:text-ink-muted hover:border-bat-line-strong'}
                 disabled:opacity-100`}
             >
               {m.label}
@@ -330,9 +330,9 @@ function ReportCard({ onSavedReflection, refreshKey = 0 }) {
   };
 
   return (
-    <div className="bg-dark-slate rounded border border-slate-800 p-4 space-y-3">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-2">
-        <h2 className="text-xs font-mono uppercase tracking-widest text-slate-300 flex items-center gap-2">
+    <div className="bg-bat-surface rounded border border-bat-line p-4 space-y-3">
+      <div className="flex items-center justify-between gap-3 border-b border-bat-line pb-2">
+        <h2 className="text-xs font-mono uppercase tracking-widest text-ink-muted flex items-center gap-2">
           <FileText size={13} /> Report
         </h2>
         <div className="flex gap-1">
@@ -342,8 +342,8 @@ function ReportCard({ onSavedReflection, refreshKey = 0 }) {
               onClick={() => { setPeriod(p.id); setSaved(false); }}
               className={`px-2.5 py-1 rounded text-[10px] font-mono uppercase tracking-wider border transition ${
                 period === p.id
-                  ? 'bg-sky-900/40 border-sky-700 text-sky-200'
-                  : 'border-slate-800 text-slate-500 hover:text-slate-300'
+                  ? 'bg-signal-work/10 border-signal-work/40 text-signal-work'
+                  : 'border-bat-line text-ink-faint hover:text-ink-muted'
               }`}
             >
               {p.label}
@@ -352,8 +352,8 @@ function ReportCard({ onSavedReflection, refreshKey = 0 }) {
         </div>
       </div>
 
-      {loading && <div className="text-xs text-slate-500">Reading the ledger...</div>}
-      {error && <div className="text-xs text-red-400">{error}</div>}
+      {loading && <div className="text-xs text-ink-faint">Reading the ledger...</div>}
+      {error && <div className="text-xs text-signal-late">{error}</div>}
 
       {report && !loading && (
         <div className="space-y-3">
@@ -375,29 +375,29 @@ function ReportCard({ onSavedReflection, refreshKey = 0 }) {
             ].map((s) => (
               <div
                 key={s.label}
-                className="relative bg-matte-obsidian rounded border border-slate-800 p-3 overflow-hidden"
+                className="relative bg-bat-raised rounded border border-bat-line p-3 overflow-hidden"
               >
-                <span className="absolute left-0 top-0 bottom-0 w-[2px] bg-sky-500/50" aria-hidden="true" />
-                <div className="text-[9px] font-mono uppercase tracking-widest text-slate-500">{s.label}</div>
+                <span className="absolute left-0 top-0 bottom-0 w-[2px] bg-signal-work/50" aria-hidden="true" />
+                <div className="text-[9px] font-mono uppercase tracking-widest text-ink-muted">{s.label}</div>
                 {/* Monospace and tabular so four tiles read as one instrument
                     panel rather than four differently-sized numbers. */}
-                <div className="text-2xl font-mono font-bold text-sky-200 tabular-nums mt-1 leading-none">
+                <div className="text-2xl font-mono font-bold text-signal-work tabular-nums mt-1 leading-none">
                   {s.value}
                 </div>
                 {s.hint && (
-                  <div className="text-[9px] font-mono text-slate-600 mt-1">{s.hint}</div>
+                  <div className="text-[9px] font-mono text-ink-faint mt-1">{s.hint}</div>
                 )}
               </div>
             ))}
           </div>
 
           {report.expected_minutes > 0 && (
-            <div className="text-[11px] text-slate-400 font-mono">
+            <div className="text-[11px] text-ink-muted font-mono">
               {fmtHm(report.minutes)} of about {fmtHm(report.expected_minutes)} expected.
             </div>
           )}
 
-          <pre className="text-[11px] text-slate-300 whitespace-pre-wrap font-sans leading-relaxed bg-matte-obsidian rounded border border-slate-800 p-3">
+          <pre className="text-[11px] text-ink-muted whitespace-pre-wrap font-sans leading-relaxed bg-bat-raised rounded border border-bat-line p-3">
             {report.text}
           </pre>
 
@@ -408,17 +408,17 @@ function ReportCard({ onSavedReflection, refreshKey = 0 }) {
               onChange={(e) => { setReflection(e.target.value); setSaved(false); }}
               rows={2}
               placeholder="Your answer — kept in the work journal, and it shows up in the month's report."
-              className="w-full bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-600"
+              className="w-full bg-bat-raised border border-bat-line rounded px-3 py-2 text-xs text-ink placeholder-ink-faint focus:outline-none focus:border-signal-work"
             />
             <div className="flex items-center gap-3">
               <button
                 onClick={saveReflection}
                 disabled={!reflection.trim()}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-mono tracking-wider rounded disabled:opacity-40"
+                className="px-3 py-1.5 bg-bat-raised hover:bg-bat-line-strong text-ink text-[11px] font-mono tracking-wider rounded disabled:opacity-40"
               >
                 SAVE REFLECTION
               </button>
-              {saved && <span className="text-[10px] text-emerald-400">Kept.</span>}
+              {saved && <span className="text-[10px] text-signal-good">Kept.</span>}
             </div>
           </div>
         </div>
@@ -629,16 +629,16 @@ export default function WorkPanel({ onStatusChange }) {
   };
 
   if (loading) {
-    return <div className="text-xs text-slate-500 font-mono">LOADING WORK LEDGER...</div>;
+    return <div className="text-xs text-ink-faint font-mono">LOADING WORK LEDGER...</div>;
   }
 
   // The panel is only reachable while the track is on; if it was switched off
   // in another tab, say so plainly rather than rendering an empty board.
   if (status && !status.enabled) {
     return (
-      <div className="bg-dark-slate rounded border border-slate-800 p-6 text-center space-y-2">
-        <div className="text-sm text-slate-300">The work track is switched off.</div>
-        <div className="text-xs text-slate-500">
+      <div className="bg-bat-surface rounded border border-bat-line p-6 text-center space-y-2">
+        <div className="text-sm text-ink-muted">The work track is switched off.</div>
+        <div className="text-xs text-ink-faint">
           Turn it back on in Profile &rarr; Work track. Nothing of yours was deleted.
         </div>
       </div>
@@ -678,32 +678,32 @@ export default function WorkPanel({ onStatusChange }) {
       </div>
 
       {error && (
-        <div className="p-3 bg-red-950/40 border border-red-900 rounded text-red-400 text-xs shrink-0">{error}</div>
+        <div className="p-3 bg-signal-late/10 border border-signal-late/30 rounded text-signal-late text-xs shrink-0">{error}</div>
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
         {status && !status.configured && <SetupCard status={status} onSaved={load} />}
 
-        <form onSubmit={addTask} className="bg-dark-slate rounded border border-slate-800 p-4 flex flex-col sm:flex-row gap-2">
+        <form onSubmit={addTask} className="bg-bat-surface rounded border border-bat-line p-4 flex flex-col sm:flex-row gap-2">
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="What does the job need? (Enter to add)"
-            className="flex-1 bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-600"
+            className="flex-1 bg-bat-raised border border-bat-line rounded px-3 py-2 text-sm text-ink placeholder-ink-faint focus:outline-none focus:border-signal-work"
           />
           <input
             type="text"
             value={project}
             onChange={(e) => setProject(e.target.value)}
             placeholder="Project (optional)"
-            className="sm:w-44 bg-matte-obsidian border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-600"
+            className="sm:w-44 bg-bat-raised border border-bat-line rounded px-3 py-2 text-sm text-ink placeholder-ink-faint focus:outline-none focus:border-signal-work"
           />
           <button
             type="submit"
             aria-label="Add work task"
             disabled={adding || !title.trim()}
-            className="px-4 py-2 bg-sky-700 hover:bg-sky-600 text-slate-50 text-xs font-bold rounded font-mono tracking-wider flex items-center justify-center gap-1.5 disabled:opacity-50"
+            className="px-4 py-2 bg-signal-work hover:brightness-110 text-bat-bg text-xs font-bold rounded font-mono tracking-wider flex items-center justify-center gap-1.5 disabled:opacity-50"
           >
             <Plus size={14} /> ADD
           </button>
@@ -711,10 +711,10 @@ export default function WorkPanel({ onStatusChange }) {
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-slate-500">Board</div>
+            <div className="text-[10px] font-mono uppercase tracking-widest text-ink-muted">Board</div>
             <button
               onClick={() => setShowDone((v) => !v)}
-              className="text-[10px] font-mono uppercase tracking-wider text-slate-500 hover:text-slate-300"
+              className="text-[10px] font-mono uppercase tracking-wider text-ink-faint hover:text-ink-muted"
             >
               {showDone ? 'HIDE DONE' : 'SHOW DONE'}
             </button>
@@ -724,7 +724,7 @@ export default function WorkPanel({ onStatusChange }) {
               const meta = STATUS_META[s];
               const items = tasks.filter((t) => t.status === s);
               return (
-                <div key={s} className={`bg-dark-slate rounded border ${meta.box} p-3 space-y-2`}>
+                <div key={s} className={`bg-bat-surface rounded border ${meta.box} p-3 space-y-2`}>
                   <div className={`flex items-baseline justify-between text-[10px] font-mono uppercase tracking-widest ${meta.head} border-b pb-1.5`}>
                     <span>{meta.label}</span>
                     <span className="tabular-nums">{String(items.length).padStart(2, '0')}</span>
@@ -732,7 +732,7 @@ export default function WorkPanel({ onStatusChange }) {
                   {items.length === 0 ? (
                     /* A dashed well reads as "room for one", where flat grey
                        italic text read as something failing to load. */
-                    <div className="rounded border border-dashed border-slate-800 py-5 text-center text-[10px] font-mono uppercase tracking-wider text-slate-600">
+                    <div className="rounded border border-dashed border-bat-line py-5 text-center text-[10px] font-mono uppercase tracking-wider text-ink-faint">
                       Empty
                     </div>
                   ) : items.map((t) => (

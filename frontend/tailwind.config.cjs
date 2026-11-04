@@ -7,12 +7,18 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        // --- original palette, kept so nothing breaks mid-migration -------
-        'matte-obsidian': '#1a1a1a',
-        'electric-bat-yellow': '#FFD700',
-        'dark-slate': '#2c2c2c',
-        'bat-surface': '#08080f',
-        'bat-card': '#0d0d18',
+        // The original palette is GONE. It was five names kept "so nothing
+        // breaks mid-migration", and the migration is finished: nothing in
+        // src/ or index.html refers to matte-obsidian, dark-slate,
+        // electric-bat-yellow, bat-card or the shadowed bat-surface any
+        // more. Two of them were already dead weight — bat-card was used by
+        // nobody, and 'bat-surface' declared the same class name as
+        // bat.surface below and silently lost to it, so anyone reading it
+        // believed panels were #08080f when the CSS said #121218.
+        //
+        // Keeping a parallel vocabulary alive invites a colour to be chosen
+        // for how it looks instead of what it means, which is the whole
+        // thing the tokens below exist to stop.
 
         // --- semantic roles ----------------------------------------------
         // Colour had no meaning here: yellow sat on every border, heading and
