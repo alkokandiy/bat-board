@@ -27,7 +27,9 @@ from dependencies import (
     get_db,
     get_user_by_telegram_chat_id,
 )
-from services import alfred_agent, alfred_memory_reviewer, provider_config_service, reminder_feedback, setup_wizard, telegram_service
+from services import (alfred_agent, alfred_memory_reviewer, focus_service,
+                      provider_config_service, reminder_feedback, setup_wizard,
+                      telegram_service)
 
 logger = structlog.get_logger()
 
@@ -541,6 +543,33 @@ def _handle_reminder_callback(db: Session, callback: dict) -> None:
         _answer("Stopped. Ask me if you want it back.")
         return
 
+    reminder = (
+        db.query(models.BatReminder)
+        .filter_by(id=reminder_id, owner_id=user.id)
+        .first()
+    )
+
+    if action == "focus":
+        # Only offered where the reminder points at something, so there is
+        # always a real target to attach the session to.
+        if reminder is None or not reminder_feedback.can_start_focus(reminder):
+            _answer("Nothing to focus on there.")
+            return
+        kind, target_id = reminder_feedback.link_of(reminder)
+        try:
+            focus_service.start_focus_session(db, user, **{f"{kind}_id": target_id})
+        except ValueError as exc:
+            # The mission or habit was deleted out from under the reminder.
+            _answer(str(exc))
+            return
+        except Exception:
+            _answer("I could not start it just now.")
+            return
+        # Starting the work IS the answer to the reminder.
+        reminder_feedback.record_outcome(db, user, reminder_id, "done")
+        _answer("Started. The clock is running.")
+        return
+
     if action not in reminder_feedback.OUTCOMES:
         return
 
@@ -548,6 +577,17 @@ def _handle_reminder_callback(db: Session, callback: dict) -> None:
     if row is None:
         _answer("I could not find that one.")
         return
+
+    # A habit reminder marked done should leave the habit checked in, or the
+    # board and the reminder disagree about the same act.
+    if action == "done" and reminder is not None:
+        try:
+            if reminder_feedback.check_in_linked_habit(db, user, reminder):
+                _answer("Noted, and checked in.")
+                return
+        except Exception:
+            pass          # the outcome is already recorded; never lose that
+
     _answer("Noted." if action == "done" else "Noted — not today.")
 
 

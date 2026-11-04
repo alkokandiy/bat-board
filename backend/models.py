@@ -454,6 +454,14 @@ class BatReminder(Base):
     # it runs indefinitely. Past this date the reminder stops and disables itself.
     ends_on = Column(String, nullable=True)      # "YYYY-MM-DD" local
 
+    # What this reminder is actually about, if anything. A reminder with
+    # somewhere to point can offer to start the work; one about taking a
+    # tablet cannot, and should not pretend otherwise. At most one is
+    # meaningful at a time.
+    mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
+    habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="SET NULL"), nullable=True)
+    work_task_id = Column(Integer, ForeignKey("bat_work_tasks.id", ondelete="SET NULL"), nullable=True)
+
     # A run of occurrences that went out and were never answered. Reset by
     # any answer at all, including "not today": the point is whether the
     # reminder is reaching them, not whether they complied.
