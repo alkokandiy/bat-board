@@ -20,6 +20,8 @@ const habit = (over = {}) => ({
   cue: null,
   minimum_viable: null,
   frequency: 'daily',
+  due_today: true,
+  schedule_label: 'every day',
   streak: 0,
   best_streak: 0,
   adherence_done: 0,
@@ -166,5 +168,67 @@ describe('the bad-day version', () => {
   it('counts the ones still missing it, so the gap is visible', () => {
     renderPanel([habit({ id: 1 }), habit({ id: 2, minimum_viable: 'one page' })]);
     expect(screen.getByText(/with no bad-day version/)).toBeTruthy();
+  });
+});
+
+
+describe('saying which days a habit is for', () => {
+  // "If i choose every week, it's just guess? which day of the week?"
+  // It was: nothing in the record knew, so a weekly habit sat in "still to
+  // keep" all seven days until ticked once.
+  it('offers a day picker once the schedule needs one', () => {
+    renderPanel([]);
+    expect(screen.queryByRole('button', { name: 'Mon' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'weekly' } });
+    // A labelled group, not a <label> wrapping seven buttons — inside one,
+    // every button reports the same accessible name.
+    expect(screen.getByRole('group', { name: 'Which days' })).toBeTruthy();
+    for (const d of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']) {
+      expect(screen.getByRole('button', { name: d })).toBeTruthy();
+    }
+  });
+
+  it('sends the chosen days', async () => {
+    renderPanel([]);
+    fireEvent.change(screen.getByLabelText('What is it'), { target: { value: 'Gym' } });
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'weekly' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Mon' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Thu' }));
+    fireEvent.click(screen.getByRole('button', { name: /start tracking/i }));
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    expect(api.createHabit.mock.calls[0][0].weekdays).toBe('0,3');
+  });
+
+  it('asks for a date when the habit is monthly', () => {
+    renderPanel([]);
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'monthly' } });
+    expect(screen.getByLabelText(/^Which date/)).toBeTruthy();
+  });
+
+  it('asks for a number of days when the habit is an interval', async () => {
+    renderPanel([]);
+    fireEvent.change(screen.getByLabelText('What is it'), { target: { value: 'Plants' } });
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'interval' } });
+    fireEvent.change(screen.getByLabelText(/^Every how many days/), { target: { value: '3' } });
+    fireEvent.click(screen.getByRole('button', { name: /start tracking/i }));
+    await waitFor(() => expect(api.createHabit).toHaveBeenCalled());
+    expect(api.createHabit.mock.calls[0][0].interval_days).toBe(3);
+  });
+
+  it('shows the schedule on the row instead of a bare frequency word', () => {
+    renderPanel([habit({ frequency: 'weekly', schedule_label: 'every Mon, Thu' })]);
+    expect(screen.getByText('every Mon, Thu')).toBeTruthy();
+  });
+
+  it('keeps a habit that is not due today out of "still to keep"', () => {
+    renderPanel([habit({ due_today: false, schedule_label: 'every Mon, Thu' })]);
+    expect(screen.getByText(/^Not due today \(1\)$/)).toBeTruthy();
+    expect(screen.getByText('All kept — come back tomorrow')).toBeTruthy();
+  });
+
+  it('still shows an unscheduled habit as due, so nothing vanishes', () => {
+    renderPanel([habit()]);
+    expect(screen.queryByText(/^Not due today/)).toBeNull();
+    expect(screen.getByRole('button', { name: /check in/i })).toBeTruthy();
   });
 });
