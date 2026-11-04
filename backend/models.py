@@ -118,7 +118,13 @@ class BatHabit(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True, nullable=False)
     description = Column(String, nullable=True)
+    # daily | weekly | monthly | interval. The columns below say WHICH days
+    # within that; all NULL means "any day in the period", which is what
+    # every habit meant before there was anywhere to be specific.
     frequency = Column(String, default="daily", nullable=False)
+    weekdays = Column(String, nullable=True)        # weekly: CSV of 0-6, Mon=0
+    day_of_month = Column(Integer, nullable=True)   # monthly: 1-31, clamped to month end
+    interval_days = Column(Integer, nullable=True)  # interval: every N days from creation
     streak = Column(Integer, default=0, nullable=False)
     # The longest run ever reached. A counter that resets to zero is one you can
     # only ever lose, and a broken streak measurably reduces willingness to

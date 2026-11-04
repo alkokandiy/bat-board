@@ -10,6 +10,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 import models
+from services import habit_schedule
 from services.common import auto_log_event, calculate_bat_level
 from services.timezones import local_date, user_tz
 
@@ -30,13 +31,20 @@ def create_habit(
     frequency: str = "daily",
     cue: Optional[str] = None,
     minimum_viable: Optional[str] = None,
+    weekdays=None,
+    day_of_month: Optional[int] = None,
+    interval_days: Optional[int] = None,
 ) -> models.BatHabit:
+    schedule = habit_schedule.validate(
+        frequency, weekdays=weekdays, day_of_month=day_of_month,
+        interval_days=interval_days)
     habit = models.BatHabit(
         name=name,
         description=description,
         frequency=frequency,
         cue=(cue or "").strip() or None,
         minimum_viable=(minimum_viable or "").strip() or None,
+        **schedule,
         streak=0,
         owner_id=current_user.id,
     )
@@ -97,7 +105,7 @@ def recent_adherence(db: Session, current_user: models.BatAccount,
     periods = {
         _period_index(habit.frequency, local_date(r[0], tz)) for r in rows if r[0]
     }
-    window = max(1, _periods_in(habit.frequency, days))
+    window = _window_for(habit, today, days)
     done = min(len(periods), window)
     return {"done": done, "window": window, "rate": round(done / window, 2)}
 
@@ -120,7 +128,9 @@ def attach_adherence(db: Session, current_user: models.BatAccount,
         return habits
 
     tz = user_tz(current_user)
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    now = datetime.now(timezone.utc)
+    today = local_date(now, tz)
+    since = now - timedelta(days=days)
     by_habit: dict = {h.id: set() for h in habits}
     rows = (
         db.query(models.HabitCompletionLog.habit_id,
@@ -136,10 +146,30 @@ def attach_adherence(db: Session, current_user: models.BatAccount,
                 _period_index(frequencies[habit_id], local_date(completed_at, tz)))
 
     for habit in habits:
-        window = max(1, _periods_in(habit.frequency, days))
+        window = _window_for(habit, today, days)
         habit.adherence_done = min(len(by_habit[habit.id]), window)
         habit.adherence_window = window
+        # Both computed here so the API and the screen never re-derive the
+        # schedule and disagree with the service about it.
+        habit.due_today = habit_schedule.is_due_on(habit, today)
+        habit.schedule_label = habit_schedule.describe(habit)
     return habits
+
+
+
+def _window_for(habit, today, days: int) -> int:
+    """How many chances this habit genuinely had over the last `days`.
+
+    Raw day counting punished a habit for the days it was never meant to
+    happen: a Monday-and-Thursday habit kept perfectly read as "2 of your
+    last 14" instead of two of two. For a habit with no explicit schedule
+    this falls back to the old period arithmetic, so nothing that exists
+    today changes meaning.
+    """
+    if habit_schedule.is_explicitly_scheduled(habit):
+        start = today - timedelta(days=days - 1)
+        return habit_schedule.opportunities_in(habit, start, today)
+    return max(1, _periods_in(habit.frequency, days))
 
 
 def _periods_in(frequency: str, days: int) -> int:
@@ -266,6 +296,9 @@ def update_habit(
     target_date: Optional[datetime] = None,
     cue: Optional[str] = None,
     minimum_viable: Optional[str] = None,
+    weekdays=None,
+    day_of_month: Optional[int] = None,
+    interval_days: Optional[int] = None,
 ) -> Optional[models.BatHabit]:
     """Update an existing habit. Returns None if not found."""
     habit = db.query(models.BatHabit).filter(
@@ -286,6 +319,16 @@ def update_habit(
         habit.cue = cue.strip() or None
     if minimum_viable is not None:
         habit.minimum_viable = minimum_viable.strip() or None
+    if any(v is not None for v in (frequency, weekdays, day_of_month, interval_days)):
+        # Validated against the frequency the habit will HAVE, and applied as
+        # a set: switching weekly -> daily must not leave weekdays behind.
+        for field, value in habit_schedule.validate(
+                frequency or habit.frequency,
+                weekdays=weekdays if weekdays is not None else habit.weekdays,
+                day_of_month=day_of_month if day_of_month is not None else habit.day_of_month,
+                interval_days=interval_days if interval_days is not None else habit.interval_days,
+        ).items():
+            setattr(habit, field, value)
     if target_date is not None:
         habit.target_date = target_date
 

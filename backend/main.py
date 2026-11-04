@@ -283,7 +283,12 @@ class CalendarEventSchema(BaseModel):
 class BatHabitBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
-    frequency: Literal["daily", "weekly", "monthly"] = "daily"
+    frequency: Literal["daily", "weekly", "monthly", "interval"] = "daily"
+    # Which days within that. All None means "any day in the period", which
+    # is what every habit meant before there was anywhere to be specific.
+    weekdays: Optional[str] = Field(None, max_length=32)
+    day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    interval_days: Optional[int] = Field(None, ge=1, le=365)
     # An implementation intention — when and where this actually happens.
     # Naming it is the strongest single lever in the habit literature.
     cue: Optional[str] = Field(None, max_length=200)
@@ -297,7 +302,10 @@ class BatHabitCreate(BatHabitBase):
 class BatHabitUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
-    frequency: Optional[Literal["daily", "weekly", "monthly"]] = None
+    frequency: Optional[Literal["daily", "weekly", "monthly", "interval"]] = None
+    weekdays: Optional[str] = Field(None, max_length=32)
+    day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    interval_days: Optional[int] = Field(None, ge=1, le=365)
     cue: Optional[str] = Field(None, max_length=200)
     minimum_viable: Optional[str] = Field(None, max_length=200)
     streak: Optional[int] = None
@@ -316,6 +324,10 @@ class BatHabitSchema(BatHabitBase):
     adherence_done: int = 0
     adherence_window: int = 0
     grace_used_in_run: int = 0
+    # Computed, not stored: the screen should not have to re-derive the
+    # schedule to know whether to show this today.
+    due_today: bool = True
+    schedule_label: str = "every day"
     last_completed: Optional[datetime] = None
     focus_minutes: int = 0
     target_date: Optional[datetime] = None
@@ -946,6 +958,9 @@ def create_habit(
         frequency=habit_data.frequency,
         cue=habit_data.cue,
         minimum_viable=habit_data.minimum_viable,
+        weekdays=habit_data.weekdays,
+        day_of_month=habit_data.day_of_month,
+        interval_days=habit_data.interval_days,
     )
 
 @app.put("/api/habits/{habit_id}", response_model=BatHabitSchema)

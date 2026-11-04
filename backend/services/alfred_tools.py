@@ -25,7 +25,7 @@ from services import (
     telegram_service,
     work_service,
 )
-from services import reminder_feedback
+from services import habit_schedule, reminder_feedback
 from services.timezones import user_tz
 
 FOCUS_NO_LIVE_SYNC_NOTE = (
@@ -115,6 +115,10 @@ def _habit_dict(h):
         "cue": getattr(h, "cue", None),
         # The two-minute version, for days the full thing is out of reach.
         "minimum_viable": getattr(h, "minimum_viable", None),
+        # When it is actually due, in words, so he never has to guess from
+        # "weekly" which day someone meant.
+        "schedule": habit_schedule.describe(h),
+        "due_today": getattr(h, "due_today", None),
         "last_completed": _iso(h.last_completed),
     }
 
@@ -385,10 +389,13 @@ WRITE_TOOLS = [
     {"name": "create_habit", "description": "Create a new habit. Ask for a `cue` if they have not given one — it matters more than any other field.",
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string"}, "description": {"type": "string"},
-         "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+         "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly", "interval"]},
          "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window."},
          "minimum_viable": {"type": "string", "description": "The two-minute version, in THEIR words: 'put the shoes on', 'one page', 'five press-ups'. On a day the full thing is out of reach, doing this still starts the cue and closes the reward, and that loop is the thing being built. Ask for it; do not invent one."},
-     }, "required": ["name"]}},
+              "weekdays": {"type": "string", "description": "weekly only: which days, e.g. 'Mon,Thu' or '0,3' (Mon=0). ASK which days rather than leaving it out — 'every week' with no day means the habit shows as outstanding all seven days until it is ticked once, which is almost never what someone means."},
+         "day_of_month": {"type": "integer", "description": "monthly only: 1-31. The 31st is clamped to the month's last day, so it still happens in February."},
+         "interval_days": {"type": "integer", "description": "interval only: every N days, counted from the day the habit was created."},
+}, "required": ["name"]}},
     {"name": "check_in_habit", "description": "Check in to a habit (streak + points).",
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
@@ -397,11 +404,14 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
          "habit_id": {"type": "integer"},
          "name": {"type": "string"}, "description": {"type": "string"},
-         "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+         "frequency": {"type": "string", "enum": ["daily", "weekly", "monthly", "interval"]},
          "cue": {"type": "string", "description": "When and where this will actually happen, in their own words — 'after I put the kettle on', 'at the desk before email'. Naming a specific trigger is the single most effective thing you can attach to a habit, so ask for one when creating it. Keep the trigger fixed but never enforce a narrow clock window. Pass an empty string to clear it."},
          "minimum_viable": {"type": "string", "description": "The two-minute version, in THEIR words: 'put the shoes on', 'one page', 'five press-ups'. On a day the full thing is out of reach, doing this still starts the cue and closes the reward, and that loop is the thing being built. Ask for it; do not invent one."},
          "target_date": {"type": "string", "description": "ISO datetime."},
-     }, "required": ["habit_id"]}},
+              "weekdays": {"type": "string", "description": "weekly only: which days, e.g. 'Mon,Thu' or '0,3' (Mon=0). ASK which days rather than leaving it out — 'every week' with no day means the habit shows as outstanding all seven days until it is ticked once, which is almost never what someone means."},
+         "day_of_month": {"type": "integer", "description": "monthly only: 1-31. The 31st is clamped to the month's last day, so it still happens in February."},
+         "interval_days": {"type": "integer", "description": "interval only: every N days, counted from the day the habit was created."},
+}, "required": ["habit_id"]}},
     {"name": "create_event", "description": "Create a calendar event. Ask first for start time when missing.",
      "parameters": {"type": "object", "properties": {
          "title": {"type": "string"}, "start_time": {"type": "string", "description": "ISO datetime. Write it on the user's own clock, with no timezone suffix (2026-11-10T15:00 means 3pm where they are). Add an offset only if they actually named another zone."},
@@ -1009,7 +1019,9 @@ def execute_tool(
         h = habit_service.create_habit(
             db, current_user, name=args["name"],
             description=args.get("description"), frequency=args.get("frequency") or "daily",
-            cue=args.get("cue"), minimum_viable=args.get("minimum_viable"))
+            cue=args.get("cue"), minimum_viable=args.get("minimum_viable"),
+            weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
+            interval_days=args.get("interval_days"))
         return {"habit": _habit_dict(h)}
     if name == "check_in_habit":
         h = habit_service.check_in_habit(db, current_user, int(args["habit_id"]))
@@ -1022,6 +1034,8 @@ def execute_tool(
             name=args.get("name"), description=args.get("description"),
             frequency=args.get("frequency"), cue=args.get("cue"),
             minimum_viable=args.get("minimum_viable"),
+            weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
+            interval_days=args.get("interval_days"),
             target_date=_parse_dt(args.get("target_date"), "target_date") if args.get("target_date") else None)
         if h is None:
             return {"error": "Habit not found"}

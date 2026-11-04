@@ -5,6 +5,8 @@ import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } 
 
 const FREQUENCY_LABEL = { daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
 
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 function keptThisPeriod(habit) {
   if (!habit.last_completed) return false;
   const last = new Date(habit.last_completed);
@@ -65,7 +67,7 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate }) {
               {habit.name}
             </h3>
             <span className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ring-bat-line text-ink-faint">
-              {FREQUENCY_LABEL[habit.frequency] || habit.frequency}
+              {habit.schedule_label || FREQUENCY_LABEL[habit.frequency] || habit.frequency}
             </span>
           </div>
 
@@ -147,6 +149,9 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   // strongest lever there is for a habit actually sticking.
   const [cue, setCue] = useState('');
   const [minimumViable, setMinimumViable] = useState('');
+  const [weekdays, setWeekdays] = useState([]);
+  const [dayOfMonth, setDayOfMonth] = useState('');
+  const [intervalDays, setIntervalDays] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -170,13 +175,19 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
         description: description.trim() || null,
         frequency,
         cue: cue.trim() || null,
-        minimum_viable: minimumViable.trim() || null
+        minimum_viable: minimumViable.trim() || null,
+        weekdays: frequency === 'weekly' && weekdays.length ? weekdays.sort((a, b) => a - b).join(',') : null,
+        day_of_month: frequency === 'monthly' && dayOfMonth ? Number(dayOfMonth) : null,
+        interval_days: frequency === 'interval' && intervalDays ? Number(intervalDays) : null
       });
       setFlash(`Tracking "${name.trim()}"`);
       setName('');
       setDescription('');
       setCue('');
       setMinimumViable('');
+      setWeekdays([]);
+      setDayOfMonth('');
+      setIntervalDays('');
       setFrequency('daily');
       await onRefreshHabits();
       await onRefreshAccount();
@@ -222,8 +233,12 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
     }
   };
 
-  const pending = habits.filter((h) => !keptThisPeriod(h));
+  // Due today AND not yet kept. Before, a weekly habit sat in "still to
+  // keep" all seven days, because nothing recorded which day it was for.
+  const dueToday = (h) => h.due_today !== false;
+  const pending = habits.filter((h) => dueToday(h) && !keptThisPeriod(h));
   const kept = habits.filter(keptThisPeriod);
+  const notDueToday = habits.filter((h) => !dueToday(h) && !keptThisPeriod(h));
   const bestStreak = habits.reduce((max, h) => Math.max(max, h.best_streak || h.streak || 0), 0);
   const withoutCue = habits.filter((h) => !(h.cue || '').trim()).length;
   const withoutFloor = habits.filter((h) => !(h.minimum_viable || '').trim()).length;
@@ -289,10 +304,65 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
             <Field label="How often">
               <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className={fieldClass}>
                 <option value="daily">Every day</option>
-                <option value="weekly">Every week</option>
-                <option value="monthly">Every month</option>
+                <option value="weekly">On certain days</option>
+                <option value="monthly">Once a month, on a date</option>
+                <option value="interval">Every few days</option>
               </select>
             </Field>
+
+            {/* "Every week" used to mean "some day, who knows". Saying which
+                days is the whole point of choosing it. */}
+            {/* A labelled group, not a Field: a <label> may wrap one form
+                control, not seven buttons. Inside one, each button's
+                accessible name is computed from the whole label rather than
+                its own text, so a screen reader announces the same thing
+                seven times. */}
+            {frequency === 'weekly' && (
+              <div role="group" aria-label="Which days">
+                <span className="mb-1.5 block text-[10px] font-mono uppercase tracking-[0.14em] text-ink-muted">
+                  Which days
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {WEEKDAYS.map((label, i) => {
+                    const on = weekdays.includes(i);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setWeekdays(on ? weekdays.filter((d) => d !== i) : [...weekdays, i])}
+                        className={`px-2 py-1 rounded-chip text-[10px] font-mono uppercase tracking-wider
+                          transition-all duration-200 ease-soft active:scale-[0.94]
+                          focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60 ${
+                          on ? 'bg-signal-self text-bat-bg font-bold' : 'bg-bat-raised text-ink-faint ring-1 ring-bat-line hover:text-ink-muted'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="mt-1.5 block text-[10px] leading-snug text-ink-faint">
+                  Leave all unticked for "any day that week".
+                </span>
+              </div>
+            )}
+
+            {frequency === 'monthly' && (
+              <Field label="Which date" hint="The 31st happens on the last day of shorter months.">
+                <input type="number" min={1} max={31} value={dayOfMonth}
+                  onChange={(e) => setDayOfMonth(e.target.value)}
+                  placeholder="1" className={fieldClass} />
+              </Field>
+            )}
+
+            {frequency === 'interval' && (
+              <Field label="Every how many days" hint="Counted from today.">
+                <input type="number" min={1} max={365} value={intervalDays}
+                  onChange={(e) => setIntervalDays(e.target.value)}
+                  placeholder="3" className={fieldClass} />
+              </Field>
+            )}
 
             <Field label="Notes">
               <textarea
@@ -334,6 +404,21 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
               ))
             )}
           </Panel>
+
+          {notDueToday.length > 0 && (
+            <details>
+              <summary className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint hover:text-ink-muted cursor-pointer px-1 py-2 transition-colors duration-200">
+                Not due today ({notDueToday.length})
+              </summary>
+              <div className="space-y-2 mt-2">
+                {notDueToday.map((habit) => (
+                  <HabitRow key={habit.id} habit={habit} kept
+                    onCheckIn={handleCheckIn} onDelete={handleDelete}
+                    onSetTargetDate={handleSetTargetDate} />
+                ))}
+              </div>
+            </details>
+          )}
 
           {/* Kept habits used to vanish from the screen entirely, so you could
               not see what you had already done — only what you had not. */}
