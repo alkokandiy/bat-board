@@ -34,10 +34,13 @@ def create_habit(
     weekdays=None,
     day_of_month: Optional[int] = None,
     interval_days: Optional[int] = None,
+    times_per_period: Optional[int] = None,
 ) -> models.BatHabit:
     schedule = habit_schedule.validate(
         frequency, weekdays=weekdays, day_of_month=day_of_month,
         interval_days=interval_days)
+    schedule["times_per_period"] = habit_schedule.validate_times(
+        frequency, times_per_period, weekdays=schedule.get("weekdays"))
     habit = models.BatHabit(
         name=name,
         description=description,
@@ -63,12 +66,50 @@ def create_habit(
 
 
 def _period_index(frequency: str, day: date) -> int:
-    """Monotonic period number, so consecutive periods differ by exactly 1."""
+    """Monotonic period number, so consecutive periods differ by exactly 1.
+
+    Kept for habits with no stated schedule. Anything that needs to know
+    which OCCASION a date belongs to should ask habit_schedule.occasion_key,
+    which is the same thing for these and the due day itself for a habit
+    that says when it happens.
+    """
     if frequency == "weekly":
         return (day.toordinal() - 1) // 7  # ordinal 1 is a Monday: buckets are Mon–Sun
     if frequency == "monthly":
         return day.year * 12 + day.month
     return day.toordinal()
+
+
+def target_of(habit) -> int:
+    """How many check-ins make one occasion count as kept."""
+    return max(1, int(getattr(habit, "times_per_period", None) or 1))
+
+
+def _skip_keys(db: Session, current_user: models.BatAccount, habit,
+               tz) -> frozenset:
+    """The occasions this habit was deliberately rested, as occasion keys.
+
+    A rest the person chose is not a day they failed, so these leave the
+    denominator rather than entering it as a miss — and the run steps over
+    them instead of breaking on them.
+    """
+    rows = (
+        db.query(models.BatHabitSkip.local_date)
+        .filter(models.BatHabitSkip.habit_id == habit.id,
+                models.BatHabitSkip.owner_id == current_user.id)
+        .all()
+    )
+    return _keys_from_skip_rows(habit, [r[0] for r in rows])
+
+
+def _keys_from_skip_rows(habit, iso_days) -> frozenset:
+    keys = set()
+    for iso in iso_days:
+        try:
+            keys.add(habit_schedule.occasion_key(habit, date.fromisoformat(iso)))
+        except (TypeError, ValueError):
+            continue
+    return frozenset(keys)
 
 
 ADHERENCE_WINDOW_DAYS = 14
@@ -101,13 +142,46 @@ def recent_adherence(db: Session, current_user: models.BatAccount,
                 models.HabitCompletionLog.completed_at >= since.replace(tzinfo=None))
         .all()
     )
-    # Distinct local periods, so two check-ins in one day count once.
-    periods = {
-        _period_index(habit.frequency, local_date(r[0], tz)) for r in rows if r[0]
-    }
-    window = _window_for(habit, today, days)
-    done = min(len(periods), window)
+    skipped = _skip_keys(db, current_user, habit, tz)
+    counts = _counts_by_occasion(habit, [r[0] for r in rows], tz)
+    done, window = _met_and_window(habit, counts, skipped, today, days)
     return {"done": done, "window": window, "rate": round(done / window, 2)}
+
+
+def _counts_by_occasion(habit, completed_ats, tz) -> dict:
+    """How many check-ins landed in each occasion."""
+    counts: dict = {}
+    for completed_at in completed_ats:
+        if not completed_at:
+            continue
+        key = habit_schedule.occasion_key(habit, local_date(completed_at, tz))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _met_and_window(habit, counts: dict, skipped: frozenset,
+                    today: date, days: int) -> tuple:
+    """Occasions kept, out of occasions that counted.
+
+    Both sides are in the same unit, which they were not: the denominator
+    moved to due days while the numerator stayed on Monday-to-Sunday
+    buckets, so a Monday-and-Thursday habit kept perfectly read "2 of your
+    last 4". An occasion is kept once its target is reached, so "three times
+    a week" is one kept week, not three.
+    """
+    target = target_of(habit)
+    met = sum(1 for key, n in counts.items()
+              if n >= target and key not in skipped)
+    window = _window_for(habit, today, days)
+    # A rest the person chose was never a chance they had.
+    window = max(1, window - len([k for k in skipped if _within_window(
+        habit, k, today, days)]))
+    return min(met, window), window
+
+
+def _within_window(habit, key: int, today: date, days: int) -> bool:
+    first = habit_schedule.occasion_key(habit, today - timedelta(days=days - 1))
+    return first <= key <= habit_schedule.occasion_key(habit, today)
 
 
 def attach_adherence(db: Session, current_user: models.BatAccount,
@@ -131,28 +205,45 @@ def attach_adherence(db: Session, current_user: models.BatAccount,
     now = datetime.now(timezone.utc)
     today = local_date(now, tz)
     since = now - timedelta(days=days)
-    by_habit: dict = {h.id: set() for h in habits}
-    rows = (
+    ids = [h.id for h in habits]
+
+    done_rows = (
         db.query(models.HabitCompletionLog.habit_id,
                  models.HabitCompletionLog.completed_at)
-        .filter(models.HabitCompletionLog.habit_id.in_(by_habit.keys()),
+        .filter(models.HabitCompletionLog.habit_id.in_(ids),
                 models.HabitCompletionLog.completed_at >= since.replace(tzinfo=None))
         .all()
     )
-    frequencies = {h.id: h.frequency for h in habits}
-    for habit_id, completed_at in rows:
-        if completed_at:
-            by_habit[habit_id].add(
-                _period_index(frequencies[habit_id], local_date(completed_at, tz)))
+    # Not date-filtered: a rest day is a handful of rows per habit, and
+    # filtering ISO strings by range in SQL is a worse trade than the read.
+    skip_rows = (
+        db.query(models.BatHabitSkip.habit_id, models.BatHabitSkip.local_date)
+        .filter(models.BatHabitSkip.habit_id.in_(ids),
+                models.BatHabitSkip.owner_id == current_user.id)
+        .all()
+    )
+    completions: dict = {i: [] for i in ids}
+    for habit_id, completed_at in done_rows:
+        completions[habit_id].append(completed_at)
+    skips: dict = {i: [] for i in ids}
+    for habit_id, iso in skip_rows:
+        skips[habit_id].append(iso)
 
+    today_iso = today.isoformat()
     for habit in habits:
-        window = _window_for(habit, today, days)
-        habit.adherence_done = min(len(by_habit[habit.id]), window)
+        counts = _counts_by_occasion(habit, completions[habit.id], tz)
+        skipped = _keys_from_skip_rows(habit, skips[habit.id])
+        done, window = _met_and_window(habit, counts, skipped, today, days)
+        habit.adherence_done = done
         habit.adherence_window = window
-        # Both computed here so the API and the screen never re-derive the
+        # Computed here so the API and the screen never re-derive the
         # schedule and disagree with the service about it.
         habit.due_today = habit_schedule.is_due_on(habit, today)
         habit.schedule_label = habit_schedule.describe(habit)
+        habit.times_target = target_of(habit)
+        habit.done_this_period = counts.get(
+            habit_schedule.occasion_key(habit, today), 0)
+        habit.resting_today = today_iso in skips[habit.id]
     return habits
 
 
@@ -202,42 +293,76 @@ def check_in_habit(
     if not habit:
         return None
 
-    # Periods are the user's local days/weeks/months, not UTC ones: in
+    # Occasions are the user's local days/weeks/months, not UTC ones: in
     # Tashkent a 01:00 check-in used to count toward the previous day.
     now = datetime.now(timezone.utc)
     tz = user_tz(current_user)
-    current_period = _period_index(habit.frequency, local_date(now, tz))
-    last_period = (
-        _period_index(habit.frequency, local_date(habit.last_completed, tz))
-        if habit.last_completed else None
+    today = local_date(now, tz)
+    current_period = habit_schedule.occasion_key(habit, today)
+    target = target_of(habit)
+
+    # How far along this occasion already is. With a target above one the
+    # first two of three check-ins in a week each count and each earn; only
+    # the third makes the week kept.
+    done_before = (
+        db.query(models.HabitCompletionLog.completed_at)
+        .filter(models.HabitCompletionLog.habit_id == habit.id,
+                models.HabitCompletionLog.completed_at
+                >= (now - timedelta(days=40)).replace(tzinfo=None))
+        .all()
     )
-    is_new_completion = last_period != current_period
+    already = _counts_by_occasion(
+        habit, [r[0] for r in done_before], tz).get(current_period, 0)
 
     completion = models.HabitCompletionLog(habit_id=habit.id, completed_at=now)
     db.add(completion)
 
+    done_now = already + 1
+    is_new_completion = done_now <= target
+
     if is_new_completion:
-        gap = (current_period - last_period) if last_period is not None else None
         used_grace = False
-        if gap == 1:
-            habit.streak += 1
-            # A clean run: the allowance is whole again for the next gap.
-            habit.grace_used_in_run = 0
-        elif (gap == 2
-              and (habit.grace_used_in_run or 0) < GRACE_PER_RUN
-              and recent_adherence(db, current_user, habit)["rate"] >= GRACE_MIN_ADHERENCE):
-            # Exactly one period missed, by somebody who is otherwise keeping
-            # this. The run survives and the allowance is spent.
-            habit.streak += 1
-            habit.grace_used_in_run = (habit.grace_used_in_run or 0) + 1
-            used_grace = True
-        else:
-            habit.streak = 1
-            habit.grace_used_in_run = 0
-        # The run can break; the best run never does. A miss should cost the
-        # current count, not the achievement behind it.
-        if habit.streak > (habit.best_streak or 0):
-            habit.best_streak = habit.streak
+        if done_now == target:
+            # The occasion is kept. Only now does the run move.
+            last_met = habit.last_met_period
+            if last_met is None and habit.last_completed:
+                # Nothing recorded it before this existed, and after a
+                # schedule change the key means something new — so the last
+                # thing they did stands as their last kept occasion.
+                last_met = habit_schedule.occasion_key(
+                    habit, local_date(habit.last_completed, tz))
+
+            if last_met is None or last_met >= current_period:
+                missed = 0 if last_met is not None else None
+            else:
+                missed = habit_schedule.occasions_missed_between(
+                    habit, last_met, current_period,
+                    _skip_keys(db, current_user, habit, tz))
+
+            if missed is None:
+                habit.streak = 1           # the first one ever
+                habit.grace_used_in_run = 0
+            elif missed == 0:
+                habit.streak += 1
+                # A clean run: the allowance is whole again for the next gap.
+                habit.grace_used_in_run = 0
+            elif (missed == 1
+                  and (habit.grace_used_in_run or 0) < GRACE_PER_RUN
+                  and recent_adherence(db, current_user, habit)["rate"] >= GRACE_MIN_ADHERENCE):
+                # Exactly one occasion missed, by somebody who is otherwise
+                # keeping this. The run survives and the allowance is spent.
+                habit.streak += 1
+                habit.grace_used_in_run = (habit.grace_used_in_run or 0) + 1
+                used_grace = True
+            else:
+                habit.streak = 1
+                habit.grace_used_in_run = 0
+
+            habit.last_met_period = current_period
+            # The run can break; the best run never does. A miss should cost
+            # the current count, not the achievement behind it.
+            if habit.streak > (habit.best_streak or 0):
+                habit.best_streak = habit.streak
 
         habit.last_completed = now
 
@@ -299,6 +424,7 @@ def update_habit(
     weekdays=None,
     day_of_month: Optional[int] = None,
     interval_days: Optional[int] = None,
+    times_per_period: Optional[int] = None,
 ) -> Optional[models.BatHabit]:
     """Update an existing habit. Returns None if not found."""
     habit = db.query(models.BatHabit).filter(
@@ -319,16 +445,28 @@ def update_habit(
         habit.cue = cue.strip() or None
     if minimum_viable is not None:
         habit.minimum_viable = minimum_viable.strip() or None
-    if any(v is not None for v in (frequency, weekdays, day_of_month, interval_days)):
+    if any(v is not None for v in (frequency, weekdays, day_of_month,
+                                   interval_days, times_per_period)):
         # Validated against the frequency the habit will HAVE, and applied as
         # a set: switching weekly -> daily must not leave weekdays behind.
-        for field, value in habit_schedule.validate(
-                frequency or habit.frequency,
-                weekdays=weekdays if weekdays is not None else habit.weekdays,
-                day_of_month=day_of_month if day_of_month is not None else habit.day_of_month,
-                interval_days=interval_days if interval_days is not None else habit.interval_days,
-        ).items():
+        fields = habit_schedule.validate(
+            frequency or habit.frequency,
+            weekdays=weekdays if weekdays is not None else habit.weekdays,
+            day_of_month=day_of_month if day_of_month is not None else habit.day_of_month,
+            interval_days=interval_days if interval_days is not None else habit.interval_days,
+        )
+        fields["times_per_period"] = habit_schedule.validate_times(
+            frequency or habit.frequency,
+            times_per_period if times_per_period is not None else habit.times_per_period,
+            weekdays=fields.get("weekdays"),
+        )
+        for field, value in fields.items():
             setattr(habit, field, value)
+        # The occasion key means something different under a new schedule, so
+        # a stored one would be comparing days against week numbers. Cleared
+        # rather than converted: the next check-in derives it from
+        # last_completed, which is the same calendar fact read the new way.
+        habit.last_met_period = None
     if target_date is not None:
         habit.target_date = target_date
 
@@ -359,3 +497,104 @@ def delete_habit(
     })
     db.commit()
     return habit
+
+
+# --- Planned rest ----------------------------------------------------------
+
+def _owned_habit(db: Session, current_user: models.BatAccount, habit_id: int):
+    return (
+        db.query(models.BatHabit)
+        .filter(models.BatHabit.id == habit_id,
+                models.BatHabit.owner_id == current_user.id)
+        .first()
+    )
+
+
+def _resolve_day(current_user: models.BatAccount, on: Optional[str]) -> date:
+    """The local day a rest applies to. Their day, never UTC's."""
+    if not on:
+        return local_date(datetime.now(timezone.utc), user_tz(current_user))
+    try:
+        return date.fromisoformat(str(on))
+    except ValueError:
+        raise ValueError("A date must look like 2026-11-04.")
+
+
+def skip_habit(db: Session, current_user: models.BatAccount, habit_id: int,
+               on: Optional[str] = None, note: Optional[str] = None) -> Optional[dict]:
+    """Rest this habit for a day, on purpose.
+
+    Resting and failing used to be the same event — the occasion counted
+    against adherence and broke the run either way, so the only way to
+    protect a run was to not need the rest. Saying so takes the occasion out
+    of the denominator and lets the run step over it.
+
+    Idempotent: resting twice is resting once, which matters because the tap
+    and the Alfred tool reach the same row.
+    """
+    habit = _owned_habit(db, current_user, habit_id)
+    if habit is None:
+        return None
+    day = _resolve_day(current_user, on)
+    iso = day.isoformat()
+
+    existing = (
+        db.query(models.BatHabitSkip)
+        .filter(models.BatHabitSkip.habit_id == habit.id,
+                models.BatHabitSkip.local_date == iso)
+        .first()
+    )
+    if existing is None:
+        db.add(models.BatHabitSkip(
+            habit_id=habit.id, owner_id=current_user.id, local_date=iso,
+            note=(note or "").strip() or None))
+        auto_log_event(db, current_user.id, "habit_rest_day", {
+            "habit_id": habit.id, "name": habit.name, "date": iso,
+            "note": (note or "").strip() or None,
+        })
+        db.commit()
+    elif note:
+        existing.note = note.strip() or None
+        db.commit()
+
+    return {"habit_id": habit.id, "name": habit.name, "date": iso,
+            "resting": True}
+
+
+def unskip_habit(db: Session, current_user: models.BatAccount, habit_id: int,
+                 on: Optional[str] = None) -> Optional[dict]:
+    """Take back a rest day. The occasion counts again."""
+    habit = _owned_habit(db, current_user, habit_id)
+    if habit is None:
+        return None
+    iso = _resolve_day(current_user, on).isoformat()
+    removed = (
+        db.query(models.BatHabitSkip)
+        .filter(models.BatHabitSkip.habit_id == habit.id,
+                models.BatHabitSkip.owner_id == current_user.id,
+                models.BatHabitSkip.local_date == iso)
+        .delete()
+    )
+    if removed:
+        auto_log_event(db, current_user.id, "habit_rest_day_cleared", {
+            "habit_id": habit.id, "name": habit.name, "date": iso,
+        })
+    db.commit()
+    return {"habit_id": habit.id, "name": habit.name, "date": iso,
+            "resting": False, "was_resting": bool(removed)}
+
+
+def rest_days(db: Session, current_user: models.BatAccount, habit_id: int,
+              limit: int = 60) -> Optional[List[dict]]:
+    habit = _owned_habit(db, current_user, habit_id)
+    if habit is None:
+        return None
+    rows = (
+        db.query(models.BatHabitSkip)
+        .filter(models.BatHabitSkip.habit_id == habit.id,
+                models.BatHabitSkip.owner_id == current_user.id)
+        .order_by(models.BatHabitSkip.local_date.desc())
+        .limit(limit)
+        .all()
+    )
+    return [{"date": r.local_date, "note": r.note} for r in rows]

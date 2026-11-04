@@ -144,6 +144,14 @@ class BatHabit(Base):
     # should not cost a run of twenty; a run you can only ever lose is one
     # people abandon after the first gap.
     grace_used_in_run = Column(Integer, default=0, server_default="0", nullable=False)
+    # How many check-ins make the period count as kept. NULL means one, which
+    # is what every habit meant before "three times a week" could be said.
+    times_per_period = Column(Integer, nullable=True)
+    # The last occasion whose target was actually MET. Needed once the target
+    # can exceed one: the run then advances when the target is reached, not
+    # on the last check-in, so last_completed can no longer stand in for it.
+    # NULL is read as "derive it from last_completed".
+    last_met_period = Column(Integer, nullable=True)
     last_completed = Column(DateTime, nullable=True)
     focus_minutes = Column(Integer, default=0, nullable=False)
     target_date = Column(DateTime, nullable=True)
@@ -152,6 +160,33 @@ class BatHabit(Base):
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="habits")
     completion_logs = relationship("HabitCompletionLog", back_populates="habit", cascade="all, delete-orphan")
+    skips = relationship("BatHabitSkip", back_populates="habit", cascade="all, delete-orphan")
+
+
+class BatHabitSkip(Base):
+    """A day the person decided not to do this, on purpose.
+
+    Without it, resting and failing were the same event: the occasion
+    counted against adherence and broke the run either way. A planned rest
+    leaves the denominator instead of entering it as a miss, and the run
+    steps over it.
+
+    Keyed on the user's own local day, like the reminder log — "I am resting
+    today" is a statement about their day, not about UTC.
+    """
+
+    __tablename__ = "bat_habit_skips"
+
+    id = Column(Integer, primary_key=True, index=True)
+    habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    local_date = Column(String, nullable=False)
+    note = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    habit = relationship("BatHabit", back_populates="skips")
+
+    __table_args__ = (UniqueConstraint("habit_id", "local_date", name="uq_habit_skip_day"),)
 
 
 class HabitCompletionLog(Base):

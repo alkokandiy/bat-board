@@ -180,6 +180,11 @@ export const api = {
   updateHabit: (id, data) => request(`/habits/${id}`, { method: 'PUT', body: data }),
   deleteHabit: (id) => request(`/habits/${id}`, { method: 'DELETE' }),
   checkInHabit: (id) => request(`/habits/${id}/check-in`, { method: 'POST' }),
+  // A rest the person chose. It leaves the adherence denominator rather than
+  // counting against them, and the run steps over it — so this is never a
+  // "skip", and nothing in the interface should call it one.
+  restHabit: (id, data = {}) => request(`/habits/${id}/rest`, { method: 'POST', body: data }),
+  unrestHabit: (id) => request(`/habits/${id}/rest`, { method: 'DELETE' }),
 
   // Logs
   getLogs: (limit = 50, start_date = '', end_date = '') => {

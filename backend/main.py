@@ -289,6 +289,10 @@ class BatHabitBase(BaseModel):
     weekdays: Optional[str] = Field(None, max_length=32)
     day_of_month: Optional[int] = Field(None, ge=1, le=31)
     interval_days: Optional[int] = Field(None, ge=1, le=365)
+    # "Three times a week, you pick which" — a different promise from three
+    # named days, and a keepable one. None means once per period, which is
+    # what every habit meant before this could be said.
+    times_per_period: Optional[int] = Field(None, ge=1, le=20)
     # An implementation intention — when and where this actually happens.
     # Naming it is the strongest single lever in the habit literature.
     cue: Optional[str] = Field(None, max_length=200)
@@ -306,9 +310,9 @@ class BatHabitUpdate(BaseModel):
     weekdays: Optional[str] = Field(None, max_length=32)
     day_of_month: Optional[int] = Field(None, ge=1, le=31)
     interval_days: Optional[int] = Field(None, ge=1, le=365)
+    times_per_period: Optional[int] = Field(None, ge=1, le=20)
     cue: Optional[str] = Field(None, max_length=200)
     minimum_viable: Optional[str] = Field(None, max_length=200)
-    streak: Optional[int] = None
     target_date: Optional[datetime] = None
 
 class BatHabitSchema(BatHabitBase):
@@ -328,6 +332,11 @@ class BatHabitSchema(BatHabitBase):
     # schedule to know whether to show this today.
     due_today: bool = True
     schedule_label: str = "every day"
+    # How far through this period they are, and whether they have called it
+    # a rest day. Computed, so the screen never re-derives the schedule.
+    times_target: int = 1
+    done_this_period: int = 0
+    resting_today: bool = False
     last_completed: Optional[datetime] = None
     focus_minutes: int = 0
     target_date: Optional[datetime] = None
@@ -950,18 +959,28 @@ def create_habit(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return habit_service.create_habit(
-        db,
-        current_user,
-        name=habit_data.name,
-        description=habit_data.description,
-        frequency=habit_data.frequency,
-        cue=habit_data.cue,
-        minimum_viable=habit_data.minimum_viable,
-        weekdays=habit_data.weekdays,
-        day_of_month=habit_data.day_of_month,
-        interval_days=habit_data.interval_days,
-    )
+    try:
+        habit = habit_service.create_habit(
+            db,
+            current_user,
+            name=habit_data.name,
+            description=habit_data.description,
+            frequency=habit_data.frequency,
+            cue=habit_data.cue,
+            minimum_viable=habit_data.minimum_viable,
+            weekdays=habit_data.weekdays,
+            day_of_month=habit_data.day_of_month,
+            interval_days=habit_data.interval_days,
+            times_per_period=habit_data.times_per_period,
+        )
+    except ValueError as exc:
+        # A contradictory schedule is the caller's mistake, not a crash.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    # Returned through attach_adherence so the new habit arrives carrying the
+    # same computed fields as every habit in the list. Without it the screen
+    # reads a brand-new "three times a week" habit as a once-a-week one until
+    # the next refresh.
+    return habit_service.attach_adherence(db, current_user, [habit])[0]
 
 @app.put("/api/habits/{habit_id}", response_model=BatHabitSchema)
 @limiter.limit("30/minute")
@@ -972,30 +991,30 @@ def update_habit(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    habit = db.query(models.BatHabit).filter(
-        models.BatHabit.id == habit_id,
-        models.BatHabit.owner_id == current_user.id
-    ).first()
+    """Edit a habit.
 
-    if not habit:
+    Through the service, not by setting columns here. Setting them directly
+    skipped every rule the service enforces — a habit switched from weekly
+    to daily kept its weekdays, and a count could be stored alongside chosen
+    days, which are contradictory answers to the same question. Alfred went
+    through the service and the website did not, so the two could disagree
+    about the same habit.
+    """
+    try:
+        habit = habit_service.update_habit(
+            db, current_user, habit_id,
+            **{f: getattr(payload, f) for f in payload.model_fields_set})
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if habit is None:
         raise HTTPException(status_code=404, detail="Habit not found")
-
-    for field in payload.model_fields_set:
-        value = getattr(payload, field)
-        if value is None and field in ("name", "frequency", "streak"):
-            continue  # explicit null on a NOT NULL column used to 500
-        setattr(habit, field, value)
-
-    db.flush()
-    db.refresh(habit)
 
     auto_log_event(db, current_user.id, "habit_updated", {
         "habit_id": habit.id,
         "name": habit.name
     })
     db.commit()
-
-    return habit
+    return habit_service.attach_adherence(db, current_user, [habit])[0]
 
 @app.delete("/api/habits/{habit_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("30/minute")
@@ -1035,6 +1054,69 @@ def check_in_habit(
     if habit is None:
         raise HTTPException(status_code=404, detail="Habit not found")
     return habit
+
+class HabitRestRequest(BaseModel):
+    # Their local day, omitted for today. A rest is a statement about their
+    # day, not about UTC.
+    on: Optional[str] = Field(None, max_length=10)
+    note: Optional[str] = Field(None, max_length=200)
+
+
+@app.post("/api/habits/{habit_id}/rest")
+@limiter.limit("30/minute")
+def rest_habit(
+    request: Request,
+    habit_id: int,
+    payload: Optional[HabitRestRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Rest this habit for a day, on purpose.
+
+    Resting and failing used to be the same event: the occasion counted
+    against adherence and broke the run either way, so the only way to
+    protect a run was to never need the rest.
+    """
+    payload = payload or HabitRestRequest()
+    try:
+        out = habit_service.skip_habit(
+            db, current_user, habit_id, on=payload.on, note=payload.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if out is None:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    return out
+
+
+@app.delete("/api/habits/{habit_id}/rest")
+@limiter.limit("30/minute")
+def unrest_habit(
+    request: Request,
+    habit_id: int,
+    on: Optional[str] = Query(None, max_length=10),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    try:
+        out = habit_service.unskip_habit(db, current_user, habit_id, on=on)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if out is None:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    return out
+
+
+@app.get("/api/habits/{habit_id}/rest")
+def list_habit_rest_days(
+    habit_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    out = habit_service.rest_days(db, current_user, habit_id)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    return out
+
 
 # --- Logs Endpoints ---
 @app.get("/api/logs", response_model=List[BatLogSchema])

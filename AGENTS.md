@@ -33,7 +33,7 @@ Never run a dev server to "check" something; run the tests.
   minute by an external cron. Anything periodic belongs in `services/scheduler.py`
   and must be safe to run repeatedly and from multiple workers.
 - Per-user timezones: use `services/timezones.py`, never naive "today".
-- Migrations are numbered (`030` is current head). New migration = next number,
+- Migrations are numbered (`031` is current head). New migration = next number,
   additive where possible, and must be reversible.
 - Comments explain **why**, not what — especially the non-obvious decision behind a
   line. Match the surrounding density; don't narrate the code.
