@@ -11,8 +11,9 @@ a partial miss read as total failure, and the whole thing abandoned.
   is the thing being built — whether the run was five miles or putting the
   shoes on.
 
-Neither touches what a check-in earns. The reward still follows recent
-adherence, and `best_streak` is still never reset.
+Neither touches what a check-in earns — a kept occasion is a flat
+HABIT_REWARD whatever kind of week it has been — and `best_streak` is still
+never reset.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -165,8 +166,14 @@ class TestGrace:
         finally:
             db.close()
 
-    def test_the_reward_still_follows_adherence_and_not_the_run(self):
-        """Grace must not become a way to mint points."""
+    def test_the_reward_ignores_the_run_entirely(self):
+        """Grace must not become a way to mint points.
+
+        A twenty-long run earns exactly what a first-ever check-in earns.
+        The reward used to scale — first with the streak, which punished a
+        missed day twice over, then with recent adherence, which was fairer
+        but still let the number argue about how you were doing.
+        """
         uid = _mk_user()
         db = SessionLocal()
         try:
@@ -177,9 +184,68 @@ class TestGrace:
             before = user.points
             habit_service.check_in_habit(db, user, h.id)
             db.refresh(user)
-            # 5 + min(adherence.done, 10). Three distinct periods once today
-            # is counted, so well under what a 21-day run would imply.
-            assert before < user.points <= before + 9
+            assert user.points - before == habit_service.HABIT_REWARD
+        finally:
+            db.close()
+
+    def test_a_brand_new_habit_earns_the_same(self):
+        """The other end of the scale, and the same number."""
+        uid = _mk_user()
+        db = SessionLocal()
+        try:
+            user = db.get(models.BatAccount, uid)
+            h = _habit(db, uid)
+            before = user.points
+            habit_service.check_in_habit(db, user, h.id)
+            db.refresh(user)
+            assert user.points - before == habit_service.HABIT_REWARD
+        finally:
+            db.close()
+
+    def test_the_logged_adherence_counts_the_check_in_just_made(self):
+        """It read one short: the session is autoflush=False, so the row
+        added moments earlier was invisible to the query describing it."""
+        uid = _mk_user()
+        db = SessionLocal()
+        try:
+            user = db.get(models.BatAccount, uid)
+            h = _habit(db, uid)
+            habit_service.check_in_habit(db, user, h.id)
+            row = (
+                db.query(models.BatLog)
+                .filter(models.BatLog.owner_id == uid,
+                        models.BatLog.event_type == "habit_checkin")
+                .order_by(models.BatLog.id.desc())
+                .first()
+            )
+            assert "1 of the last" in row.details, row.details
+        finally:
+            db.close()
+
+    def test_grace_still_judges_the_week_before_today(self):
+        """The flush sits AFTER the grace decision on purpose.
+
+        Counting the check-in being made right now as evidence for forgiving
+        the gap it follows is circular — the act asks to be excused by its
+        own existence. Pitched exactly on the boundary so it says so: six
+        kept days of fourteen is 0.43 and below the floor, while seven is
+        0.50 and over it. Flushed a few lines earlier, this run survives.
+        """
+        uid = _mk_user()
+        db = SessionLocal()
+        try:
+            user = db.get(models.BatAccount, uid)
+            h = _habit(db, uid, streak=9, best_streak=9,
+                       last_completed=(datetime.now(timezone.utc) - timedelta(days=2)).replace(tzinfo=None))
+            _history(db, h, [2, 3, 4, 5, 6, 7])    # six, so 6/14 = 0.43
+            assert habit_service.recent_adherence(db, user, h)["rate"] \
+                < habit_service.GRACE_MIN_ADHERENCE
+            habit_service.check_in_habit(db, user, h.id)
+            db.refresh(h)
+            assert habit_service.recent_adherence(db, user, h)["rate"] \
+                >= habit_service.GRACE_MIN_ADHERENCE, "the boundary moved"
+            assert h.streak == 1, "today excused its own gap"
+            assert h.best_streak == 9
         finally:
             db.close()
 

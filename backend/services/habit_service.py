@@ -114,6 +114,23 @@ def _keys_from_skip_rows(habit, iso_days) -> frozenset:
 
 ADHERENCE_WINDOW_DAYS = 14
 
+# What one kept occasion is worth. Flat, on purpose.
+#
+# It used to be 5 + min(recent adherence, 10), which was itself a fix for a
+# worse thing — a reward scaled to the consecutive streak, so one missed day
+# cost the count AND collapsed the earning rate. Scaling by adherence stopped
+# that double punishment, but it kept the premise: that the number of points
+# should argue with you about how you are doing.
+#
+# It should not. The adherence figure already says how it is going, in words,
+# on the screen; making the points say it again turned a record into a second
+# opinion. Flat is honest and legible — a check-in is a check-in — and it
+# removes the last reason for the reward to care about the streak.
+#
+# 10 is the midpoint of the old 5-15 range and the default mission reward, so
+# nobody's level pace moves noticeably in either direction.
+HABIT_REWARD = 10
+
 # One missed period inside a run is forgiven. A second is the run genuinely
 # ending, and pretending otherwise would make the number mean nothing.
 GRACE_PER_RUN = 1
@@ -189,7 +206,7 @@ def attach_adherence(db: Session, current_user: models.BatAccount,
                      days: int = ADHERENCE_WINDOW_DAYS) -> List[models.BatHabit]:
     """Hang "done of window" on each habit so the API can report it.
 
-    `recent_adherence` is the measure the reward is built on, but it only ever
+    `recent_adherence` is the honest headline measure, but it only ever
     reached the user through a check-in response — so the board could show the
     consecutive streak and nothing else, which is the one number the evidence
     says not to lead with. One query for the whole list, because somebody with
@@ -366,14 +383,20 @@ def check_in_habit(
 
         habit.last_completed = now
 
-        # The bonus follows RECENT ADHERENCE, not the consecutive streak.
-        # Tying it to the streak punished a missed day twice over — the count
-        # reset AND the earning rate collapsed with it — which is precisely the
-        # pattern that makes people abandon a habit after one blameless gap.
-        # Same range as before (6-15 points), but it now degrades gently
-        # instead of falling off a cliff.
+        # The session is autoflush=False, so until now the check-in just
+        # made was invisible to every query below it, and the adherence
+        # written into the log read one short — as though today had not
+        # happened. Flushed HERE and not earlier on purpose: the grace
+        # decision above asks whether the habit was being kept BEFORE
+        # today, and counting the check-in being made right now as evidence
+        # for forgiving the gap it follows would be circular.
+        db.flush()
+
+        # A kept occasion is worth the same whatever kind of week it has
+        # been. See HABIT_REWARD. The adherence figure is still read, but
+        # only to SAY how it is going in the log — never to price it.
         adherence = recent_adherence(db, current_user, habit)
-        reward = 5 + min(adherence["done"], 10)
+        reward = HABIT_REWARD
 
         current_user.points += reward
         old_level = current_user.bat_level

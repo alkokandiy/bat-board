@@ -56,9 +56,12 @@ Never run a dev server to "check" something; run the tests.
    work blocks (or 52/17, or 90), "never break the chain", "23 minutes to
    refocus", 10,000 hours, learning styles, willpower as a daily battery.
    Session length comes from `focus_service.suggested_focus_minutes` — the
-   user's own median — never a constant. Habit reward follows **recent
-   adherence**, never the consecutive streak: tying it to the streak punished a
-   missed day twice over. `best_streak` must never be reset.
+   user's own median — never a constant. **A habit check-in pays a flat
+   `habit_service.HABIT_REWARD`** — never scaled by the consecutive streak,
+   which punished a missed day twice over, and no longer scaled by adherence
+   either: the adherence figure already says how it is going, and pricing the
+   points by it made the number argue with the person. `best_streak` must
+   never be reset.
 5. Secrets come from env via `config.py`. Never log or return an API key.
 6. Tests are part of the change, not an afterthought — and a bug fix gets a test
    that fails before the fix.
