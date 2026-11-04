@@ -1159,10 +1159,14 @@ def may_nudge(db, user: models.BatAccount, local_now: datetime) -> bool:
     if last_reminder is not None and now_utc - _aware(last_reminder.sent_at) < REMINDER_QUIET:
         return False
 
-    # Mid-conversation? Leave them be.
+    # Mid-conversation? Leave them be. THEIR messages only: Alfred's own
+    # unprompted sends are recorded here now, and him having just spoken is
+    # not a reason to leave him alone — it would let one nudge silence the
+    # next for an hour, and a morning brief silence the morning.
     last_msg = (
         db.query(models.BatAlfredMessage)
-        .filter(models.BatAlfredMessage.owner_id == user.id)
+        .filter(models.BatAlfredMessage.owner_id == user.id,
+                models.BatAlfredMessage.role == "user")
         .order_by(models.BatAlfredMessage.created_at.desc())
         .first()
     )

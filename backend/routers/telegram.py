@@ -27,7 +27,7 @@ from dependencies import (
     get_db,
     get_user_by_telegram_chat_id,
 )
-from services import (alfred_agent, alfred_memory_reviewer, focus_service,
+from services import (alfred_agent, alfred_context, alfred_memory_reviewer, focus_service,
                       provider_config_service, reminder_feedback, setup_wizard,
                       telegram_service)
 
@@ -213,7 +213,8 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
         # --- Voice note: transcribe with the user's own model, then run as text ---
         voice = message.get("voice")
         if voice:
-            await _handle_voice(db, user, chat_id, voice, background_tasks)
+            await _handle_voice(db, user, chat_id, voice, background_tasks,
+                                message=message)
             return
 
         # --- Photo / image document: send it to a vision model and answer ---
@@ -332,6 +333,16 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
         # them something is happening while it runs. Both exist because a
         # silent multi-step turn made people send the message again, and two
         # concurrent turns then answered each other's messages.
+        #
+        # A reply in Telegram names the message it answers. Reading it is the
+        # difference between "Change it's time" meaning the reminder just
+        # quoted and "Change it's time" meaning anything at all — the latter
+        # got answered, once, with "I have found the mission to learn dots".
+        # The annotated text goes to the model; the plain text is what gets
+        # stored, so the history stays readable.
+        quoted = alfred_context.resolve_reply(db, user, message.get("reply_to_message"))
+        asked = alfred_context.annotate(user, text, quoted) or text
+
         media = []
         try:
             async with alfred_agent.turn_lock(db, user):
@@ -339,11 +350,16 @@ async def process_telegram_update(payload: dict, background_tasks) -> None:
                     active = alfred_agent.get_active_session(db, user)
                     session_id = active.id if active else None
                     reply = await alfred_agent.run_turn(
-                        db, user, text, session_id=session_id, media_sink=media)
+                        db, user, asked, session_id=session_id, media_sink=media,
+                        store_text=text,
+                        user_message_id=message.get("message_id"))
         except alfred_agent.TurnBusyError:
             _reply(chat_id, alfred_agent.STILL_WORKING_REPLY)
             return
-        _reply(chat_id, reply)
+        sent_id = _reply(chat_id, reply)
+        # Without this, replying to something Alfred said in conversation
+        # resolves to nothing — only his scheduled messages would be known.
+        alfred_context.attach_reply_id(db, user, reply, sent_id)
         _deliver_media(chat_id, media)
         # Memory review runs after the reply is already sent — never on
         # quota/setup short-circuits, which need no review and no extra spend.
@@ -418,20 +434,27 @@ async def _handle_photo(db: Session, user, chat_id: str, image: dict, message: d
     caption = (message.get("caption") or "").strip()
     content = caption or "(The user sent a photo.)"
     store_text = f"[image: {caption or 'no caption'}]"
+    # A photo sent AS a reply is answering that message; sending it cold is
+    # not the same act, and the two used to be indistinguishable.
+    quoted = alfred_context.resolve_reply(db, user, message.get("reply_to_message"))
+    content = alfred_context.annotate(user, content, quoted) or content
     active = alfred_agent.get_active_session(db, user)
     session_id = active.id if active else None
     media = []
     reply = await alfred_agent.run_turn(
         db, user, content, session_id=session_id,
         images=[{"data": data, "mime_type": mime}], store_text=store_text, media_sink=media,
+        user_message_id=message.get("message_id"),
     )
-    _reply(chat_id, reply)
+    sent_id = _reply(chat_id, reply)
+    alfred_context.attach_reply_id(db, user, reply, sent_id)
     _deliver_media(chat_id, media)
     if reply not in alfred_agent.NO_REVIEW_REPLIES:
         alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, store_text, reply)
 
 
-async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background_tasks) -> None:
+async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background_tasks,
+                        message: Optional[dict] = None) -> None:
     """Transcribe a Telegram voice note and run the transcript as a normal turn.
 
     Audio bytes are fetched, transcribed and discarded; only the transcript is
@@ -483,8 +506,15 @@ async def _handle_voice(db: Session, user, chat_id: str, voice: dict, background
     active = alfred_agent.get_active_session(db, user)
     session_id = active.id if active else None
     media = []
-    reply = await alfred_agent.run_turn(db, user, transcript, session_id=session_id, media_sink=media)
-    _reply(chat_id, reply)
+    # Same as text: a voice note sent as a reply is answering that message.
+    quoted = alfred_context.resolve_reply(
+        db, user, (message or {}).get("reply_to_message"))
+    asked = alfred_context.annotate(user, transcript, quoted) or transcript
+    reply = await alfred_agent.run_turn(
+        db, user, asked, session_id=session_id, media_sink=media,
+        store_text=transcript, user_message_id=(message or {}).get("message_id"))
+    sent_id = _reply(chat_id, reply)
+    alfred_context.attach_reply_id(db, user, reply, sent_id)
     _deliver_media(chat_id, media)
     if reply not in alfred_agent.NO_REVIEW_REPLIES:
         alfred_memory_reviewer.schedule_memory_review(background_tasks, user.id, transcript, reply)
@@ -527,6 +557,18 @@ def _handle_reminder_callback(db: Session, callback: dict) -> None:
         except Exception:
             pass
 
+    def _note(what: str, reminder=None) -> None:
+        """Put the tap in the conversation, so Alfred knows it happened.
+
+        A button press answered the reminder and then vanished: nothing
+        about it reached the message table, so he could raise the same
+        thing an hour after being told it was done.
+        """
+        label = f' "{reminder.message}"' if reminder is not None else ""
+        alfred_context.record_action(
+            db, user, f"[{what} the reminder{label}]",
+            about=("reminder", reminder_id))
+
     if action == "stop":
         reminder = (
             db.query(models.BatReminder)
@@ -540,6 +582,7 @@ def _handle_reminder_callback(db: Session, callback: dict) -> None:
         # to stop must be stoppable without a conversation about it.
         reminder.enabled = False
         db.commit()
+        _note("Turned off", reminder)
         _answer("Stopped. Ask me if you want it back.")
         return
 
@@ -567,6 +610,7 @@ def _handle_reminder_callback(db: Session, callback: dict) -> None:
             return
         # Starting the work IS the answer to the reminder.
         reminder_feedback.record_outcome(db, user, reminder_id, "done")
+        _note("Started a focus session from", reminder)
         _answer("Started. The clock is running.")
         return
 
@@ -577,6 +621,9 @@ def _handle_reminder_callback(db: Session, callback: dict) -> None:
     if row is None:
         _answer("I could not find that one.")
         return
+
+    _note({"done": "Marked done", "skipped": "Skipped",
+           "snoozed": "Snoozed"}.get(action, action.title()), reminder)
 
     # A habit reminder marked done should leave the habit checked in, or the
     # board and the reminder disagree about the same act.
@@ -712,12 +759,15 @@ def _deliver_media(chat_id: str, media: list) -> None:
         )
 
 
-def _reply(chat_id: str, text: str) -> None:
+def _reply(chat_id: str, text: str) -> Optional[int]:
+    """Send a reply. Returns Telegram's id for it, so a reply TO it resolves."""
     settings = get_settings()
     if not settings.telegram_bot_token:
         logger.error("telegram_not_configured", hint="Set TELEGRAM_BOT_TOKEN in Railway.")
-        return
-    telegram_service.send_telegram_message(settings.telegram_bot_token, chat_id, text)
+        return None
+    return telegram_service.message_id_of(
+        telegram_service.send_telegram_message(
+            settings.telegram_bot_token, chat_id, text))
 
 
 def _reply_markup(chat_id: str, text: str, reply_markup: dict) -> None:

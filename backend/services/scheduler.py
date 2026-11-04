@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 import models
 from config import get_settings
-from services import briefings, reminder_feedback, telegram_service
+from services import alfred_context, briefings, reminder_feedback, telegram_service
 from services.timezones import user_tz
 
 log = structlog.get_logger(__name__)
@@ -114,13 +114,31 @@ def _reminder_due_today(reminder: models.BatReminder, local_now: datetime) -> bo
 
 
 def _send(db: Session, user: models.BatAccount, chat_id: str, text: str,
-          reply_markup: Optional[dict] = None) -> bool:
+          reply_markup: Optional[dict] = None, *,
+          origin: str, about: Optional[tuple] = None) -> bool:
+    """Send an unprompted message, and write it into the conversation.
+
+    The recording is the point of the second half of this function. Until
+    now everything the scheduler sent bypassed `bat_alfred_messages`
+    entirely, so Alfred's history contained only turns the user had started
+    and he could not see a single thing he had said on his own. Writing it
+    down here, at the one place every unprompted message passes through,
+    means there is nowhere left for one to escape unrecorded.
+
+    `origin` has no default on purpose: a new kind of scheduled message
+    filed under the wrong name is worse than one that will not compile.
+    """
     settings = get_settings()
     if not settings.telegram_bot_token:
         log.warning("scheduler_no_bot_token")
         return False
-    return telegram_service.send_telegram_message(
+    sent = telegram_service.send_telegram_message(
         settings.telegram_bot_token, chat_id, text, reply_markup=reply_markup)
+    if sent:
+        alfred_context.record_outbound(
+            db, user, text, origin=origin,
+            telegram_message_id=telegram_service.message_id_of(sent), about=about)
+    return bool(sent)
 
 
 def _reminder_keyboard(reminder) -> dict:
@@ -172,7 +190,7 @@ async def _fire_briefings(db: Session, user: models.BatAccount, chat_id: str,
 
         try:
             text = await briefings.build_briefing_text(db, user, b, adapter=adapter)
-            ok = _send(db, user, chat_id, text)
+            ok = _send(db, user, chat_id, text, origin="briefing")
         except Exception as exc:
             ok = False
             log.warning("briefing_build_failed", user_id=user.id, kind=b.kind, error=str(exc))
@@ -227,7 +245,8 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
 
         try:
             ok = _send(db, user, chat_id, briefings.render_reminder(user, r),
-                       reply_markup=_reminder_keyboard(r))
+                       reply_markup=_reminder_keyboard(r),
+                       origin="reminder", about=("reminder", r.id))
         except Exception as exc:
             ok = False
             log.warning("reminder_send_failed", reminder_id=r.id, error=str(exc))
@@ -284,7 +303,9 @@ def _fire_due_focus(db: Session, now_utc: datetime, summary: dict) -> None:
             continue
         addr = (getattr(owner, "alfred_address", None) or "").strip() or owner.username
         tgt = f" on {target}" if target else ""
-        if _send(db, owner, chat_id, f"Focus complete, {addr} — {planned} minutes logged{tgt}. Well done."):
+        if _send(db, owner, chat_id,
+                 f"Focus complete, {addr} — {planned} minutes logged{tgt}. Well done.",
+                 origin="focus"):
             summary["focus_pings_sent"] += 1
 
     # Abandoned untimed sessions (browser tab closed without stopping) would
@@ -354,7 +375,7 @@ def _fire_work_reports(db: Session, user: models.BatAccount, chat_id: str,
         return      # already sent today
 
     text = work_service.render_report(user, data)
-    if _send(db, user, chat_id, text):
+    if _send(db, user, chat_id, text, origin="work_report"):
         summary["work_reports_sent"] += 1
     else:
         db.delete(logrow)
@@ -381,7 +402,7 @@ async def _fire_nudges(db: Session, user: models.BatAccount, chat_id: str,
             # stops him reconsidering the same thing on every tick all day.
             summary["nudges_declined"] = summary.get("nudges_declined", 0) + 1
             return
-        ok = _send(db, user, chat_id, text)
+        ok = _send(db, user, chat_id, text, origin="nudge")
     except Exception as exc:
         ok = False
         log.warning("nudge_send_failed", user_id=user.id, kind=nudge.kind, error=str(exc))

@@ -6,6 +6,7 @@ Phase 2B will reuse send_telegram_message for Alfred's actual responses.
 
 import hashlib
 import json
+from dataclasses import dataclass
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
@@ -274,8 +275,34 @@ def _split_message(text: str, limit: int = TELEGRAM_MAX_MESSAGE_CHARS) -> List[s
     return [c for c in chunks if c] or [""]
 
 
-def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: float = 10.0, reply_markup: dict = None) -> bool:
-    """POST a sendMessage to Telegram's Bot API. Returns True on success.
+@dataclass
+class Delivery:
+    """The outcome of a send, and what Telegram called the message.
+
+    The id used to be thrown away. It is the only handle on a message once
+    it has left, so without it a reply to something Alfred said could not be
+    matched back to what he said.
+
+    It is truthy exactly when the send succeeded, so this remains a drop-in
+    for the bool this function used to return — including for the test
+    doubles that stand in for it, which hand back a bare True and therefore
+    simply have no id to offer.
+    """
+
+    ok: bool
+    message_id: Optional[int] = None
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+
+def message_id_of(result) -> Optional[int]:
+    """The Telegram id from a send result, if it has one."""
+    return getattr(result, "message_id", None)
+
+
+def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: float = 10.0, reply_markup: dict = None) -> "Delivery":
+    """POST a sendMessage to Telegram's Bot API. Truthy on success.
 
     Text over Telegram's 4096-character limit is sent as several messages
     (it used to be rejected with a 400 and the reply silently lost); the
@@ -286,13 +313,21 @@ def send_telegram_message(bot_token: str, chat_id: str, text: str, timeout: floa
     """
     chunks = _split_message(text, TELEGRAM_SPLIT_CHARS)
     ok = True
+    # The LAST chunk's id, because that is the one carrying the reply markup
+    # and therefore the one a person replies to.
+    last_id = None
     for i, chunk in enumerate(chunks):
         markup = reply_markup if i == len(chunks) - 1 else None
-        ok = _send_one(bot_token, chat_id, chunk, timeout, markup) and ok
-    return ok
+        sent = _send_one(bot_token, chat_id, chunk, timeout, markup)
+        ok = (sent is not None) and ok
+        if sent is not None:
+            last_id = sent
+    return Delivery(ok=ok, message_id=last_id)
 
 
-def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_markup: Optional[dict]) -> bool:
+def _send_one(bot_token: str, chat_id: str, text: str, timeout: float,
+              reply_markup: Optional[dict]) -> Optional[int]:
+    """Send one chunk. Returns Telegram's message_id, or None if it failed."""
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     try:
         payload = {"chat_id": chat_id, "text": to_telegram_html(text), "parse_mode": "HTML"}
@@ -300,7 +335,7 @@ def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_mar
             payload["reply_markup"] = json.dumps(reply_markup)
         resp = httpx.post(url, json=payload, timeout=timeout)
         if resp.status_code == 200:
-            return True
+            return _message_id(resp)
         logger.error("telegram_send_failed", status_code=resp.status_code)
         # A 400 here is usually a malformed entity: the model emitted a tag we
         # can't safely render. Resend the SAME chunk once as plain text (no
@@ -311,12 +346,25 @@ def _send_one(bot_token: str, chat_id: str, text: str, timeout: float, reply_mar
             fallback["reply_markup"] = json.dumps(reply_markup)
         retry = httpx.post(url, json=fallback, timeout=timeout)
         if retry.status_code == 200:
-            return True
+            return _message_id(retry)
         logger.error("telegram_send_plain_failed", status_code=retry.status_code)
-        return False
+        return None
     except Exception as exc:
         logger.error("telegram_send_error", error_type=type(exc).__name__, error=str(exc))
-        return False
+        return None
+
+
+def _message_id(resp) -> Optional[int]:
+    """Telegram's id for the message just sent, or a sentinel if unreadable.
+
+    A send that succeeded but whose body we cannot parse must still count as
+    a success, so this returns 0 rather than None — None means "did not
+    send", and conflating the two would make a delivered message look lost.
+    """
+    try:
+        return int(((resp.json() or {}).get("result") or {}).get("message_id") or 0)
+    except Exception:
+        return 0
 
 
 # Telegram only offers a command menu for commands the bot has REGISTERED
