@@ -54,7 +54,7 @@ function coversDay(event, day) {
   return d >= from && d <= to;
 }
 
-export default function CalendarPanel() {
+export default function CalendarPanel({ onFocusOn }) {
   const [events, setEvents] = useState([]);
   const [missions, setMissions] = useState([]);
   // Recomputed every render, not frozen at mount: left open overnight, the
@@ -320,11 +320,29 @@ export default function CalendarPanel() {
                     {d.getDate()}
                   </div>
                   <div className="flex-1 space-y-[2px] overflow-hidden">
+                    {/* A mission due today is the likeliest thing to start
+                        working on, and the calendar is where you notice it.
+                        Clicking it opens the timer already pointed at it,
+                        rather than sending you off to find it in a list. */}
                     {shownMissions.map(m => (
-                      <div key={m.id} title={`Mission due: ${m.title}`}
-                        className="text-[10px] bg-signal-late/15 text-signal-late border-l-2 border-signal-late/70 px-1.5 py-0.5 rounded-sm truncate leading-tight">
+                      <button
+                        key={m.id}
+                        type="button"
+                        title={onFocusOn
+                          ? `Focus on "${m.title}"`
+                          : `Mission due: ${m.title}`}
+                        aria-label={onFocusOn ? `Focus on "${m.title}"` : `Mission due: ${m.title}`}
+                        onClick={evtClick => {
+                          evtClick.stopPropagation();
+                          if (onFocusOn) onFocusOn(m.id);
+                        }}
+                        className={`block w-full text-left text-[10px] bg-signal-late/15 text-signal-late
+                          border-l-2 border-signal-late/70 px-1.5 py-0.5 rounded-sm truncate leading-tight
+                          transition-all duration-200 ease-soft
+                          ${onFocusOn ? 'cursor-pointer hover:brightness-125' : 'cursor-default'}`}
+                      >
                         {m.title}
-                      </div>
+                      </button>
                     ))}
                     {shownEvents.map(evt => (
                       <div key={evt.id} title={evt.title}

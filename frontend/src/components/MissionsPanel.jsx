@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Trash2, X } from 'lucide-react';
+import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Timer, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
 
@@ -109,7 +109,7 @@ function SubtaskEditor({ value, onChange }) {
   );
 }
 
-function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime }) {
+function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
   const isCompleted = mission.status === 'completed';
   const subtasks = parseSubtasks(mission.subtasks);
   const doneSubtasks = subtasks.filter(s => s.done).length;
@@ -190,6 +190,15 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
         {/* Dim until the row is approached, then a legible set — rather than
             four controls permanently at the edge of visibility. */}
         <div className="flex items-center gap-0.5 shrink-0 opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
+          {/* Deciding what to work on and starting to work on it were two
+              screens apart. The gap is where the intention went. */}
+          {!isCompleted && onFocusOn && (
+            <IconButton
+              label={`Focus on "${mission.title}"`}
+              onClick={() => onFocusOn(mission.id)}
+              icon={Timer}
+            />
+          )}
           <IconButton label={`Edit "${mission.title}"`} onClick={() => onEdit(mission)} icon={Pencil} />
           <IconButton label={`Duplicate "${mission.title}"`} onClick={() => onDuplicate(mission)} icon={Copy} />
           {!mission.is_dismissed && (
@@ -260,7 +269,7 @@ const QUADRANTS = [
   { key: 'delegate', label: 'Delegate', sub: 'neither' },
 ];
 
-function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime }) {
+function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
   const classify = (m) => {
     const urgent = m.priority === 'critical' || m.priority === 'high';
     const important = m.priority !== 'low';
@@ -279,7 +288,7 @@ function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDupl
             {ms.length === 0
               ? <EmptyState compact>Nothing here</EmptyState>
               : ms.map(m => (
-                  <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} onLogTime={onLogTime} />
+                  <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} onLogTime={onLogTime} onFocusOn={onFocusOn} />
                 ))}
           </Panel>
         );
@@ -288,7 +297,7 @@ function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDupl
   );
 }
 
-export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAccount }) {
+export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAccount, onFocusOn }) {
   const [viewMode, setViewMode] = useState('list');
   const [showForm, setShowForm] = useState(false);
   const [editMission, setEditMission] = useState(null);
@@ -636,7 +645,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       </div>
 
       {viewMode === 'eisenhower' ? (
-        <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} />
+        <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
       ) : (
         <div className="space-y-gutter">
           <Panel title="Active" meta={`${sortedMissions.length}`} bodyClassName="p-3 space-y-2">
@@ -646,7 +655,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
               </EmptyState>
             ) : (
               sortedMissions.map(m => (
-                <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} />
+                <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
               ))
             )}
           </Panel>
@@ -688,7 +697,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
               </summary>
               <div className="space-y-2 mt-2">
                 {completedMissions.map(m => (
-                  <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} />
+                  <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
                 ))}
               </div>
             </details>

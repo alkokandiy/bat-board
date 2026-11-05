@@ -183,3 +183,37 @@ describe('"upcoming" means upcoming', () => {
     expect(screen.getByRole('button', { name: 'Edit "In progress"' })).toBeTruthy();
   });
 });
+
+describe('Focus on a mission from the calendar', () => {
+  const due = [{ id: 7, title: 'Pay the invoice', status: 'pending', due_date: '2026-11-10T00:00:00Z' }];
+
+  it('starts the timer on the mission that is due', async () => {
+    const onFocusOn = vi.fn();
+    api.getMissions.mockResolvedValue(due);
+    api.getCalendarEvents.mockResolvedValue([]);
+    render(<CalendarPanel onFocusOn={onFocusOn} />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
+    expect(onFocusOn).toHaveBeenCalledWith(7);
+  });
+
+  it('does not also open the day when a mission is clicked', async () => {
+    // The cell itself opens the new-event form; the chip must not do both.
+    const onFocusOn = vi.fn();
+    api.getMissions.mockResolvedValue(due);
+    api.getCalendarEvents.mockResolvedValue([]);
+    render(<CalendarPanel onFocusOn={onFocusOn} />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
+    expect(screen.queryByRole('button', { name: /^save$/i })).toBeNull();
+  });
+
+  it('is still just a label when nothing is wired to it', async () => {
+    api.getMissions.mockResolvedValue(due);
+    api.getCalendarEvents.mockResolvedValue([]);
+    render(<CalendarPanel />);
+    await settle();
+    expect(screen.queryByRole('button', { name: /focus on/i })).toBeNull();
+    expect(screen.getByTitle(/mission due: pay the invoice/i)).toBeTruthy();
+  });
+});
