@@ -246,6 +246,25 @@ def attach_adherence(db: Session, current_user: models.BatAccount,
     for habit_id, iso in skip_rows:
         skips[habit_id].append(iso)
 
+    # Minutes focused on each habit IN THE CURRENT OCCASION. The lifetime
+    # total answers "how much have I ever put into this", which is not the
+    # question in front of someone deciding whether today is done. It also
+    # never went down, so the number grew for ever and meant less each day.
+    focus_rows = (
+        db.query(models.BatFocus.habit_id,
+                 models.BatFocus.start_time,
+                 models.BatFocus.duration_minutes)
+        .filter(models.BatFocus.habit_id.in_(ids),
+                models.BatFocus.owner_id == current_user.id,
+                models.BatFocus.end_time.isnot(None),
+                models.BatFocus.start_time >= since.replace(tzinfo=None))
+        .all()
+    )
+    focus_by_habit: dict = {i: [] for i in ids}
+    for habit_id, start_time, minutes in focus_rows:
+        if start_time and minutes:
+            focus_by_habit[habit_id].append((start_time, minutes))
+
     today_iso = today.isoformat()
     for habit in habits:
         counts = _counts_by_occasion(habit, completions[habit.id], tz)
@@ -261,6 +280,11 @@ def attach_adherence(db: Session, current_user: models.BatAccount,
         habit.done_this_period = counts.get(
             habit_schedule.occasion_key(habit, today), 0)
         habit.resting_today = today_iso in skips[habit.id]
+        this_occasion = habit_schedule.occasion_key(habit, today)
+        habit.focus_minutes_period = sum(
+            minutes for start_time, minutes in focus_by_habit[habit.id]
+            if habit_schedule.occasion_key(habit, local_date(start_time, tz)) == this_occasion
+        )
     return habits
 
 

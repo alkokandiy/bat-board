@@ -18,6 +18,7 @@ vi.mock('../utils/api', () => ({
     endFocusSession: vi.fn(),
     getWorkStatus: vi.fn(),
     getSuggestedFocusMinutes: vi.fn(),
+    getActiveFocusSession: vi.fn(),
   },
 }));
 
@@ -53,6 +54,7 @@ describe('App focus session state machine', () => {
     api.startFocusSession.mockResolvedValue({ id: 101 });
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
   });
 
@@ -204,6 +206,7 @@ describe('Focus on this, from the mission list', () => {
     api.startFocusSession.mockResolvedValue({ id: 101 });
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
   });
 
@@ -310,6 +313,7 @@ describe('Focus on this, from the habit list', () => {
     api.startFocusSession.mockResolvedValue({ id: 101 });
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
   });
 
@@ -369,5 +373,179 @@ describe('Focus on this, from the habit list', () => {
     const sent = api.startFocusSession.mock.calls[0][0];
     expect(sent.habit_id).toBe(3);
     expect(sent.mission_id).toBeUndefined();
+  });
+});
+
+describe('Picking the clock back up after a reload or a re-login', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('bat_access_token', 'test-token');
+    api.getAccount.mockResolvedValue({ username: 'tester', points: 0, bat_level: 'Bronze' });
+    api.getMissions.mockResolvedValue([
+      { id: 9, title: 'Pay the invoice', priority: 'high', status: 'pending',
+        is_pinned: false, is_dismissed: false, focus_minutes: 0 },
+    ]);
+    api.getHabits.mockResolvedValue([]);
+    api.getLogs.mockResolvedValue([]);
+    api.refreshToken.mockResolvedValue({});
+    api.startFocusSession.mockResolvedValue({ id: 101 });
+    api.endFocusSession.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
+    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  const running = (over = {}) => ({
+    active: true, id: 77, planned_minutes: 25,
+    elapsed_seconds: 360, remaining_seconds: 25 * 60 - 360,
+    mission_id: null, habit_id: null, mode: 'normal', ...over,
+  });
+
+  it('comes back running, with the time that is actually left', async () => {
+    api.getActiveFocusSession.mockResolvedValue(running());
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    // 25 minutes planned, six gone: nineteen left, not twenty-five.
+    // getAllBy: the big digits and the REMAINING line both say it.
+    expect(screen.getAllByText(/19:00/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/25:00/)).toBeNull();
+  });
+
+  it('restores the length too, so the progress bar is not frozen', async () => {
+    // The bar is drawn from timeLeft over length. Restoring one without the
+    // other left it stuck at full while the digits counted down — which is
+    // exactly what a re-login looked like.
+    api.getActiveFocusSession.mockResolvedValue(running());
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(screen.getByRole('spinbutton').value).toBe('25');
+    expect(screen.getByText(/24% · 19:00 REMAINING/i)).toBeTruthy();
+  });
+
+  it('remembers what the session was on', async () => {
+    api.getActiveFocusSession.mockResolvedValue(running({ mission_id: 9 }));
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(screen.getByRole('button', { name: /focus target/i }))
+      .toHaveTextContent('Pay the invoice');
+  });
+
+  it('credits the time that really elapsed, not what this tab watched', async () => {
+    // The tab was shut for six of the twenty-five minutes. When the clock
+    // runs out, the whole session must be logged — not the nineteen this
+    // tab happened to be present for.
+    api.getActiveFocusSession.mockResolvedValue(running());
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+
+    await act(async () => {
+      vi.advanceTimersByTime(19 * 60 * 1000);
+    });
+
+    expect(api.endFocusSession).toHaveBeenCalledWith(77, { duration_minutes: 25 });
+  });
+
+  it('starts no session of its own when one is already running', async () => {
+    api.getActiveFocusSession.mockResolvedValue(running());
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(api.startFocusSession).not.toHaveBeenCalled();
+  });
+
+  it('boots normally when nothing is running', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(screen.getByText('ENTER FOCUS')).toBeTruthy();
+  });
+
+  it('still boots if the lookup fails', async () => {
+    api.getActiveFocusSession.mockRejectedValue(new Error('down'));
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(screen.getByText('ENTER FOCUS')).toBeTruthy();
+  });
+});
+
+describe('Staying signed in', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('bat_access_token', 'test-token');
+    api.getAccount.mockResolvedValue({ username: 'tester', points: 0, bat_level: 'Bronze' });
+    api.getMissions.mockResolvedValue([]);
+    api.getHabits.mockResolvedValue([]);
+    api.getLogs.mockResolvedValue([]);
+    api.refreshToken.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
+    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  const becomeVisible = async () => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  };
+
+  it('refreshes when the tab is looked at again', async () => {
+    // An interval is throttled in a background tab and does not run at all
+    // while the machine sleeps, so a tab left open overnight came back with
+    // a token that expired hours ago.
+    render(<App />);
+    await act(async () => {});
+    api.refreshToken.mockClear();
+    await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); });
+    await becomeVisible();
+    expect(api.refreshToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refresh on every tab switch', async () => {
+    // /auth/refresh allows ten a minute; switching tabs is constant.
+    render(<App />);
+    await act(async () => {});
+    api.refreshToken.mockClear();
+    await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); });
+    await becomeVisible();
+    await becomeVisible();
+    await becomeVisible();
+    expect(api.refreshToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores the tab being hidden', async () => {
+    render(<App />);
+    await act(async () => {});
+    api.refreshToken.mockClear();
+    await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); });
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(api.refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('a failed refresh does not take the board down', async () => {
+    api.refreshToken.mockRejectedValue(new Error('expired'));
+    render(<App />);
+    await act(async () => {});
+    await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); });
+    await becomeVisible();
+    expect(screen.queryByText(/BOOT CRITICAL ERROR/i)).toBeNull();
   });
 });

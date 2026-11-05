@@ -199,6 +199,9 @@ export const api = {
   startFocusSession: (data) => request('/focus/sessions', { method: 'POST', body: data }),
   endFocusSession: (id, data) => request(`/focus/sessions/${id}`, { method: 'PUT', body: data }),
   getFocusSessions: (limit = 20) => request(`/focus/sessions?limit=${limit}`),
+  // The running session as the SERVER sees it. The browser used to be the
+  // only place a session existed, so a reload lost the clock entirely.
+  getActiveFocusSession: () => request('/focus/sessions/active'),
 
   // How long to suggest a session: their own median, or an openly-labelled
   // fallback. There is no universally correct length, so nothing is hard-coded.
