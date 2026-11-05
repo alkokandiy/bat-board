@@ -385,3 +385,61 @@ describe('Resting is not failing', () => {
     expect(await screen.findByText(/nope/i)).toBeInTheDocument();
   });
 });
+
+describe('Focus on this', () => {
+  const withFocus = (habits, props = {}) => {
+    const onFocusOn = vi.fn();
+    const onRefreshHabits = vi.fn().mockResolvedValue(undefined);
+    render(
+      <HabitsPanel
+        habits={habits}
+        onRefreshHabits={onRefreshHabits}
+        onRefreshAccount={vi.fn().mockResolvedValue(undefined)}
+        onFocusOn={onFocusOn}
+        {...props}
+      />,
+    );
+    return { onFocusOn, onRefreshHabits };
+  };
+
+  it('hands back the habit id', () => {
+    const { onFocusOn } = withFocus([habit({ id: 12 })]);
+    fireEvent.click(screen.getByRole('button', { name: /focus on "fifty press-ups"/i }));
+    expect(onFocusOn).toHaveBeenCalledWith(12);
+  });
+
+  it('is there on a habit that is not due today', () => {
+    // Three groups render HabitRow. Missing the prop on one of them would
+    // make the button vanish from a whole section, silently.
+    withFocus([habit({ due_today: false })]);
+    expect(screen.getByRole('button', { name: /focus on/i })).toBeInTheDocument();
+  });
+
+  it('is there on one already kept today', () => {
+    withFocus([habit({ last_completed: new Date().toISOString() })]);
+    expect(screen.getByRole('button', { name: /focus on/i })).toBeInTheDocument();
+  });
+
+  it('is absent when nothing is wired to it', () => {
+    renderPanel([habit()]);
+    expect(screen.queryByRole('button', { name: /focus on/i })).not.toBeInTheDocument();
+  });
+
+  // The calendar chip was made to mean "focus" and stopped meaning anything
+  // else. These two say that did not happen here.
+  it('did not take over the check-in', async () => {
+    api.checkInHabit.mockResolvedValue({ name: 'Fifty press-ups' });
+    const { onFocusOn } = withFocus([habit({ id: 12 })]);
+    fireEvent.click(screen.getByRole('button', { name: /check in/i }));
+    await waitFor(() => expect(api.checkInHabit).toHaveBeenCalledWith(12));
+    expect(onFocusOn).not.toHaveBeenCalled();
+  });
+
+  it('did not take over the rest day', async () => {
+    api.restHabit.mockResolvedValue({ resting: true });
+    const { onFocusOn } = withFocus([habit({ id: 12 })]);
+    fireEvent.click(screen.getByRole('button', { name: /take a rest day/i }));
+    await waitFor(() => expect(api.restHabit).toHaveBeenCalledWith(12, {}));
+    expect(onFocusOn).not.toHaveBeenCalled();
+  });
+});
