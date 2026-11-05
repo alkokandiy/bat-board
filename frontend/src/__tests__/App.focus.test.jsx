@@ -288,3 +288,86 @@ describe('Focus on this, from the mission list', () => {
   });
 
 });
+
+describe('Focus on this, from the habit list', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('bat_access_token', 'test-token');
+    api.getAccount.mockResolvedValue({ username: 'tester', points: 0, bat_level: 'Bronze' });
+    api.getMissions.mockResolvedValue([
+      { id: 9, title: 'Pay the invoice', priority: 'high', status: 'pending',
+        is_pinned: false, is_dismissed: false, focus_minutes: 0 },
+    ]);
+    api.getHabits.mockResolvedValue([
+      { id: 3, name: 'Fifty press-ups', frequency: 'daily', streak: 0, best_streak: 0,
+        due_today: true, times_target: 1, done_this_period: 0, resting_today: false,
+        adherence_done: 0, adherence_window: 14, focus_minutes: 0 },
+    ]);
+    api.getLogs.mockResolvedValue([]);
+    api.refreshToken.mockResolvedValue({});
+    api.startFocusSession.mockResolvedValue({ id: 101 });
+    api.endFocusSession.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  const goTo = async (name) => {
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name })[0]);
+    });
+  };
+
+  it('lands on the timer with that habit already the target', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goTo(/habits/i);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "fifty press-ups"/i }));
+    });
+    expect(screen.getByRole('button', { name: /focus target/i }))
+      .toHaveTextContent('Fifty press-ups');
+  });
+
+  it('starts the session against that habit', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goTo(/habits/i);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "fifty press-ups"/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('ENTER FOCUS'));
+    });
+    const sent = api.startFocusSession.mock.calls[0][0];
+    expect(sent.habit_id).toBe(3);
+    expect(sent.mission_id).toBeUndefined();
+  });
+
+  it('replaces a mission target rather than holding both', async () => {
+    // The mirror of the mission case. "One target per session" has to hold
+    // whichever direction you switch.
+    render(<App />);
+    await act(async () => {});
+    await goTo(/missions/i);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
+    });
+    await goTo(/habits/i);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "fifty press-ups"/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('ENTER FOCUS'));
+    });
+    const sent = api.startFocusSession.mock.calls[0][0];
+    expect(sent.habit_id).toBe(3);
+    expect(sent.mission_id).toBeUndefined();
+  });
+});

@@ -548,6 +548,7 @@ export default function App() {
             habits={habits}
             onRefreshHabits={handleRefreshHabits}
             onRefreshAccount={handleRefreshAccount}
+            onFocusOn={(id) => handleFocusOn('habit', id)}
           />
         );
       case 'focus':

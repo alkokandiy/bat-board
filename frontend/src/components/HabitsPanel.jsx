@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Flag, Moon, Sunrise, Trash2 } from 'lucide-react';
+import { Check, Flag, Moon, Sunrise, Timer, Trash2 } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
 
@@ -67,7 +67,7 @@ function Adherence({ habit }) {
   );
 }
 
-function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest }) {
+function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, onFocusOn }) {
   const want = target(habit);
   const resting = habit.resting_today === true;
   return (
@@ -147,6 +147,16 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest })
             </Button>
           )}
           <div className="opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 flex items-center gap-1.5">
+            {/* ADDED beside the others, never replacing one. The calendar
+                chip was made to mean "focus" and stopped meaning anything
+                else, which is exactly the mistake not to repeat. */}
+            {onFocusOn && (
+              <IconButton
+                label={`Focus on "${habit.name}"`}
+                icon={Timer}
+                onClick={() => onFocusOn(habit.id)}
+              />
+            )}
             <IconButton
               label={resting ? `Back on "${habit.name}"` : `Take a rest day on "${habit.name}"`}
               icon={resting ? Sunrise : Moon}
@@ -185,7 +195,7 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest })
   );
 }
 
-export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAccount }) {
+export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAccount, onFocusOn }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [frequency, setFrequency] = useState('daily');
@@ -507,7 +517,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                   onCheckIn={handleCheckIn}
                   onDelete={handleDelete}
                   onSetTargetDate={handleSetTargetDate}
-                  onRest={handleRest}
+                  onRest={handleRest} onFocusOn={onFocusOn}
                 />
               ))
             )}
@@ -522,7 +532,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                 {notDueToday.map((habit) => (
                   <HabitRow key={habit.id} habit={habit} kept
                     onCheckIn={handleCheckIn} onDelete={handleDelete}
-                    onSetTargetDate={handleSetTargetDate} onRest={handleRest} />
+                    onSetTargetDate={handleSetTargetDate} onRest={handleRest} onFocusOn={onFocusOn} />
                 ))}
               </div>
             </details>
@@ -544,7 +554,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                     onCheckIn={handleCheckIn}
                     onDelete={handleDelete}
                     onSetTargetDate={handleSetTargetDate}
-                    onRest={handleRest}
+                    onRest={handleRest} onFocusOn={onFocusOn}
                   />
                 ))}
               </div>
