@@ -186,3 +186,105 @@ describe('App focus session state machine', () => {
   });
 });
 
+
+describe('Focus on this, from the mission list', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('bat_access_token', 'test-token');
+    api.getAccount.mockResolvedValue({ username: 'tester', points: 0, bat_level: 'Bronze' });
+    api.getMissions.mockResolvedValue([
+      { id: 9, title: 'Pay the invoice', priority: 'high', status: 'pending',
+        is_pinned: false, is_dismissed: false, focus_minutes: 0 },
+    ]);
+    api.getHabits.mockResolvedValue([]);
+    api.getLogs.mockResolvedValue([]);
+    api.refreshToken.mockResolvedValue({});
+    api.startFocusSession.mockResolvedValue({ id: 101 });
+    api.endFocusSession.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  const goToMissions = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /missions/i })[0]);
+    });
+  };
+
+  it('lands on the timer with that mission already the target', async () => {
+    // The whole point: choosing what to work on and starting to work on it
+    // were two screens apart, and the gap is where the intention went.
+    render(<App />);
+    await act(async () => {});
+    await goToMissions();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
+    });
+
+    // The focus screen, and the target already chosen.
+    expect(screen.getByRole('button', { name: /focus target/i }))
+      .toHaveTextContent('Pay the invoice');
+  });
+
+  it('replaces a habit target rather than holding both', async () => {
+    // "One target per session — a mission or a habit" is stated on the
+    // screen. Setting the mission without clearing the habit would send
+    // both ids and quietly break that promise.
+    api.getHabits.mockResolvedValue([
+      { id: 3, name: 'Fifty press-ups', frequency: 'daily', streak: 0,
+        best_streak: 0, due_today: true, times_target: 1, done_this_period: 0 },
+    ]);
+    render(<App />);
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: /focus/i })[0]);
+    });
+
+    // Choose the habit as the target first.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus target/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('option', { name: /fifty press-ups/i }));
+    });
+    expect(screen.getByRole('button', { name: /focus target/i }))
+      .toHaveTextContent('Fifty press-ups');
+
+    // Now pick a mission from the list instead.
+    await goToMissions();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('ENTER FOCUS'));
+    });
+
+    const sent = api.startFocusSession.mock.calls[0][0];
+    expect(sent.mission_id).toBe(9);
+    expect(sent.habit_id).toBeUndefined();
+  });
+
+  it('starts the session against that mission', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToMissions();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('ENTER FOCUS'));
+    });
+    expect(api.startFocusSession).toHaveBeenCalledWith(
+      expect.objectContaining({ mission_id: 9 }),
+    );
+  });
+
+});

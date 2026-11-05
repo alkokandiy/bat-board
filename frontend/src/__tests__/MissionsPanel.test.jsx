@@ -186,3 +186,41 @@ describe('logging time without a timer', () => {
     expect(screen.queryByRole('button', { name: /Log 30 minutes/ })).toBeNull();
   });
 });
+
+describe('Focus on this', () => {
+  const withFocus = (missions, props = {}) => {
+    const onFocusOn = vi.fn();
+    render(
+      <MissionsPanel
+        missions={missions}
+        onRefreshMissions={vi.fn().mockResolvedValue(undefined)}
+        onRefreshAccount={vi.fn().mockResolvedValue(undefined)}
+        onFocusOn={onFocusOn}
+        {...props}
+      />,
+    );
+    return { onFocusOn };
+  };
+
+  it('offers it on an open mission', () => {
+    withFocus([mission()]);
+    expect(screen.getByRole('button', { name: /focus on "finish the report"/i }))
+      .toBeInTheDocument();
+  });
+
+  it('hands back the mission id', () => {
+    const { onFocusOn } = withFocus([mission({ id: 42 })]);
+    fireEvent.click(screen.getByRole('button', { name: /focus on/i }));
+    expect(onFocusOn).toHaveBeenCalledWith(42);
+  });
+
+  it('does not offer it on something already finished', () => {
+    withFocus([mission({ status: 'completed' })]);
+    expect(screen.queryByRole('button', { name: /focus on/i })).not.toBeInTheDocument();
+  });
+
+  it('is absent entirely when nothing is wired to it', () => {
+    renderPanel([mission()]);
+    expect(screen.queryByRole('button', { name: /focus on/i })).not.toBeInTheDocument();
+  });
+});

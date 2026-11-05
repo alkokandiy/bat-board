@@ -127,7 +127,11 @@ export default function BatFocusTimer({
     if (document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => {});
     }
-    // Does NOT stop timer!
+    // This function does not stop the timer itself, but leaving focus mode
+    // DOES end the session: App.handleFocusModeChange(false) stops the
+    // clock and logs the time. Exiting used to leave the session open for
+    // ever, so web focus work was credited only if the countdown happened
+    // to reach zero.
   };
 
   const isControlled = propTimeLeft !== undefined;

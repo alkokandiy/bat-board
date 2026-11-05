@@ -387,6 +387,22 @@ export default function App() {
     if (document.fullscreenElement) await document.exitFullscreen();
   }, [handleFocusReset]);
 
+  // "Focus on this", from wherever the thing is listed.
+  //
+  // Choosing what to work on and starting to work on it were two screens
+  // apart: find the mission, remember its name, open Focus, find it again in
+  // a list of fifty. The gap is where the intention went.
+  //
+  // No guard for "a session is already running": leaving the immersive view
+  // is the only way back to the nav, and handleFocusModeChange ends and logs
+  // the session on the way out. So the list cannot be reached mid-session,
+  // and a check for it would be a branch nothing can execute.
+  const handleFocusOn = useCallback((kind, id) => {
+    setFocusSelectedMissionId(kind === 'mission' ? String(id) : '');
+    setFocusSelectedHabitId(kind === 'habit' ? String(id) : '');
+    setCurrentView('focus');
+  }, []);
+
   const handleLogout = () => {
     api.logout();
     setIsAuthenticated(false);
@@ -523,6 +539,7 @@ export default function App() {
             missions={missions}
             onRefreshMissions={handleRefreshMissions}
             onRefreshAccount={handleRefreshAccount}
+            onFocusOn={(id) => handleFocusOn('mission', id)}
           />
         );
       case 'habits':
@@ -569,7 +586,11 @@ export default function App() {
           </div>
         );
       case 'calendar':
-        return <CalendarPanel />;
+        return (
+          <CalendarPanel
+            onFocusOn={(id) => handleFocusOn('mission', id)}
+          />
+        );
       case 'notes':
         return <NotesPanel />;
       case 'work':
