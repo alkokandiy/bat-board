@@ -408,7 +408,7 @@ describe('Picking the clock back up after a reload or a re-login', () => {
     mission_id: null, habit_id: null, mode: 'normal', ...over,
   });
 
-  it('comes back running, with the time that is actually left', async () => {
+  it('comes back with the time that is actually left', async () => {
     api.getActiveFocusSession.mockResolvedValue(running());
     render(<App />);
     await act(async () => {});
@@ -417,6 +417,40 @@ describe('Picking the clock back up after a reload or a re-login', () => {
     // getAllBy: the big digits and the REMAINING line both say it.
     expect(screen.getAllByText(/19:00/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/25:00/)).toBeNull();
+  });
+
+  it('does NOT start counting on its own', async () => {
+    // The first version of this set the clock running on restore, so merely
+    // opening the board started a countdown nobody had pressed anything to
+    // begin — on a row usually left open by the very bug being fixed.
+    api.getActiveFocusSession.mockResolvedValue(running());
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await act(async () => { vi.advanceTimersByTime(30 * 1000); });
+    expect(screen.getAllByText(/19:00/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/18:30/)).toBeNull();
+  });
+
+  it('says a session was left running, rather than just sitting there', async () => {
+    api.getActiveFocusSession.mockResolvedValue(running());
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(screen.getByText(/session was left running/i)).toBeTruthy();
+    expect(screen.getByText(/19 min left/i)).toBeTruthy();
+  });
+
+  it('ignores a timed session whose clock already ran out', async () => {
+    // That is a row waiting for the cron tick to close and credit, not
+    // something to pick up: resuming it shows a dead timer at 00:00.
+    api.getActiveFocusSession.mockResolvedValue(
+      running({ elapsed_seconds: 40 * 60, remaining_seconds: 0 }));
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    expect(screen.queryByText(/session was left running/i)).toBeNull();
+    expect(screen.getAllByText(/25:00/).length).toBeGreaterThan(0);
   });
 
   it('restores the length too, so the progress bar is not frozen', async () => {
@@ -448,6 +482,10 @@ describe('Picking the clock back up after a reload or a re-login', () => {
     render(<App />);
     await act(async () => {});
     await goToFocusView();
+
+    // Carry on with it — which resumes THIS row, not a new one.
+    await clickEnterFocus();
+    expect(api.startFocusSession).not.toHaveBeenCalled();
 
     await act(async () => {
       vi.advanceTimersByTime(19 * 60 * 1000);

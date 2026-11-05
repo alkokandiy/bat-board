@@ -166,6 +166,11 @@ export default function App() {
       api.getActiveFocusSession()
         .then((s) => {
           if (!s?.active) return;
+          // A timed session whose clock has already run out is not something
+          // to pick up — it is a row waiting for the cron tick to close and
+          // credit. Resuming it would show a dead timer at 00:00.
+          if (s.planned_minutes && s.remaining_seconds === 0) return;
+
           focusSessionIdRef.current = s.id;
           focusSessionStartRef.current = Date.now() - (s.elapsed_seconds || 0) * 1000;
           // Credit what has actually elapsed, not what this tab watched —
@@ -181,7 +186,20 @@ export default function App() {
             // at full while the digits count down.
             setFocusTimeLeft(Math.max(0, s.remaining_seconds ?? s.planned_minutes * 60));
           }
-          setFocusRunning(true);
+          // NOT setFocusRunning(true). Finding a session is not the same as
+          // being asked to resume it: the first version of this started the
+          // countdown on its own, so simply opening the board set a clock
+          // running that nobody had pressed anything to start. Worse, the
+          // bug this fix is FOR left open rows lying around, so the thing
+          // being resurrected was usually abandoned.
+          //
+          // The session is restored and said out loud; carrying on is still
+          // a decision, and ENTER FOCUS resumes this row rather than opening
+          // another because the id is already set.
+          setFocusNotice(
+            s.planned_minutes
+              ? `A session was left running — ${Math.ceil((s.remaining_seconds || 0) / 60)} min left. Enter focus to carry on, or change the target to start fresh.`
+              : 'A session was left running. Enter focus to carry on.');
         })
         .catch(() => {});
 
