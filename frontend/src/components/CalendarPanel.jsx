@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
+import DayView from './DayView';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -68,6 +69,9 @@ export default function CalendarPanel({ onFocusOn }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [flash, setFlash] = useState(null);
+  // Which day is open, or null. The month grid cannot show a busy day:
+  // four chips then "+2 more", unordered and untimed.
+  const [openDay, setOpenDay] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,15 +155,30 @@ export default function CalendarPanel({ onFocusOn }) {
     return out;
   }, [eventsThisMonth, month, upcomingEvents]);
 
-  const openAddForm = useCallback((date) => {
+  const openAddForm = useCallback((date, hour) => {
     setEditEvent(null);
     setError(null);
-    // 09:00, not the midnight a clicked day literally is — nobody schedules
-    // a thing for 00:00 by default.
+    // The hour that was pointed at. Falling back to 09:00 rather than the
+    // midnight a clicked day literally is — nobody schedules a thing for
+    // 00:00 by default.
     const at = new Date(date);
-    at.setHours(9, 0, 0, 0);
+    at.setHours(typeof hour === 'number' ? hour : 9, 0, 0, 0);
     setForm({ title: '', description: '', start_time: toLocalDatetimeString(at), end_time: '', color: '#eab308' });
     setShowForm(true);
+  }, []);
+
+  // Moving a mission to another day is the one edit that belongs HERE: the
+  // calendar is where you see that it lands badly. Everything else about a
+  // mission stays on the missions screen, which is where it is described.
+  const rescheduleMission = useCallback(async (missionId, isoDate) => {
+    try {
+      await api.updateMission(missionId, { due_date: `${isoDate}T00:00:00Z` });
+      const fresh = await api.getMissions();
+      setMissions(fresh);
+      setFlash('Moved');
+    } catch (err) {
+      setError(err.message || 'Could not move that mission');
+    }
   }, []);
 
   const openEditForm = useCallback((event) => {
@@ -307,9 +326,9 @@ export default function CalendarPanel({ onFocusOn }) {
               <div key={i}
                 role="button"
                 tabIndex={0}
-                aria-label={`Add an event on ${d.toLocaleDateString()}`}
-                onClick={() => openAddForm(d)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAddForm(d); } }}
+                aria-label={`Open ${d.toLocaleDateString()}`}
+                onClick={() => setOpenDay(d)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenDay(d); } }}
                 className={`border-b border-r border-bat-line p-2 cursor-pointer
                   transition-colors duration-200 ease-soft hover:bg-bat-raised
                   focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal-self/60
@@ -320,26 +339,20 @@ export default function CalendarPanel({ onFocusOn }) {
                     {d.getDate()}
                   </div>
                   <div className="flex-1 space-y-[2px] overflow-hidden">
-                    {/* A mission due today is the likeliest thing to start
-                        working on, and the calendar is where you notice it.
-                        Clicking it opens the timer already pointed at it,
-                        rather than sending you off to find it in a list. */}
+                    {/* A chip opens the DAY, not one fixed action. It used
+                        to start a focus session, which is right when that is
+                        what you wanted and wrong every other time — and a
+                        chip has only one click to give. */}
                     {shownMissions.map(m => (
                       <button
                         key={m.id}
                         type="button"
-                        title={onFocusOn
-                          ? `Focus on "${m.title}"`
-                          : `Mission due: ${m.title}`}
-                        aria-label={onFocusOn ? `Focus on "${m.title}"` : `Mission due: ${m.title}`}
-                        onClick={evtClick => {
-                          evtClick.stopPropagation();
-                          if (onFocusOn) onFocusOn(m.id);
-                        }}
-                        className={`block w-full text-left text-[10px] bg-signal-late/15 text-signal-late
+                        title={`Mission due: ${m.title}`}
+                        aria-label={`Mission due: ${m.title} — open ${d.toLocaleDateString()}`}
+                        onClick={evtClick => { evtClick.stopPropagation(); setOpenDay(d); }}
+                        className="block w-full text-left text-[10px] bg-signal-late/15 text-signal-late
                           border-l-2 border-signal-late/70 px-1.5 py-0.5 rounded-sm truncate leading-tight
-                          transition-all duration-200 ease-soft
-                          ${onFocusOn ? 'cursor-pointer hover:brightness-125' : 'cursor-default'}`}
+                          cursor-pointer hover:brightness-125 transition-all duration-200 ease-soft"
                       >
                         {m.title}
                       </button>
@@ -389,6 +402,19 @@ export default function CalendarPanel({ onFocusOn }) {
           </div>
         )}
       </Panel>
+
+      {openDay && !showForm && (
+        <DayView
+          day={openDay}
+          events={getEventsForDay(openDay)}
+          missions={getMissionsForDay(openDay)}
+          onClose={() => setOpenDay(null)}
+          onEditEvent={(e) => openEditForm(e)}
+          onAddEvent={(d, hour) => openAddForm(d, hour)}
+          onFocusOn={onFocusOn ? (id) => { setOpenDay(null); onFocusOn(id); } : undefined}
+          onRescheduleMission={rescheduleMission}
+        />
+      )}
 
       {showForm && (
         <div
