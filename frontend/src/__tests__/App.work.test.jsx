@@ -13,6 +13,7 @@ vi.mock('../utils/api', () => ({
     logout: vi.fn(),
     getWorkStatus: vi.fn(),
     getSuggestedFocusMinutes: vi.fn(),
+    getActiveFocusSession: vi.fn(),
     getWorkTasks: vi.fn(),
     getWorkNotes: vi.fn(),
     getWorkReport: vi.fn(),
@@ -59,6 +60,7 @@ describe('the work side appears only when it is switched on', () => {
 
   it('hides the Work entry and the dashboard tile when the track is off', async () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ ...ON, enabled: false });
     await boot();
     expect(workNav()).toHaveLength(0);

@@ -215,6 +215,43 @@ def active_focus_session(db: Session, current_user: models.BatAccount) -> Option
     )
 
 
+def active_session_state(db: Session, current_user: models.BatAccount) -> dict:
+    """The running session as the clock sees it, or {"active": False}.
+
+    The browser kept the whole session in memory — the id, whether it was
+    running, how much was left. A reload therefore lost it completely while
+    the row here stayed open, so the time was either credited to a session
+    nobody could see or quietly swept up as abandoned hours later. The clock
+    has to be recoverable from the server, because the server is the only
+    place it actually exists.
+
+    Elapsed is wall-clock from start_time, NOT the browser's accumulated
+    ticks: a tab that was closed for ten minutes did not pause the session,
+    it stopped watching it.
+    """
+    session = active_focus_session(db, current_user)
+    if session is None:
+        return {"active": False}
+
+    start = session.start_time
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    elapsed = max(0, int((datetime.now(timezone.utc) - start).total_seconds()))
+    planned = session.planned_minutes
+    return {
+        "active": True,
+        "id": session.id,
+        "start_time": start.isoformat(),
+        "planned_minutes": planned,
+        "elapsed_seconds": elapsed,
+        "remaining_seconds": max(0, planned * 60 - elapsed) if planned else None,
+        "mission_id": session.mission_id,
+        "habit_id": session.habit_id,
+        "work_task_id": session.work_task_id,
+        "mode": session.mode,
+    }
+
+
 def start_focus_session(
     db: Session,
     current_user: models.BatAccount,

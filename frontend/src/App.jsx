@@ -13,7 +13,7 @@ import { PageHeader, StatTile, EmptyState, Panel } from './components/ui';
 import AlfredWidget from './components/AlfredWidget';
 import AudioPlayer, { trackPresets } from './components/AudioPlayer';
 import { api } from './utils/api';
-import { FOCUS_MODE_TO_API } from './utils/focusModes';
+import { API_MODE_TO_FOCUS, FOCUS_MODE_TO_API } from './utils/focusModes';
 
 function LoginScreen({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -154,6 +154,37 @@ export default function App() {
       setMissions(miss);
       setHabits(habs);
       setIsAuthenticated(true);
+
+      // Pick the clock back up. A session lives on the server; the browser
+      // only ever had a copy of it, so a reload (or a sign-in after the
+      // token expired mid-session) used to lose it while the row stayed
+      // open — the hourglass vanished and the time went nowhere.
+      //
+      // Not awaited into the boot path: a failure here must leave the board
+      // working, with no session showing, which is exactly today's
+      // behaviour.
+      api.getActiveFocusSession()
+        .then((s) => {
+          if (!s?.active) return;
+          focusSessionIdRef.current = s.id;
+          focusSessionStartRef.current = Date.now() - (s.elapsed_seconds || 0) * 1000;
+          // Credit what has actually elapsed, not what this tab watched —
+          // it was not here for most of it.
+          focusActiveMsRef.current = (s.elapsed_seconds || 0) * 1000;
+          if (s.mission_id) setFocusSelectedMissionId(String(s.mission_id));
+          if (s.habit_id) setFocusSelectedHabitId(String(s.habit_id));
+          if (s.mode && API_MODE_TO_FOCUS[s.mode]) setFocusVisualMode(API_MODE_TO_FOCUS[s.mode]);
+          if (s.planned_minutes) {
+            setFocusSessionLength(s.planned_minutes);
+            // Both, and in this order: the bar is drawn from timeLeft over
+            // length, so restoring one without the other leaves it frozen
+            // at full while the digits count down.
+            setFocusTimeLeft(Math.max(0, s.remaining_seconds ?? s.planned_minutes * 60));
+          }
+          setFocusRunning(true);
+        })
+        .catch(() => {});
+
       // Deliberately after the boot data and never awaited into it: work is
       // optional, so if this call fails the dashboard still comes up and the
       // work entry simply stays hidden.
@@ -208,8 +239,28 @@ export default function App() {
       } catch {}
     }, 60 * 60 * 1000);
 
+    // A timer is not enough on its own. Browsers throttle or suspend
+    // intervals in a background tab, and nothing fires at all while the
+    // machine is asleep — so a tab left open overnight can come back with
+    // an access token that expired hours ago and an interval that never
+    // ran. Refreshing when the tab is looked at again closes that window.
+    //
+    // Throttled, because switching tabs is something people do constantly
+    // and /auth/refresh is rate limited to 10 a minute.
+    let lastWake = Date.now();
+    const onVisible = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastWake < 5 * 60 * 1000) return;
+      lastWake = Date.now();
+      try {
+        await api.refreshToken();
+      } catch {}
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
       window.removeEventListener('auth:logout', handleLogout);
+      document.removeEventListener('visibilitychange', onVisible);
       clearInterval(refreshInterval);
     };
   }, [fetchAllData]);

@@ -337,6 +337,10 @@ class BatHabitSchema(BatHabitBase):
     times_target: int = 1
     done_this_period: int = 0
     resting_today: bool = False
+    # Minutes focused on it THIS period. The lifetime total is still
+    # `focus_minutes`; this is the one that answers "is today done yet",
+    # and it starts again when the period does.
+    focus_minutes_period: int = 0
     last_completed: Optional[datetime] = None
     focus_minutes: int = 0
     target_date: Optional[datetime] = None
@@ -1187,6 +1191,20 @@ def end_focus_session(
     if session is None:
         raise HTTPException(status_code=404, detail="Focus session not found")
     return session
+
+@app.get("/api/focus/sessions/active")
+def get_active_focus_session(
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """The running session, so a reload can pick the clock back up.
+
+    Beside its siblings in main.py rather than in a router of its own: the
+    other four focus routes are here, and the logic it needs is in
+    focus_service, which is what "routers stay thin" is actually about.
+    """
+    return focus_service.active_session_state(db, current_user)
+
 
 @app.get("/api/focus/sessions", response_model=List[BatFocusSchema])
 def list_focus_sessions(

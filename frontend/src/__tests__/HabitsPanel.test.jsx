@@ -443,3 +443,34 @@ describe('Focus on this', () => {
     expect(onFocusOn).not.toHaveBeenCalled();
   });
 });
+
+describe('Time spent on a habit', () => {
+  it('shows what went into it this period', () => {
+    renderPanel([habit({ focus_minutes_period: 26, frequency: 'daily' })]);
+    expect(screen.getByText('26m today')).toBeInTheDocument();
+  });
+
+  it('says it in the habit\'s own period, not always "today"', () => {
+    renderPanel([habit({ focus_minutes_period: 45, frequency: 'weekly' })]);
+    expect(screen.getByText('45m this week')).toBeInTheDocument();
+  });
+
+  it('shows nothing when nothing has gone into it yet', () => {
+    renderPanel([habit({ focus_minutes_period: 0, focus_minutes: 0 })]);
+    expect(screen.queryByText(/m today/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the lifetime total, but says which is which', () => {
+    // Both on the row would be two bare numbers that look like a
+    // contradiction; the labels are what stop that.
+    renderPanel([habit({ focus_minutes_period: 26, focus_minutes: 500 })]);
+    expect(screen.getByText('26m today')).toBeInTheDocument();
+    expect(screen.getByText('500m all told')).toBeInTheDocument();
+  });
+
+  it('a period total with no lifetime total still shows', () => {
+    renderPanel([habit({ focus_minutes_period: 12, focus_minutes: 0 })]);
+    expect(screen.getByText('12m today')).toBeInTheDocument();
+    expect(screen.queryByText(/all told/)).not.toBeInTheDocument();
+  });
+});

@@ -122,7 +122,15 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, o
           <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-ink-faint mt-1.5">
             {habit.streak > 0 && <span>{habit.streak} in a row</span>}
             {habit.best_streak > 0 && <span>best {habit.best_streak}</span>}
-            {habit.focus_minutes > 0 && <span>{habit.focus_minutes}m focused</span>}
+            {/* Time on it THIS period, not for ever. The lifetime total only
+                ever went up, so it grew past meaning and never answered the
+                question actually in front of you: is today done yet. */}
+            {habit.focus_minutes_period > 0 && (
+              <span className="text-signal-self">
+                {habit.focus_minutes_period}m {PERIOD_WORD[habit.frequency] || 'this period'}
+              </span>
+            )}
+            {habit.focus_minutes > 0 && <span>{habit.focus_minutes}m all told</span>}
             {habit.last_completed && (
               <span>last {new Date(habit.last_completed).toLocaleDateString()}</span>
             )}
