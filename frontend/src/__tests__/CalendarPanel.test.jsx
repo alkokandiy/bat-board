@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import CalendarPanel from '../components/CalendarPanel';
 import { api } from '../utils/api';
 
@@ -11,6 +11,7 @@ vi.mock('../utils/api', () => ({
     createCalendarEvent: vi.fn(),
     updateCalendarEvent: vi.fn(),
     deleteCalendarEvent: vi.fn(),
+    updateMission: vi.fn(),
   },
 }));
 
@@ -145,11 +146,20 @@ describe('the form', () => {
   });
 
   // A clicked day is literally midnight, and nobody means 00:00.
-  it('defaults a day click to nine in the morning', async () => {
+  it('defaults the day view\'s Event button to nine in the morning', async () => {
     render(<CalendarPanel />);
     await settle();
-    fireEvent.click(screen.getAllByRole('button', { name: /Add an event on/ })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Open / })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /^event$/i }));
     expect(screen.getByLabelText('Starts').value).toMatch(/T09:00$/);
+  });
+
+  it('takes the hour from the row that was pointed at', async () => {
+    render(<CalendarPanel />);
+    await settle();
+    fireEvent.click(screen.getAllByRole('button', { name: /^Open / })[0]);
+    fireEvent.click(screen.getByRole('button', { name: /add an event at 14:00/i }));
+    expect(screen.getByLabelText('Starts').value).toMatch(/T14:00$/);
   });
 
   it('closes on Escape', async () => {
@@ -187,33 +197,150 @@ describe('"upcoming" means upcoming', () => {
 describe('Focus on a mission from the calendar', () => {
   const due = [{ id: 7, title: 'Pay the invoice', status: 'pending', due_date: '2026-11-10T00:00:00Z' }];
 
-  it('starts the timer on the mission that is due', async () => {
+  it('opens the day rather than committing to one action', async () => {
+    // A chip has one click to give. It used to start a focus session —
+    // right when that is what you wanted, wrong every other time.
     const onFocusOn = vi.fn();
     api.getMissions.mockResolvedValue(due);
     api.getCalendarEvents.mockResolvedValue([]);
     render(<CalendarPanel onFocusOn={onFocusOn} />);
     await settle();
+    fireEvent.click(screen.getByRole('button', { name: /mission due: pay the invoice/i }));
+    expect(onFocusOn).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: /day view/i })).toBeTruthy();
+  });
+
+  it('and focusing is then one more click, inside the day', async () => {
+    const onFocusOn = vi.fn();
+    api.getMissions.mockResolvedValue(due);
+    api.getCalendarEvents.mockResolvedValue([]);
+    render(<CalendarPanel onFocusOn={onFocusOn} />);
+    await settle();
+    fireEvent.click(screen.getByRole('button', { name: /mission due: pay the invoice/i }));
     fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
     expect(onFocusOn).toHaveBeenCalledWith(7);
   });
 
-  it('does not also open the day when a mission is clicked', async () => {
-    // The cell itself opens the new-event form; the chip must not do both.
-    const onFocusOn = vi.fn();
+  it('can move a mission to another day from the calendar', async () => {
+    // The one edit that belongs here: the calendar is where you see that a
+    // due date lands badly.
     api.getMissions.mockResolvedValue(due);
     api.getCalendarEvents.mockResolvedValue([]);
-    render(<CalendarPanel onFocusOn={onFocusOn} />);
+    api.updateMission.mockResolvedValue({});
+    render(<CalendarPanel />);
     await settle();
-    fireEvent.click(screen.getByRole('button', { name: /focus on "pay the invoice"/i }));
-    expect(screen.queryByRole('button', { name: /^save$/i })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /mission due: pay the invoice/i }));
+    fireEvent.click(screen.getByRole('button', { name: /move "pay the invoice" to another day/i }));
+    fireEvent.change(screen.getByLabelText(/new date for "pay the invoice"/i),
+      { target: { value: '2026-11-20' } });
+    await waitFor(() => expect(api.updateMission).toHaveBeenCalledWith(
+      7, { due_date: '2026-11-20T00:00:00Z' }));
   });
 
-  it('is still just a label when nothing is wired to it', async () => {
+  it('still shows the mission when no focus handler is wired', async () => {
     api.getMissions.mockResolvedValue(due);
     api.getCalendarEvents.mockResolvedValue([]);
     render(<CalendarPanel />);
     await settle();
+    fireEvent.click(screen.getByRole('button', { name: /mission due: pay the invoice/i }));
     expect(screen.queryByRole('button', { name: /focus on/i })).toBeNull();
-    expect(screen.getByTitle(/mission due: pay the invoice/i)).toBeTruthy();
+    expect(screen.getByText('Due this day')).toBeTruthy();
+  });
+});
+
+describe('A day with more than one thing in it', () => {
+  const day = '2026-11-10';
+  const at = (h, m = 0) => `${day}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+
+  // Scoped to the dialog: the "Upcoming" strip at the foot of the page uses
+  // the same `Edit "X"` labels, so an unscoped query matches both and the
+  // test fails for a reason that has nothing to do with the day view.
+  const openTheDay = async () => {
+    render(<CalendarPanel />);
+    await settle();
+    const cell = screen.getAllByRole('button', { name: /^Open / })
+      .find(b => /11\/10\/2026|10\/11\/2026/.test(b.getAttribute('aria-label')));
+    expect(cell, 'the 10th should be in the rendered month').toBeTruthy();
+    fireEvent.click(cell);
+    return within(screen.getByRole('dialog', { name: /day view/i }));
+  };
+
+  it('shows every event, not four and a count', async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue(
+      Array.from({ length: 6 }, (_, i) => ({
+        id: i + 1, title: `Event ${i + 1}`, start_time: at(9 + i), end_time: null,
+      })));
+    const view = await openTheDay();
+    for (let i = 1; i <= 6; i += 1) {
+      expect(view.getByRole('button', { name: `Edit "Event ${i}"` })).toBeTruthy();
+    }
+  });
+
+  it('keeps missions and events apart rather than in one stack', async () => {
+    api.getMissions.mockResolvedValue([
+      { id: 7, title: 'Pay the invoice', status: 'pending', due_date: `${day}T00:00:00Z` },
+      { id: 8, title: 'Burn the papers', status: 'pending', due_date: `${day}T00:00:00Z` },
+    ]);
+    api.getCalendarEvents.mockResolvedValue([
+      { id: 1, title: 'Standup', start_time: at(9), end_time: at(9, 30) },
+    ]);
+    const view = await openTheDay();
+    expect(view.getByText('Due this day')).toBeTruthy();
+    expect(view.getByRole('button', { name: /move "pay the invoice"/i })).toBeTruthy();
+    expect(view.getByRole('button', { name: /move "burn the papers"/i })).toBeTruthy();
+    expect(view.getByRole('button', { name: 'Edit "Standup"' })).toBeTruthy();
+  });
+
+  it('puts two events in the same hour in time order', async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue([
+      { id: 2, title: 'Later', start_time: at(9, 45), end_time: null },
+      { id: 1, title: 'Earlier', start_time: at(9, 5), end_time: null },
+    ]);
+    const view = await openTheDay();
+    const titles = view.getAllByRole('button', { name: /^Edit "/ })
+      .map(b => b.getAttribute('aria-label'));
+    expect(titles).toEqual(['Edit "Earlier"', 'Edit "Later"']);
+  });
+
+  it('says when an event starts and ends', async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue([
+      { id: 1, title: 'Standup', start_time: at(9), end_time: at(9, 30) },
+    ]);
+    const view = await openTheDay();
+    expect(view.getByText('09:00–09:30')).toBeTruthy();
+  });
+
+  it('an hour that already has something is not an add target', async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue([
+      { id: 1, title: 'Standup', start_time: at(9), end_time: null },
+    ]);
+    const view = await openTheDay();
+    expect(view.queryByRole('button', { name: /add an event at 09:00/i })).toBeNull();
+    expect(view.getByRole('button', { name: /add an event at 10:00/i })).toBeTruthy();
+  });
+
+  it('editing an event from the day view opens the real form', async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue([
+      { id: 1, title: 'Standup', start_time: at(9), end_time: null },
+    ]);
+    const view = await openTheDay();
+    fireEvent.click(view.getByRole('button', { name: 'Edit "Standup"' }));
+    expect(screen.getByLabelText('Starts').value).toMatch(/T09:00$/);
+    expect(screen.getByDisplayValue('Standup')).toBeTruthy();
+  });
+
+  it('closes on Escape', async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue([]);
+    await openTheDay();
+    expect(screen.getByRole('dialog', { name: /day view/i })).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /day view/i })).toBeNull());
   });
 });
