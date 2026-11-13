@@ -28,6 +28,20 @@ const goToFocusView = async () => {
   });
 };
 
+// Reaching zero no longer ends a session — the clock keeps counting past
+// the bell and finishing is a deliberate act.
+const clickFinish = async () => {
+  await act(async () => {
+    fireEvent.click(screen.getByTitle(/end this session and log the time/i));
+  });
+};
+
+const clickFinishWithOvertime = async () => {
+  await act(async () => {
+    fireEvent.click(screen.getByTitle(/count the time worked after the bell/i));
+  });
+};
+
 const clickEnterFocus = async () => {
   await act(async () => {
     fireEvent.click(screen.getByText('ENTER FOCUS'));
@@ -63,7 +77,7 @@ describe('App focus session state machine', () => {
     document.body.innerHTML = '';
   });
 
-  it('persists exactly one session on natural completion, with the full configured duration', async () => {
+  it('persists exactly one session, with the full configured duration', async () => {
     render(<App />);
     await act(async () => {});
     await goToFocusView();
@@ -73,7 +87,11 @@ describe('App focus session state machine', () => {
     await act(async () => {
       vi.advanceTimersByTime(25 * 60 * 1000);
     });
+    // The bell has gone and nothing has been logged: the session is still
+    // open, which is the whole point.
+    expect(api.endFocusSession).not.toHaveBeenCalled();
 
+    await clickFinish();
     expect(api.startFocusSession).toHaveBeenCalledTimes(1);
     expect(api.endFocusSession).toHaveBeenCalledTimes(1);
     expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 25 });
@@ -110,6 +128,7 @@ describe('App focus session state machine', () => {
     await act(async () => {
       vi.advanceTimersByTime(5 * 60 * 1000);
     });
+    await clickFinish();
 
     expect(api.endFocusSession).toHaveBeenCalledTimes(1);
     expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 5 });
@@ -136,6 +155,7 @@ describe('App focus session state machine', () => {
     await act(async () => {
       vi.advanceTimersByTime(15 * 60 * 1000);
     });
+    await clickFinish();
 
     expect(api.endFocusSession).toHaveBeenCalledTimes(1);
     expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 25 });
@@ -490,6 +510,7 @@ describe('Picking the clock back up after a reload or a re-login', () => {
     await act(async () => {
       vi.advanceTimersByTime(19 * 60 * 1000);
     });
+    await clickFinish();
 
     expect(api.endFocusSession).toHaveBeenCalledWith(77, { duration_minutes: 25 });
   });
@@ -585,5 +606,103 @@ describe('Staying signed in', () => {
     await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); });
     await becomeVisible();
     expect(screen.queryByText(/BOOT CRITICAL ERROR/i)).toBeNull();
+  });
+});
+
+describe('Working past the bell', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('bat_access_token', 'test-token');
+    api.getAccount.mockResolvedValue({ username: 'tester', points: 0, bat_level: 'Bronze' });
+    api.getMissions.mockResolvedValue([]);
+    api.getHabits.mockResolvedValue([]);
+    api.getLogs.mockResolvedValue([]);
+    api.refreshToken.mockResolvedValue({});
+    api.startFocusSession.mockResolvedValue({ id: 101 });
+    api.endFocusSession.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
+    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  const run = async (minutes) => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await clickEnterFocus();
+    await act(async () => { vi.advanceTimersByTime(minutes * 60 * 1000); });
+  };
+
+  it('the clock does not stop at zero', async () => {
+    // It used to end the session the instant it hit zero, so every minute
+    // worked after the ding was thrown away.
+    await run(35);
+    expect(api.endFocusSession).not.toHaveBeenCalled();
+  });
+
+  it('counts the overtime, and says so', async () => {
+    await run(25 + 9);
+    expect(screen.getByText(/\+09:0\d OVER/)).toBeTruthy();
+  });
+
+  it('finishing normally credits the planned time only', async () => {
+    // Never assumed: a timer left running on a closed laptop would
+    // otherwise invent hours.
+    await run(25 + 40);
+    await clickFinish();
+    expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 25 });
+  });
+
+  it('one tap credits the overtime as well', async () => {
+    await run(25 + 10);
+    await clickFinishWithOvertime();
+    expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 35 });
+  });
+
+  it('the overtime button names the minutes it would add', async () => {
+    await run(25 + 12);
+    expect(screen.getByText(/FINISH \+12M/)).toBeTruthy();
+  });
+
+  it('no overtime button before the bell', async () => {
+    await run(10);
+    expect(screen.queryByTitle(/count the time worked after the bell/i)).toBeNull();
+  });
+
+  it('the countdown rests at zero rather than going negative', async () => {
+    await run(25 + 5);
+    expect(screen.queryByText(/-0/)).toBeNull();
+    expect(screen.getAllByText(/00:00/).length).toBeGreaterThan(0);
+  });
+
+  it('a later session starts clean, with no overtime carried over', async () => {
+    await run(25 + 8);
+    await clickFinishWithOvertime();
+    api.startFocusSession.mockResolvedValue({ id: 102 });
+    await clickEnterFocus();
+    await act(async () => { vi.advanceTimersByTime(3 * 60 * 1000); });
+    expect(screen.queryByTitle(/count the time worked after the bell/i)).toBeNull();
+  });
+
+  it('time spent paused is still not credited, overtime or not', async () => {
+    render(<App />);
+    await act(async () => {});
+    await goToFocusView();
+    await clickEnterFocus();
+    await act(async () => { vi.advanceTimersByTime(25 * 60 * 1000); });
+    await act(async () => { fireEvent.click(screen.getByText('PAUSE')); });
+    await act(async () => { vi.advanceTimersByTime(60 * 60 * 1000); });
+    await act(async () => { fireEvent.click(screen.getByText('RESUME')); });
+    await act(async () => { vi.advanceTimersByTime(6 * 60 * 1000); });
+    await clickFinishWithOvertime();
+    // 25 planned + 6 worked after the bell. The hour away is not work.
+    expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 31 });
   });
 });

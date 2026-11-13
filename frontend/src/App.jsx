@@ -133,12 +133,26 @@ export default function App() {
   const [focusVisualMode, setFocusVisualMode] = useState('N');
   const focusVisualModeRef = useRef(focusVisualMode);
   focusVisualModeRef.current = focusVisualMode;
+  // Read inside endFocusSession, which must not re-create itself whenever
+  // the length changes — the timer effect depends on it.
+  const focusSessionLengthRef = useRef(focusSessionLength);
+  focusSessionLengthRef.current = focusSessionLength;
   const focusSessionIdRef = useRef(null);
   const focusStartTimeRef = useRef(null);
   const focusSessionStartRef = useRef(null);
   // Milliseconds the timer actually ran for the current session. Pauses are
   // excluded: crediting wall-clock time since start counted paused time too.
   const focusActiveMsRef = useRef(0);
+  // Seconds worked PAST the bell. The clock used to stop dead at zero and
+  // end the session, so every minute after the ding was thrown away — and
+  // those are the minutes of "I was just working and forgot to log it".
+  const [focusOvertime, setFocusOvertime] = useState(0);
+  // The timer interval needs the current value without re-subscribing on
+  // every tick, so it reads this rather than the state.
+  const focusTimeLeftRef = useRef(0);
+  focusTimeLeftRef.current = focusTimeLeft;
+  const focusOvertimeRef = useRef(0);
+  focusOvertimeRef.current = focusOvertime;
   const focusTimerRef = useRef(null);
 
   const fetchAllData = useCallback(async () => {
@@ -342,16 +356,24 @@ export default function App() {
       if (ticks >= 1) {
         focusStartTimeRef.current += ticks * expectedInterval;
         focusActiveMsRef.current += ticks * expectedInterval;
-        setFocusTimeLeft((prev) => {
-          const next = prev - ticks;
-          return next > 0 ? next : 0;
-        });
+        // Past the bell the countdown rests at zero and the overtime
+        // counts up instead. Done against a ref rather than inside the
+        // setState updater: an updater has to be pure, and queueing one
+        // state change from inside another's is both fragile and hard to
+        // read. The tick that crosses zero is split, so the seconds either
+        // side of it are counted once each.
+        const before = focusTimeLeftRef.current;
+        const left = Math.max(0, before - ticks);
+        focusTimeLeftRef.current = left;
+        setFocusTimeLeft(left);
+        const past = ticks - Math.min(ticks, before);
+        if (past > 0) setFocusOvertime((over) => over + past);
       }
     }, 200);
     return () => clearInterval(focusTimerRef.current);
   }, [focusRunning]);
 
-  const endFocusSession = useCallback(async () => {
+  const endFocusSession = useCallback(async (includeOvertime = false) => {
     const sid = focusSessionIdRef.current;
     if (!sid) return;
     focusSessionIdRef.current = null;
@@ -359,8 +381,20 @@ export default function App() {
     // Time the timer actually ran (Date.now()-based ticks, so accurate even
     // when the tab is backgrounded/throttled), excluding pauses. The server
     // additionally caps this at the session's wall-clock span.
-    const durationMin = Math.max(0, Math.round(focusActiveMsRef.current / 60000));
+    // Everything the clock actually ran, less the part worked after the
+    // bell — unless that part was explicitly accepted. Offered, never
+    // assumed: a timer left running on a closed laptop would otherwise
+    // invent hours.
+    //
+    // Subtracting the measured overtime rather than capping at
+    // focusSessionLength on purpose. Those two disagree: the length
+    // defaults to 30 while the countdown starts at 25, so a cap would
+    // quietly credit five minutes nobody worked.
+    const ranMin = Math.max(0, Math.round(focusActiveMsRef.current / 60000));
+    const overMin = Math.round(focusOvertimeRef.current / 60);
+    const durationMin = includeOvertime ? ranMin : Math.max(0, ranMin - overMin);
     focusActiveMsRef.current = 0;
+    setFocusOvertime(0);
     try {
       const res = await api.endFocusSession(sid, { duration_minutes: durationMin });
       // Sessions under the 5-minute minimum are discarded server-side.
@@ -376,15 +410,13 @@ export default function App() {
   // Declared after endFocusSession (its dep array must not reference a TDZ
   // binding). endFocusSession() nulls focusSessionIdRef first, so it can never
   // double-fire.
-  useEffect(() => {
-    if (focusRunning && focusTimeLeft === 0) {
-      setFocusRunning(false);
-      endFocusSession();
-    }
-  }, [focusRunning, focusTimeLeft, endFocusSession]);
+  // Reaching zero no longer ends anything. The session stays open, the
+  // overtime counts, and finishing is a decision — because a timer left
+  // running on a closed laptop would otherwise invent hours.
 
   const startFocusSession = useCallback(async (missionId, habitId) => {
     focusActiveMsRef.current = 0;
+    setFocusOvertime(0);
     setFocusNotice(null);
     try {
       const data = {};
@@ -408,7 +440,12 @@ export default function App() {
     }
     // Starting or resuming. Only create a backend session on the FIRST start;
     // pausing is a frontend-only state, so resume must not open a new row.
-    if (focusTimeLeft === 0) {
+    // A fresh start puts the clock back; resuming a session that is
+    // already open does not. Since the bell no longer ends anything,
+    // "time left is zero" now also means "in overtime", and resetting
+    // there would throw the overtime away and restart the countdown
+    // under a session that never stopped.
+    if (focusTimeLeft === 0 && !focusSessionIdRef.current) {
       setFocusTimeLeft(focusSessionLength * 60);
     }
     if (!focusSessionIdRef.current) {
@@ -425,9 +462,20 @@ export default function App() {
     if (active) return;
     setFocusRunning(false);
     clearInterval(focusTimerRef.current);
-    await endFocusSession();
-    setFocusTimeLeft(focusSessionLength * 60);
-  }, [endFocusSession, focusSessionLength]);
+    await endFocusSession(false);
+    setFocusTimeLeft(focusSessionLengthRef.current * 60);
+  }, [endFocusSession]);
+
+  // The same ending, but keeping the time worked past the bell. A separate
+  // action rather than a flag on the old one: accepting overtime is a claim
+  // about what happened, and it should take a deliberate tap.
+  const handleFocusFinishWithOvertime = useCallback(async () => {
+    setFocusMode(false);
+    setFocusRunning(false);
+    clearInterval(focusTimerRef.current);
+    await endFocusSession(true);
+    setFocusTimeLeft(focusSessionLengthRef.current * 60);
+  }, [endFocusSession]);
 
   const handleFocusAdjustTime = useCallback((delta) => {
     setFocusTimeLeft((prev) => {
@@ -633,6 +681,8 @@ export default function App() {
               onRefreshHabits={handleRefreshHabits}
               onRefreshAccount={handleRefreshAccount}
               onFocusModeChange={handleFocusModeChange}
+              focusOvertime={focusOvertime}
+              onFinishWithOvertime={handleFocusFinishWithOvertime}
               timerMode={focusVisualMode}
               onTimerModeChange={setFocusVisualMode}
               focusMode={focusMode}

@@ -52,6 +52,8 @@ export default function BatFocusTimer({
   isPlaying,
   onTrackChange = () => {},
   onFocusModeChange,
+  overtime = 0,
+  onFinishWithOvertime,
   mode: propMode,
   onModeChange,
   initialFocusActive = false,
@@ -186,6 +188,9 @@ export default function BatFocusTimer({
   }, [isControlled, internalRunning]);
 
   const progress = Math.min(100, Math.max(0, Math.round((1 - timeLeft / totalTime) * 100)));
+  const overtimeLabel = overtime > 0
+    ? `+${String(Math.floor(overtime / 60)).padStart(2, '0')}:${String(overtime % 60).padStart(2, '0')}`
+    : null;
 
   const fmt = (s) => [Math.floor(s / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':');
   const formattedTime = fmt(timeLeft);
@@ -516,6 +521,7 @@ export default function BatFocusTimer({
               }}
             >
               {progress}% · {formattedTime} REMAINING
+              {overtimeLabel && <span style={{ color: 'var(--yellow-core)' }}> · {overtimeLabel} OVER</span>}
             </div>
           </div>
         );
@@ -601,6 +607,7 @@ export default function BatFocusTimer({
                 }}
               >
                 TIME REMAINING · {progress}% ELAPSED
+                {overtimeLabel && <span style={{ color: 'var(--yellow-core)' }}> · {overtimeLabel} OVER</span>}
               </span>
             </div>
           </div>
@@ -915,6 +922,29 @@ export default function BatFocusTimer({
           >
             +30s
           </button>
+
+          {/* Worked past the bell. Offered, never assumed: a timer left
+              running on a closed laptop would otherwise invent hours. */}
+          {overtime > 0 && onFinishWithOvertime && (
+            <button
+              onClick={onFinishWithOvertime}
+              title="Count the time worked after the bell as well"
+              style={{
+                background: 'rgba(255,215,0,0.12)',
+                border: '1px solid rgba(255,215,0,0.45)',
+                color: 'var(--yellow-core)',
+                fontFamily: "'Share Tech Mono', monospace",
+                fontSize: '11px',
+                letterSpacing: '1px',
+                padding: '10px 20px',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {`FINISH +${Math.max(1, Math.round(overtime / 60))}M`}
+            </button>
+          )}
 
           {/* Ends the session and logs the time (5 min minimum). */}
           <button
