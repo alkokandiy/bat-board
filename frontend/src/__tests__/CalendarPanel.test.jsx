@@ -344,3 +344,82 @@ describe('A day with more than one thing in it', () => {
       expect(screen.queryByRole('dialog', { name: /day view/i })).toBeNull());
   });
 });
+
+describe('Switching between the calendar views', () => {
+  const pick = (name) => fireEvent.click(screen.getByRole('button', { name }));
+
+  const open = async (events = [], missions = []) => {
+    api.getMissions.mockResolvedValue(missions);
+    api.getCalendarEvents.mockResolvedValue(events);
+    render(<CalendarPanel />);
+    await settle();
+  };
+
+  it('starts on the month grid', async () => {
+    await open();
+    // The weekday strip belongs to the month view alone.
+    expect(screen.getByText('Mon')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Add an event on .* at /i })).toBeNull();
+  });
+
+  it('week shows hours instead of a grid of days', async () => {
+    await open();
+    pick(/^week$/i);
+    expect(screen.getAllByRole('button', { name: /^Add an event on .* at /i }).length)
+      .toBeGreaterThan(0);
+  });
+
+  it('day shows one column, week shows seven', async () => {
+    await open();
+    pick(/^day$/i);
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(1);
+    pick(/^week$/i);
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(7);
+  });
+
+  it('3 days shows three', async () => {
+    await open();
+    pick(/^3 days$/i);
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(3);
+  });
+
+  it('agenda says when there is nothing ahead', async () => {
+    await open();
+    pick(/^agenda$/i);
+    expect(screen.getByText(/nothing in the next 30 days/i)).toBeTruthy();
+  });
+
+  it('the heading names what is on screen, not always a month', async () => {
+    await open();
+    pick(/^agenda$/i);
+    // The Upcoming panel is an h2 as well, so take the calendar's own.
+    const heading = () => screen.getAllByRole('heading', { level: 2 })[0].textContent;
+    expect(heading()).toMatch(/next 30 days/i);
+    pick(/^month$/i);
+    expect(heading()).toMatch(/\d{4}$/);
+  });
+
+  it('back and forward move by the unit the view is made of', async () => {
+    // Stepping a month while looking at three days would be a different
+    // screen, not the next one.
+    await open();
+    pick(/^day$/i);
+    const before = screen.getAllByRole('button', { name: /^Open / })[0]
+      .getAttribute('aria-label');
+    fireEvent.click(screen.getByRole('button', { name: /^forward$/i }));
+    const after = screen.getAllByRole('button', { name: /^Open / })[0]
+      .getAttribute('aria-label');
+    expect(after).not.toBe(before);
+
+    const day = (label) => Number(label.match(/(\d+)\/(\d+)\//)[2]);
+    expect(Math.abs(day(after) - day(before))).toBe(1);
+  });
+
+  it('Today comes back to today from any view', async () => {
+    await open();
+    pick(/^week$/i);
+    fireEvent.click(screen.getByRole('button', { name: /^forward$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^today$/i }));
+    expect(screen.queryByRole('button', { name: /^today$/i })).toBeNull();
+  });
+});
