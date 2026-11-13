@@ -1364,6 +1364,21 @@ def _habit_scheduled_day(habit: models.BatHabit, day: date, tz) -> bool:
     return True
 
 
+@app.get("/api/stats/year")
+@limiter.limit("30/minute")
+def get_year_activity(
+    request: Request,
+    year: int = Query(..., ge=2000, le=2100),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Per-day effort and output for a year, for the calendar's heatmap.
+
+    Sparse: only days with something in them come back.
+    """
+    return stats_service.year_activity(db, current_user, year)
+
+
 @app.get("/api/stats/day", response_model=DayStatsResponse)
 def day_stats(
     day: Optional[date] = Query(None, description="YYYY-MM-DD; defaults to today"),

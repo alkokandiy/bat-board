@@ -5,6 +5,7 @@ import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass, S
 import DayView from './DayView';
 import TimelineView from './TimelineView';
 import AgendaView from './AgendaView';
+import YearView from './YearView';
 import { addDays, startOfWeek } from '../utils/calendarDays';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -80,6 +81,7 @@ export default function CalendarPanel({ onFocusOn }) {
   // of truth for "where am I looking" and two ways to disagree.
   const [view, setView] = useState('month');
   const [anchorDay, setAnchorDay] = useState(today.getDate());
+  const [yearActivity, setYearActivity] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +111,27 @@ export default function CalendarPanel({ onFocusOn }) {
 
   const refreshEvents = useCallback(() => api.getCalendarEvents().then(setEvents), []);
 
-  const days = useMemo(() => getMonthDays(year, month), [year, month]);
+  // Only while the year is being looked at: it is a year of rows and
+  // nothing else on this screen needs it.
+  useEffect(() => {
+    if (view !== 'year') return undefined;
+    let cancelled = false;
+    api.getYearActivity(year)
+      .then((d) => { if (!cancelled) setYearActivity(d.days || []); })
+      .catch(() => { if (!cancelled) setYearActivity([]); });
+    return () => { cancelled = true; };
+  }, [view, year]);
+
+  // The grid views are one drawing too. Month pads to whole weeks with
+  // nulls; two and three weeks start from the anchor's Monday. Only the
+  // list of days differs, so the grid below is untouched by any of it.
+  const GRID_WEEKS = { weeks2: 2, weeks3: 3 };
+  const days = useMemo(() => {
+    const weeks = GRID_WEEKS[view];
+    if (!weeks) return getMonthDays(year, month);
+    const first = startOfWeek(new Date(year, month, anchorDay));
+    return Array.from({ length: weeks * 7 }, (_, i) => addDays(first, i));
+  }, [view, year, month, anchorDay]);
 
   // Day, 3 Days and Week are the same drawing with a different column
   // count, so they share one component and differ only here.
@@ -275,9 +297,10 @@ export default function CalendarPanel({ onFocusOn }) {
   // Back and forward move by whatever the view is made of: a month in the
   // grid, a week in Week, a day in Day. Stepping a month while looking at
   // three days would be a different screen, not the next one.
-  const STEP_DAYS = { day: 1, days3: 3, week: 7, agenda: 7 };
+  const STEP_DAYS = { day: 1, days3: 3, week: 7, agenda: 7, weeks2: 14, weeks3: 21 };
 
   const shift = (direction) => {
+    if (view === 'year') { setYear(y => y + direction); return; }
     const step = STEP_DAYS[view];
     if (!step) {
       const m = month + direction;
@@ -301,6 +324,7 @@ export default function CalendarPanel({ onFocusOn }) {
   // The heading names what is actually on screen, not always a month.
   const heading = (() => {
     if (view === 'month') return `${MONTHS[month]} ${year}`;
+    if (view === 'year') return String(year);
     if (view === 'agenda') return 'Next 30 days';
     if (view === 'day') return anchor.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
     const first = timelineDays[0];
@@ -311,6 +335,8 @@ export default function CalendarPanel({ onFocusOn }) {
       withMonth ? { day: 'numeric', month: 'short' } : { day: 'numeric' });
     return `${fmt(first, !sameMonth)}–${fmt(last, true)}`;
   })();
+
+  const isGrid = view === 'month' || view === 'weeks2' || view === 'weeks3';
 
   return (
     <div className="h-full flex flex-col gap-3">
@@ -347,7 +373,10 @@ export default function CalendarPanel({ onFocusOn }) {
                 { value: 'day', label: 'Day' },
                 { value: 'days3', label: '3 days' },
                 { value: 'week', label: 'Week' },
+                { value: 'weeks2', label: '2 weeks' },
+                { value: 'weeks3', label: '3 weeks' },
                 { value: 'month', label: 'Month' },
+                { value: 'year', label: 'Year' },
                 { value: 'agenda', label: 'Agenda' },
               ]}
             />
@@ -368,7 +397,11 @@ export default function CalendarPanel({ onFocusOn }) {
           </span>
         </div>
 
-        {view !== 'month' && (
+        {view === 'year' && (
+          <YearView year={year} activity={yearActivity} onOpenDay={setOpenDay} />
+        )}
+
+        {!isGrid && view !== 'year' && (
           view === 'agenda' ? (
             <AgendaView
               from={anchor}
@@ -391,13 +424,13 @@ export default function CalendarPanel({ onFocusOn }) {
           )
         )}
 
-        {view === 'month' && (
+        {isGrid && (
         <div className="shrink-0 grid grid-cols-7 text-center border-b border-white/[0.04]">
           {DAYS.map(d => <div key={d} className="text-[10px] font-mono uppercase tracking-wider text-ink-faint py-2">{d}</div>)}
         </div>
         )}
 
-        {view === 'month' && (
+        {isGrid && (
         <div className="flex-1 grid grid-cols-7 auto-rows-fr">
           {days.map((d, i) => {
             if (!d) return <div key={i} className="border-b border-r border-bat-line bg-bat-bg/60" />;

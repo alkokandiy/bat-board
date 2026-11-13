@@ -11,6 +11,7 @@ vi.mock('../utils/api', () => ({
     createCalendarEvent: vi.fn(),
     updateCalendarEvent: vi.fn(),
     deleteCalendarEvent: vi.fn(),
+    getYearActivity: vi.fn(),
     updateMission: vi.fn(),
   },
 }));
@@ -421,5 +422,67 @@ describe('Switching between the calendar views', () => {
     fireEvent.click(screen.getByRole('button', { name: /^forward$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^today$/i }));
     expect(screen.queryByRole('button', { name: /^today$/i })).toBeNull();
+  });
+});
+
+describe('The grid views are one grid', () => {
+  const pick = (name) => fireEvent.click(screen.getByRole('button', { name }));
+
+  const open = async () => {
+    api.getMissions.mockResolvedValue([]);
+    api.getCalendarEvents.mockResolvedValue([]);
+    api.getYearActivity.mockResolvedValue({ year: 2026, days: [] });
+    render(<CalendarPanel />);
+    await settle();
+  };
+
+  it('2 weeks is fourteen day cells, 3 weeks is twenty-one', async () => {
+    await open();
+    pick(/^2 weeks$/i);
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(14);
+    pick(/^3 weeks$/i);
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(21);
+  });
+
+  it('a multi-week view starts on a Monday', async () => {
+    await open();
+    pick(/^2 weeks$/i);
+    const first = screen.getAllByRole('button', { name: /^Open / })[0];
+    const [, m, d, y] = first.getAttribute('aria-label').match(/(\d+)\/(\d+)\/(\d+)/);
+    expect(new Date(Number(y), Number(m) - 1, Number(d)).getDay()).toBe(1);
+  });
+
+  it('the year draws a cell per day and is headed by the year', async () => {
+    await open();
+    pick(/^year$/i);
+    expect(screen.getAllByRole('heading', { level: 2 })[0].textContent).toMatch(/^\d{4}$/);
+    expect(screen.getAllByRole('button', { name: /^Open / }).length).toBeGreaterThan(360);
+  });
+
+  it('the year only asks the server while it is on screen', async () => {
+    await open();
+    expect(api.getYearActivity).not.toHaveBeenCalled();
+    pick(/^year$/i);
+    await settle();
+    expect(api.getYearActivity).toHaveBeenCalledWith(expect.any(Number));
+  });
+
+  it('forward in the year view moves a year, not a month', async () => {
+    await open();
+    pick(/^year$/i);
+    const before = screen.getAllByRole('heading', { level: 2 })[0].textContent;
+    fireEvent.click(screen.getByRole('button', { name: /^forward$/i }));
+    const after = screen.getAllByRole('heading', { level: 2 })[0].textContent;
+    expect(Number(after) - Number(before)).toBe(1);
+  });
+
+  it('forward in 2 weeks moves a fortnight', async () => {
+    await open();
+    pick(/^2 weeks$/i);
+    const firstDay = () => screen.getAllByRole('button', { name: /^Open / })[0]
+      .getAttribute('aria-label');
+    const before = firstDay();
+    fireEvent.click(screen.getByRole('button', { name: /^forward$/i }));
+    expect(firstDay()).not.toBe(before);
   });
 });
