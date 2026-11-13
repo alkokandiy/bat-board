@@ -400,13 +400,12 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const todayKey = localDateKey(new Date());
   const { startKey: weekStartKey, endKey: weekEndKey, label: weekLabel } = currentWeek();
 
-  // Today means today or anything already late: a date filter answers "what
-  // must I deal with by then", and something that should already have been
-  // done is the first part of that answer, not an exception to it.
-  const dueBy = (d, limitKey) => {
-    if (!d) return false;
-    return dueDateKey(d) <= limitKey;
-  };
+  // Every filter means EXACTLY its dates. "Today" briefly meant "today or
+  // anything already late", which put a mission from the 15th of October
+  // under a button marked Today — reasonable as a to-do list, wrong as a
+  // label, and the label is what people read. Overdue has its own button
+  // instead, so nothing is hidden and nothing is mislabelled.
+  const isOverdue = (d) => !!d && dueDateKey(d) < todayKey;
 
   // The week is the CALENDAR week, Monday to Sunday, and the button says
   // which dates those are. A rolling "next seven days" was neither what the
@@ -425,7 +424,8 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const dismissedMissions = missions.filter(m => m.is_dismissed);
 
   const filterByDate = (list) => {
-    if (dateFilter === 'today') return list.filter(m => dueBy(m.due_date, todayKey));
+    if (dateFilter === 'overdue') return list.filter(m => isOverdue(m.due_date));
+    if (dateFilter === 'today') return list.filter(m => dueDateKey(m.due_date) === todayKey);
     if (dateFilter === 'week') return list.filter(m => inThisWeek(m.due_date));
     return list;
   };
@@ -721,6 +721,10 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
             onChange={setDateFilter}
             options={[
               { value: 'all', label: 'All' },
+              // Overdue earns its own button rather than being folded into
+              // Today. It is the thing most worth seeing and the thing
+              // least like "today".
+              ...(overdueCount ? [{ value: 'overdue', label: `Overdue · ${overdueCount}` }] : []),
               { value: 'today', label: 'Today' },
               // Named by its actual dates — "9–15 Nov" — so the window is
               // visible rather than something you work out.
@@ -743,7 +747,10 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
           >
             {sortedMissions.length === 0 ? (
               <EmptyState>
-                {dateFilter === 'all' ? 'Nothing on the board' : 'Nothing due in this window'}
+                {dateFilter === 'all' ? 'Nothing on the board'
+                  : dateFilter === 'today' ? 'Nothing due today'
+                  : dateFilter === 'overdue' ? 'Nothing overdue'
+                  : 'Nothing due in this window'}
               </EmptyState>
             ) : (
               sortedMissions.map(m => (

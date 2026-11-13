@@ -294,13 +294,58 @@ describe('The week is Monday to Sunday, and says so', () => {
     expect(screen.queryByText('No date at all')).not.toBeInTheDocument();
   });
 
-  it('today still means today or anything already late', () => {
-    // The old overdue has to live somewhere, and this is where.
+  it('today means today, and nothing else', () => {
+    // It briefly meant "today or anything already late", which filed a
+    // mission from the 15th of October under a button marked Today.
     renderPanel(board());
     fireEvent.click(screen.getByRole('button', { name: /^today$/i }));
+    expect(screen.queryByText('Last month')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sunday just gone')).not.toBeInTheDocument();
+    expect(screen.queryByText('This Sunday')).not.toBeInTheDocument();
+  });
+
+  it('overdue has its own button, carrying the count', () => {
+    renderPanel(board());
+    const chip = screen.getByRole('button', { name: /^overdue · \d+$/i });
+    fireEvent.click(chip);
     expect(screen.getByText('Last month')).toBeInTheDocument();
     expect(screen.getByText('Sunday just gone')).toBeInTheDocument();
+  });
+
+  it('overdue shows only what is actually late', () => {
+    renderPanel(board());
+    fireEvent.click(screen.getByRole('button', { name: /^overdue · \d+$/i }));
     expect(screen.queryByText('This Sunday')).not.toBeInTheDocument();
+    expect(screen.queryByText('Next Monday')).not.toBeInTheDocument();
+    expect(screen.queryByText('No date at all')).not.toBeInTheDocument();
+  });
+
+  it('something due today is not overdue', () => {
+    // The boundary: `<` not `<=`. Nothing in the shared board is due
+    // today, so without this the off-by-one goes unnoticed.
+    const at = (offset) => {
+      const x = new Date();
+      x.setDate(x.getDate() + offset);
+      return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}T00:00:00Z`;
+    };
+    renderPanel([
+      mission({ id: 1, title: 'Due today', due_date: at(0) }),
+      mission({ id: 2, title: 'Due yesterday', due_date: at(-1) }),
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: /^overdue · 1$/i }));
+    expect(screen.getByText('Due yesterday')).toBeInTheDocument();
+    expect(screen.queryByText('Due today')).not.toBeInTheDocument();
+  });
+
+  it('no overdue button when nothing is late', () => {
+    renderPanel([mission({ id: 1, title: 'Someday', due_date: null })]);
+    expect(screen.queryByRole('button', { name: /^overdue/i })).not.toBeInTheDocument();
+  });
+
+  it('says which window is empty, not just "nothing"', () => {
+    renderPanel([mission({ id: 1, title: 'Someday', due_date: null })]);
+    fireEvent.click(screen.getByRole('button', { name: /^today$/i }));
+    expect(screen.getByText(/nothing due today/i)).toBeInTheDocument();
   });
 
   it('all still means all', () => {
