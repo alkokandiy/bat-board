@@ -57,6 +57,31 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
  *   4. priority      — the tiebreaker within a single day
  *   5. newest first  — stable, and the last thing added is the freshest
  */
+/**
+ * What a new mission starts as.
+ *
+ * Due defaults to today, like priority defaults to medium: a field left
+ * empty by default is a field usually left empty, and 31 of 44 open
+ * missions on this board had no date at all — which is a third of the
+ * list that no filter can sort and no sort can order.
+ *
+ * Today rather than tomorrow or nothing, because the date can be changed
+ * in one tap and a wrong date is visible where a missing one is not. Clear
+ * it and the mission is undated, exactly as before.
+ */
+export function blankMission(today = new Date()) {
+  return {
+    title: '',
+    description: '',
+    priority: 'medium',
+    due_date: localDateKey(today),
+    tags: '',
+    location: '',
+    notes: '',
+    subtasks: '',
+  };
+}
+
 export function byWhatIsDueFirst(a, b) {
   if (!!a.is_pinned !== !!b.is_pinned) return a.is_pinned ? -1 : 1;
 
@@ -374,7 +399,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const [viewMode, setViewMode] = useState('list');
   const [showForm, setShowForm] = useState(false);
   const [editMission, setEditMission] = useState(null);
-  const [form, setForm] = useState({ title: '', description: '', priority: 'medium', due_date: '', tags: '', location: '', notes: '', subtasks: '' });
+  const [form, setForm] = useState(() => blankMission());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   // Saving used to produce no acknowledgement whatsoever: the modal vanished
@@ -433,7 +458,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const sortedMissions = [...filterByDate(activeMissions)].sort(byWhatIsDueFirst);
 
   const resetForm = () => {
-    setForm({ title: '', description: '', priority: 'medium', due_date: '', tags: '', location: '', notes: '', subtasks: '' });
+    setForm(blankMission());
     setError(null);
   };
 

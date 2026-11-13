@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import MissionsPanel, { byWhatIsDueFirst, currentWeek } from '../components/MissionsPanel';
+import MissionsPanel, { blankMission, byWhatIsDueFirst, currentWeek } from '../components/MissionsPanel';
 import { api } from '../utils/api';
 
 vi.mock('../utils/api', () => ({
@@ -102,7 +102,7 @@ describe('the mission form', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Add mission/i }));
     await waitFor(() => expect(api.createMission).toHaveBeenCalled());
-    expect(api.createMission.mock.calls[0][0].subtasks)
+    expect(api.createMission.mock.calls.at(-1)[0].subtasks)
       .toBe('[{"title":"Charge the batteries","done":false}]');
   });
 
@@ -472,5 +472,90 @@ describe('The order of the list', () => {
     ]);
     const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
     expect(titles.slice(0, 3)).toEqual(['Overdue medium', 'Due today', 'High no date']);
+  });
+});
+
+describe('A new mission starts dated today', () => {
+  // This suite's clearAllMocks lives in another describe, so these would
+  // otherwise read calls recorded by earlier tests.
+  beforeEach(() => vi.clearAllMocks());
+
+  const todayKey = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  // The LAST one in the document: this suite renders repeatedly without
+  // auto-cleanup, so an earlier test's form is still in the body and a
+  // plain querySelector returns that one instead.
+  const dueInput = () => {
+    const all = document.querySelectorAll('input[type="date"]');
+    return all[all.length - 1];
+  };
+
+  const openNew = () => {
+    renderPanel([]);
+    fireEvent.click(screen.getByRole('button', { name: /new mission/i }));
+  };
+
+  it('prefills Due with today', () => {
+    // Like priority defaults to medium. A field left empty by default is a
+    // field usually left empty — 31 of 44 missions had no date at all.
+    openNew();
+    expect(dueInput().value).toBe(todayKey());
+  });
+
+  it('saves that date without the user touching it', async () => {
+    api.createMission.mockResolvedValue({});
+    openNew();
+    fireEvent.change(screen.getByLabelText(/what is it/i), { target: { value: 'Pay the invoice' } });
+    fireEvent.click(screen.getByRole('button', { name: /^add mission$/i }));
+    await waitFor(() => expect(api.createMission).toHaveBeenCalled());
+    expect(api.createMission.mock.calls.at(-1)[0].due_date).toBe(`${todayKey()}T00:00:00Z`);
+  });
+
+  it('can still be cleared, for a mission with no date', async () => {
+    api.createMission.mockResolvedValue({});
+    openNew();
+    fireEvent.change(screen.getByLabelText(/what is it/i), { target: { value: 'Someday' } });
+    fireEvent.change(dueInput(), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /^add mission$/i }));
+    await waitFor(() => expect(api.createMission).toHaveBeenCalled());
+    expect(api.createMission.mock.calls.at(-1)[0].due_date).toBeNull();
+  });
+
+  it('and can be changed before saving', async () => {
+    api.createMission.mockResolvedValue({});
+    openNew();
+    fireEvent.change(screen.getByLabelText(/what is it/i), { target: { value: 'Later' } });
+    fireEvent.change(dueInput(), { target: { value: '2027-03-01' } });
+    fireEvent.click(screen.getByRole('button', { name: /^add mission$/i }));
+    await waitFor(() => expect(api.createMission).toHaveBeenCalled());
+    expect(api.createMission.mock.calls.at(-1)[0].due_date).toBe('2027-03-01T00:00:00Z');
+  });
+
+  it('EDITING an undated mission does not quietly date it', () => {
+    // The default belongs to new missions only. Opening an old undated one
+    // and pressing save must not silently give it today.
+    renderPanel([mission({ id: 5, title: 'No date', due_date: null })]);
+    fireEvent.click(screen.getByRole('button', { name: /edit "no date"/i }));
+    expect(dueInput().value).toBe('');
+  });
+
+  it('editing a dated mission still shows its own date', () => {
+    renderPanel([mission({ id: 6, title: 'Dated', due_date: '2026-12-25T00:00:00Z' })]);
+    fireEvent.click(screen.getByRole('button', { name: /edit "dated"/i }));
+    expect(dueInput().value).toBe('2026-12-25');
+  });
+
+  it('the default is today, not a fixed day', () => {
+    expect(blankMission(new Date(2027, 2, 9)).due_date).toBe('2027-03-09');
+    expect(blankMission(new Date(2026, 11, 31)).due_date).toBe('2026-12-31');
+  });
+
+  it('and the other defaults are unchanged', () => {
+    const fresh = blankMission();
+    expect(fresh.priority).toBe('medium');
+    expect(fresh.title).toBe('');
   });
 });
