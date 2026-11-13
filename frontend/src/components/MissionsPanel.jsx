@@ -326,10 +326,20 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
 
   const todayKey = localDateKey(new Date());
   const weekEndKey = localDateKey(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-  const inNext7Days = (d) => {
+  // Up to and including the end of the window — NOT a band starting today.
+  //
+  // "This week" used to mean `key >= todayKey`, which quietly dropped
+  // everything already late. So a board with forty-five open missions, of
+  // which fourteen were overdue and thirty-one had no date at all, showed
+  // "This week: 0" — an empty list while fourteen things were past their
+  // date, several of them from earlier in that same week.
+  //
+  // A date filter exists to answer "what do I have to deal with by then",
+  // and something you should already have done is the first part of that
+  // answer, not an exception to it.
+  const dueBy = (d, limitKey) => {
     if (!d) return false;
-    const key = dueDateKey(d);
-    return key >= todayKey && key <= weekEndKey;
+    return dueDateKey(d) <= limitKey;
   };
 
   const activeMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
@@ -337,8 +347,8 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const dismissedMissions = missions.filter(m => m.is_dismissed);
 
   const filterByDate = (list) => {
-    if (dateFilter === 'today') return list.filter(m => dueDateKey(m.due_date) === todayKey);
-    if (dateFilter === 'week') return list.filter(m => inNext7Days(m.due_date));
+    if (dateFilter === 'today') return list.filter(m => dueBy(m.due_date, todayKey));
+    if (dateFilter === 'week') return list.filter(m => dueBy(m.due_date, weekEndKey));
     return list;
   };
 
