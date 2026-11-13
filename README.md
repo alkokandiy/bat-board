@@ -262,7 +262,6 @@ bat-board/
 │   │   │   ├── HabitsPanel.jsx
 │   │   │   ├── FocusPanel.jsx
 │   │   │   ├── BatFocusTimer.jsx
-│   │   │   ├── FlipTimer.jsx
 │   │   │   ├── JohnWickPanel.jsx
 │   │   │   ├── CountdownPanel.jsx
 │   │   │   ├── CalendarPanel.jsx
