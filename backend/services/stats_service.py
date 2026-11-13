@@ -9,7 +9,7 @@ will call.
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -166,3 +166,68 @@ def get_focus_stats(
 ) -> dict:
     """Thin wrapper Alfred's tool layer will call directly."""
     return _compute_focus_stats(db, current_user, period)
+
+
+def year_activity(db: Session, current_user: models.BatAccount, year: int) -> dict:
+    """What each day of a year had in it, for the year view's heatmap.
+
+    Sparse on purpose: only days with something in them are returned, so a
+    year costs a few hundred rows rather than 365 mostly-empty ones.
+
+    Two numbers, because they answer different questions. `minutes` is
+    effort — time actually spent — and `done` is output: missions completed
+    plus habits kept. A day of three hours' focus and nothing finished is a
+    real day, and so is the reverse; one number would hide both.
+    """
+    tz = user_tz(current_user)
+    start = date(year, 1, 1)
+    end = date(year, 12, 31)
+    # Widened a day each way: a local day near the year's edge reaches into
+    # the neighbouring year in UTC.
+    lo, _ = day_bounds_utc(start - timedelta(days=1), tz)
+    _, hi = day_bounds_utc(end + timedelta(days=1), tz)
+
+    days: dict = defaultdict(lambda: {"minutes": 0, "done": 0})
+
+    focus_rows = (
+        db.query(models.BatFocus.start_time, models.BatFocus.duration_minutes)
+        .filter(models.BatFocus.owner_id == current_user.id,
+                models.BatFocus.end_time.isnot(None),
+                models.BatFocus.start_time >= lo.replace(tzinfo=None),
+                models.BatFocus.start_time <= hi.replace(tzinfo=None))
+        .all()
+    )
+    for started, minutes in focus_rows:
+        if started and minutes:
+            days[local_date(started, tz)]["minutes"] += minutes
+
+    mission_rows = (
+        db.query(models.BatMission.completed_at)
+        .filter(models.BatMission.owner_id == current_user.id,
+                models.BatMission.completed_at.isnot(None),
+                models.BatMission.completed_at >= lo.replace(tzinfo=None),
+                models.BatMission.completed_at <= hi.replace(tzinfo=None))
+        .all()
+    )
+    for (completed,) in mission_rows:
+        if completed:
+            days[local_date(completed, tz)]["done"] += 1
+
+    habit_rows = (
+        db.query(models.HabitCompletionLog.completed_at)
+        .join(models.BatHabit, models.BatHabit.id == models.HabitCompletionLog.habit_id)
+        .filter(models.BatHabit.owner_id == current_user.id,
+                models.HabitCompletionLog.completed_at >= lo.replace(tzinfo=None),
+                models.HabitCompletionLog.completed_at <= hi.replace(tzinfo=None))
+        .all()
+    )
+    for (kept,) in habit_rows:
+        if kept:
+            days[local_date(kept, tz)]["done"] += 1
+
+    cells = [
+        {"date": day.isoformat(), "minutes": v["minutes"], "done": v["done"]}
+        for day, v in sorted(days.items())
+        if day.year == year and (v["minutes"] or v["done"])
+    ]
+    return {"year": year, "days": cells}

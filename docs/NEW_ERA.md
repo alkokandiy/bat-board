@@ -112,6 +112,45 @@ fraction of the risk, and it does not need OAuth.
 Two-way Google sync is a much bigger piece of work and should only follow
 if one-way proves it is used.
 
+### Phase 13b · The seven calendar views *(done, 2026-11-13)*
+
+From the owner's second and third batches of screenshots. The useful
+finding was that TickTick's seven views are **three shapes**, not seven
+features:
+
+| shape | views |
+|---|---|
+| hours × N days | Day, Multi-Day (3), Week |
+| day cells | 2 weeks, 3 weeks, Month |
+| a list of what exists | Agenda |
+| twelve mini grids | Year |
+
+So bat-board has one `TimelineView` taking a list of days, one grid whose
+day list changes, `AgendaView`, and `YearView`. Writing seven components
+would have been seven places for the same off-by-one.
+
+Decisions worth keeping:
+
+- **Navigation moves by the unit the view is made of** — a month in the
+  grid, a fortnight in 2 weeks, a day in Day, a year in Year. Stepping a
+  month while looking at three days is a different screen, not the next.
+- **One anchor date** drives every view. Month owning `year`/`month` while
+  the others each kept a date would be two sources of truth for "where am
+  I looking".
+- **The heading names what is on screen** — `9–15 Nov`, `Next 30 days`,
+  `2026` — never always a month.
+- **The year heatmap takes two numbers, not one.** `minutes` is effort and
+  `done` is output (missions completed plus habits kept). A day of three
+  hours with nothing finished is a real day and so is the reverse; one
+  blended number hides both, and the tooltip reports them apart.
+- **Four bands, not a gradient.** A continuous scale invites comparing two
+  days that differ by four minutes.
+- Agenda **leaves empty days out**. An agenda of empty days is the thing
+  it exists not to be.
+
+`GET /api/stats/year?year=` returns the heatmap sparsely — only days with
+something in them — and is fetched only while the year is on screen.
+
 ### Phase 14 · Drag to reschedule
 In the month grid and the day view. The day view already has the hour rows;
 rescheduling a mission is currently a date picker, which is correct but

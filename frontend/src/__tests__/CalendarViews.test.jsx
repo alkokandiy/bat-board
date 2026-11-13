@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import TimelineView from '../components/TimelineView';
 import AgendaView from '../components/AgendaView';
+import YearView, { intensity } from '../components/YearView';
 import { addDays, startOfWeek, weekOf } from '../utils/calendarDays';
 
 /**
@@ -185,5 +186,112 @@ describe('Week arithmetic', () => {
     expect(days[0].getMonth()).toBe(10);
     expect(days[6].getDate()).toBe(6);
     expect(days[6].getMonth()).toBe(11);
+  });
+});
+
+describe('The year, and its heatmap', () => {
+  const renderYear = (activity = [], over = {}) => {
+    const props = { year: 2026, activity, onOpenDay: vi.fn(), ...over };
+    render(<YearView {...props} />);
+    return props;
+  };
+
+  it('draws twelve months', () => {
+    renderYear();
+    ['January', 'June', 'December'].forEach((m) =>
+      expect(screen.getByText(m)).toBeTruthy());
+  });
+
+  it('has a cell for every day of the year', () => {
+    renderYear();
+    // 2026 is not a leap year.
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(365);
+  });
+
+  it('counts leap day', () => {
+    renderYear([], { year: 2028 });
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(366);
+  });
+
+  it('a quiet day is level zero and a full one is not', () => {
+    renderYear([
+      { date: '2026-03-09', minutes: 240, done: 4 },
+      { date: '2026-03-10', minutes: 10, done: 0 },
+    ]);
+    const level = (d) => screen.getByTitle(new RegExp(`^${d}`)) ;
+    // Checked through the data attribute rather than the class string,
+    // which would be asserting on styling.
+    const busy = screen.getAllByRole('button', { name: /^Open / })
+      .find((b) => b.getAttribute('title')?.includes('240m'));
+    expect(busy.getAttribute('data-level')).toBe('4');
+  });
+
+  it('reports effort and output separately, never blended', () => {
+    renderYear([{ date: '2026-05-01', minutes: 90, done: 2 }]);
+    const cell = screen.getAllByRole('button', { name: /^Open / })
+      .find((b) => b.getAttribute('title')?.includes('90m'));
+    expect(cell.getAttribute('title')).toMatch(/90m focused/);
+    expect(cell.getAttribute('title')).toMatch(/2 done/);
+  });
+
+  it('a day with effort but nothing finished still lights up', () => {
+    renderYear([{ date: '2026-05-01', minutes: 180, done: 0 }]);
+    const cell = screen.getAllByRole('button', { name: /^Open / })
+      .find((b) => b.getAttribute('title')?.includes('180m'));
+    expect(Number(cell.getAttribute('data-level'))).toBeGreaterThan(0);
+  });
+
+  it('a day with nothing is level zero', () => {
+    renderYear();
+    const cells = screen.getAllByRole('button', { name: /^Open / });
+    expect(cells.every((c) => c.getAttribute('data-level') === '0')).toBe(true);
+  });
+
+  it('clicking a day opens it', () => {
+    const { onOpenDay } = renderYear();
+    const cells = screen.getAllByRole('button', { name: /^Open / });
+    fireEvent.click(cells[0]);
+    expect(onOpenDay).toHaveBeenCalled();
+    expect(onOpenDay.mock.calls[0][0].getFullYear()).toBe(2026);
+  });
+
+  it('months start on Monday', () => {
+    // 1 January 2026 is a Thursday. Monday-first that is three blanks
+    // before it; Sunday-first it would be four. Asserting the first
+    // BUTTON is Jan 1 proves nothing — it is either way.
+    renderYear();
+    const january = screen.getByText('January').parentElement;
+    const grid = january.querySelector('.grid-cols-7');
+    const cells = Array.from(grid.children).slice(7);   // past the M T W… row
+    const firstDay = cells.findIndex((c) => c.tagName === 'BUTTON');
+    expect(firstDay).toBe(3);
+  });
+
+  it('and the weekday initials are Monday-first', () => {
+    renderYear();
+    const january = screen.getByText('January').parentElement;
+    const grid = january.querySelector('.grid-cols-7');
+    const initials = Array.from(grid.children).slice(0, 7).map((s) => s.textContent);
+    expect(initials).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
+  });
+
+  it('output counts toward the colour, not only effort', () => {
+    // A day where three things were finished and no timer ran is not a
+    // blank day. Scoring on minutes alone would make it one.
+    expect(intensity({ minutes: 0, done: 1 })).toBeGreaterThan(0);
+    expect(intensity({ minutes: 0, done: 4 }))
+      .toBeGreaterThan(intensity({ minutes: 0, done: 1 }));
+    expect(intensity({ minutes: 0, done: 6 })).toBe(4);
+  });
+
+  it('the scale is bands, not a gradient', () => {
+    expect([
+      intensity(null),
+      intensity({ minutes: 0, done: 0 }),
+      intensity({ minutes: 20, done: 0 }),
+      intensity({ minutes: 60, done: 0 }),
+      intensity({ minutes: 120, done: 0 }),
+      intensity({ minutes: 300, done: 0 }),
+    ]).toEqual([0, 0, 1, 2, 3, 4]);
   });
 });

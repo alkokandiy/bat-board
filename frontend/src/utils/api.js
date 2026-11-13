@@ -235,6 +235,8 @@ export const api = {
   // How long to suggest a session: their own median, or an openly-labelled
   // fallback. There is no universally correct length, so nothing is hard-coded.
   getSuggestedFocusMinutes: () => request('/focus/suggested-minutes'),
+  // Per-day effort and output for a year, for the calendar's heatmap.
+  getYearActivity: (year) => request(`/stats/year?year=${year}`),
 
   // Record focus that already happened. Until this existed, the only way to
   // say "I did two hours on that yesterday" was to ask Alfred.
