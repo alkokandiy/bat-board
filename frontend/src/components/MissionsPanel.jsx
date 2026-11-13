@@ -35,6 +35,42 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
  * (habit weekdays are Mon=0) and what the owner means by a week. Sunday is
  * day 0 in JS, hence the shuffle.
  */
+/**
+ * The order of the list.
+ *
+ * It used to be pinned, then priority, then whatever order the rows came
+ * back in — the due date was not in the sort at all. So a board of 44 open
+ * missions with 13 overdue and 31 undated scattered the overdue ones
+ * through the middle, and the thing most obviously needing attention could
+ * sit eighteenth.
+ *
+ * Date beats priority, deliberately. A priority is a label chosen once,
+ * usually when the mission was created and rarely revisited; nearly
+ * everything ends up "medium". A due date is a commitment to a moment, and
+ * a moment that has passed outranks any label. So a "medium" that was due
+ * last week comes before a "high" with no date — which is the right answer,
+ * because the first is late and the second is only an intention.
+ *
+ *   1. pinned        — an explicit "keep this in front of me"
+ *   2. dated first   — a date is a commitment, no date is a someday
+ *   3. soonest first — overdue, then today, then the rest in order
+ *   4. priority      — the tiebreaker within a single day
+ *   5. newest first  — stable, and the last thing added is the freshest
+ */
+export function byWhatIsDueFirst(a, b) {
+  if (!!a.is_pinned !== !!b.is_pinned) return a.is_pinned ? -1 : 1;
+
+  const aDue = dueDateKey(a.due_date);
+  const bDue = dueDateKey(b.due_date);
+  if (!!aDue !== !!bDue) return aDue ? -1 : 1;
+  if (aDue && bDue && aDue !== bDue) return aDue < bDue ? -1 : 1;
+
+  const byPriority = (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
+  if (byPriority) return byPriority;
+
+  return (b.id || 0) - (a.id || 0);
+}
+
 export function currentWeek(now = new Date()) {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
@@ -394,11 +430,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
     return list;
   };
 
-  const sortedMissions = [...filterByDate(activeMissions)].sort((a, b) => {
-    if (a.is_pinned && !b.is_pinned) return -1;
-    if (!a.is_pinned && b.is_pinned) return 1;
-    return (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
-  });
+  const sortedMissions = [...filterByDate(activeMissions)].sort(byWhatIsDueFirst);
 
   const resetForm = () => {
     setForm({ title: '', description: '', priority: 'medium', due_date: '', tags: '', location: '', notes: '', subtasks: '' });
@@ -702,7 +734,13 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
       ) : (
         <div className="space-y-gutter">
-          <Panel title="Active" meta={`${sortedMissions.length}`} bodyClassName="p-3 space-y-2">
+          {/* The order is stated, because a list you cannot explain the
+              order of is one you end up re-reading top to bottom. */}
+          <Panel
+            title="Active"
+            meta={`${sortedMissions.length} · soonest first`}
+            bodyClassName="p-3 space-y-2"
+          >
             {sortedMissions.length === 0 ? (
               <EmptyState>
                 {dateFilter === 'all' ? 'Nothing on the board' : 'Nothing due in this window'}
