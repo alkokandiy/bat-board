@@ -42,11 +42,24 @@ export function currentWeek(now = new Date()) {
   const end = new Date(start);
   end.setDate(start.getDate() + 6);
 
-  const label = start.getMonth() === end.getMonth()
-    ? `${start.getDate()}–${end.getDate()} ${MONTH_SHORT[end.getMonth()]}`
+  // Bare days when the week sits in one month ("9–15"); both months named
+  // when it straddles two ("30 Nov–6 Dec"), where the days alone would read
+  // as going backwards.
+  const range = start.getMonth() === end.getMonth()
+    ? `${start.getDate()}–${end.getDate()}`
     : `${start.getDate()} ${MONTH_SHORT[start.getMonth()]}–${end.getDate()} ${MONTH_SHORT[end.getMonth()]}`;
 
-  return { start, end, startKey: localDateKey(start), endKey: localDateKey(end), label };
+  return {
+    start,
+    end,
+    startKey: localDateKey(start),
+    endKey: localDateKey(end),
+    range,
+    // The word AND the dates: the word says what the filter is for, the
+    // dates say exactly where it stops. Recomputed on every render from
+    // the current date — nothing here is fixed to a particular week.
+    label: `This week · ${range}`,
+  };
 }
 
 function localDateKey(date) {
