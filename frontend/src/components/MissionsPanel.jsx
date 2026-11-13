@@ -648,7 +648,12 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
             options={[
               { value: 'all', label: 'All' },
               { value: 'today', label: 'Today' },
-              { value: 'week', label: 'This week' },
+              // "Next 7 days", not "This week": the window rolls forward from
+              // today rather than ending on Sunday. A calendar week is the
+              // wrong unit for a task list — on a Sunday it would mean one
+              // day — but calling a rolling window "this week" made the
+              // filter misreport itself.
+              { value: 'week', label: 'Next 7 days' },
             ]}
           />
         )}
