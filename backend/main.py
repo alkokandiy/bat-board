@@ -39,12 +39,14 @@ from routers.cron import router as cron_router
 from routers.admin import router as admin_router
 from routers.work import router as work_router
 from routers.lists import router as lists_router
+from routers.sections import router as sections_router
 from services import telegram_service
 from services import (
     calendar_service,
     focus_service,
     habit_service,
     list_service,
+    section_service,
     logs_service,
     mission_service,
     profile_service,
@@ -175,6 +177,7 @@ app.include_router(cron_router)
 app.include_router(admin_router)
 app.include_router(work_router)
 app.include_router(lists_router)
+app.include_router(sections_router)
 
 # NOTE: calculate_bat_level / auto_log_event now live in services/common.py
 # (imported above) so services can use them without a circular import.
@@ -230,6 +233,8 @@ class BatMissionBase(BaseModel):
     # NULL is the Inbox. Validated against the caller's own lists before it
     # ever reaches the column — see the PUT handler and list_service.resolve.
     list_id: Optional[int] = None
+    # NULL is "no section". Must belong to the mission's own list.
+    section_id: Optional[int] = None
 
 class BatMissionCreate(BatMissionBase):
     pass
@@ -247,6 +252,7 @@ class BatMissionUpdate(BaseModel):
     notes: Optional[str] = None
     subtasks: Optional[str] = None
     list_id: Optional[int] = None
+    section_id: Optional[int] = None
 
 class BatMissionSchema(BatMissionBase):
     model_config = ConfigDict(from_attributes=True)
@@ -694,13 +700,15 @@ def reset_points(
 @app.get("/api/missions", response_model=List[BatMissionSchema])
 def list_missions(
     list_id: Optional[str] = None,
+    section_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
     # A string, not an int, because "inbox" is a value here: the Inbox has
     # no row, so it cannot be addressed by id.
     try:
-        return mission_service.list_missions(db, current_user, list_filter=list_id)
+        return mission_service.list_missions(
+            db, current_user, list_filter=list_id, section_filter=section_id)
     except ValueError as exc:
         # An id that is not a list, or not this user's — a bad request, not
         # a server fault, and emphatically not somebody else's missions.
@@ -730,9 +738,12 @@ def create_mission(
             notes=mission_data.notes,
             subtasks=mission_data.subtasks,
             list_id=mission_data.list_id,
+            section_id=mission_data.section_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+_PLACEMENT_FIELDS = {"list_id", "section_id"}
 
 _NON_NULLABLE_MISSION_FIELDS = {"title", "priority", "is_pinned", "is_dismissed"}
 
@@ -762,17 +773,26 @@ def update_mission(
         value = getattr(payload, field)
         if value is None and field in _NON_NULLABLE_MISSION_FIELDS:
             continue  # explicit null on a NOT NULL column used to 500
-        if field == 'list_id':
-            # Not a plain setattr: this loop writes whatever arrived onto
-            # the row, and a list_id is the one field here that names
-            # another table's row. Unchecked, a mission could be filed into
-            # a list belonging to somebody else. None stays None — that is
-            # the Inbox.
-            try:
-                value = list_service.resolve(db, current_user, value)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
+        if field in _PLACEMENT_FIELDS:
+            # Handled after the loop, not here. This loop writes whatever
+            # arrived straight onto the row, and these two are the fields
+            # that name another table's rows: unchecked, a mission could be
+            # filed into a list belonging to somebody else, or into a
+            # section of a different list. They also depend on each other,
+            # so they cannot be set one at a time in dictionary order.
+            continue
         setattr(mission, field, value)
+
+    sent = payload.model_fields_set
+    if sent & _PLACEMENT_FIELDS:
+        try:
+            mission.list_id, mission.section_id = mission_service.resolve_placement(
+                db, current_user, mission,
+                list_id=payload.list_id if 'list_id' in sent else mission_service.UNSET,
+                section_id=payload.section_id if 'section_id' in sent else mission_service.UNSET,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     if 'status' in payload.model_fields_set and payload.status is not None:
         if payload.status == "completed" and old_status != "completed":

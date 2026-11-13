@@ -126,6 +126,10 @@ export default function App() {
   const [listCounts, setListCounts] = useState({});
   const [selectedList, setSelectedList] = useState(null);
 
+  // Sections (Phase 9): the subdivisions of lists. Fetched wholesale so the
+  // mission form can offer any chosen list's sections without a refetch.
+  const [sections, setSections] = useState([]);
+
   // Focus timer state - persists across tab switches
   // 25 is folklore — it came from the inventor's kitchen timer, and no study
   // has ever compared it against anything. The real default is the user's own
@@ -179,6 +183,16 @@ export default function App() {
       setListCounts(await api.getListCounts() || {});
       setSelectedList((sel) => (
         sel != null && sel !== 'inbox' && !live.some((l) => l.id === sel) ? null : sel));
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  // Same stance as the lists: navigation-shaped data, so a failure is
+  // swallowed and the missions screen keeps working.
+  const fetchSections = useCallback(async () => {
+    try {
+      setSections(await api.getSections());
     } catch (err) {
       console.error(err);
     }
@@ -255,6 +269,7 @@ export default function App() {
 
       // Lists ride alongside the boot data, never in front of it.
       fetchLists();
+      fetchSections();
 
       // Their own median session length, once they have enough history for
       // one. Kept off the boot path: a failure here must not block the board.
@@ -278,7 +293,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [fetchLists]);
+  }, [fetchLists, fetchSections]);
 
   useEffect(() => {
     const token = localStorage.getItem('bat_access_token');
@@ -296,6 +311,7 @@ export default function App() {
       setLists([]);
       setArchivedLists([]);
       setListCounts({});
+      setSections([]);
       setSelectedList(null);
       setWorkEnabled(false);
     };
@@ -371,6 +387,8 @@ export default function App() {
     // Anything that moved a mission (created, completed, refiled) moved the
     // per-list counts with it; the rail reads its numbers from here.
     fetchLists();
+    // A section's open count moves with its missions too.
+    fetchSections();
   };
 
   // --- lists (Phase 8) --------------------------------------------------
@@ -743,6 +761,8 @@ export default function App() {
               onFocusOn={(id) => handleFocusOn('mission', id)}
               lists={lists}
               selectedList={selectedList}
+              sections={sections}
+              onRefreshSections={fetchSections}
             />
           </div>
         );

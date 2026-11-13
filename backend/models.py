@@ -65,6 +65,7 @@ class BatAccount(Base):
 
     missions = relationship("BatMission", back_populates="owner", cascade="all, delete-orphan")
     lists = relationship("BatList", back_populates="owner", cascade="all, delete-orphan")
+    sections = relationship("BatSection", back_populates="owner", cascade="all, delete-orphan")
     habits = relationship("BatHabit", back_populates="owner", cascade="all, delete-orphan")
     logs = relationship("BatLog", back_populates="owner", cascade="all, delete-orphan")
     focus_sessions = relationship("BatFocus", back_populates="owner", cascade="all, delete-orphan")
@@ -106,6 +107,28 @@ class BatList(Base):
                       nullable=False, index=True)
     owner = relationship("BatAccount", back_populates="lists")
     missions = relationship("BatMission", back_populates="bat_list")
+    sections = relationship("BatSection", back_populates="bat_list",
+                            cascade="all, delete-orphan")
+
+
+class BatSection(Base):
+    """A subdivision of one list. Meaningless outside it, which is why a
+    mission's section must belong to the mission's own list."""
+
+    __tablename__ = "bat_sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    position = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    list_id = Column(Integer, ForeignKey("bat_lists.id", ondelete="CASCADE"),
+                     nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    bat_list = relationship("BatList", back_populates="sections")
+    owner = relationship("BatAccount", back_populates="sections")
+    missions = relationship("BatMission", back_populates="section")
 
 
 class BatMission(Base):
@@ -133,8 +156,13 @@ class BatMission(Base):
     # a list refiles its missions rather than deleting them.
     list_id = Column(Integer, ForeignKey("bat_lists.id", ondelete="SET NULL"),
                      nullable=True, index=True)
+    # NULL is "in the list, not in a section". A section always belongs to
+    # the mission's own list — see section_service.resolve.
+    section_id = Column(Integer, ForeignKey("bat_sections.id", ondelete="SET NULL"),
+                        nullable=True, index=True)
     owner = relationship("BatAccount", back_populates="missions")
     bat_list = relationship("BatList", back_populates="missions")
+    section = relationship("BatSection", back_populates="missions")
     calendar_events = relationship("CalendarEvent", back_populates="mission")
 
 
