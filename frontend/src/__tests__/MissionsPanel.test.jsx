@@ -224,3 +224,61 @@ describe('Focus on this', () => {
     expect(screen.queryByRole('button', { name: /focus on/i })).not.toBeInTheDocument();
   });
 });
+
+describe('Today and This week include what is already late', () => {
+  const key = (offsetDays) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T00:00:00Z`;
+  };
+
+  const board = () => [
+    mission({ id: 1, title: 'Late last month', due_date: key(-30) }),
+    mission({ id: 2, title: 'Late on Monday', due_date: key(-3) }),
+    mission({ id: 3, title: 'Due today', due_date: key(0) }),
+    mission({ id: 4, title: 'Due tomorrow', due_date: key(1) }),
+    mission({ id: 5, title: 'Due next fortnight', due_date: key(12) }),
+    mission({ id: 6, title: 'No date at all', due_date: null }),
+  ];
+
+  const pick = (label) => {
+    renderPanel(board());
+    fireEvent.click(screen.getByRole('button', { name: label }));
+  };
+
+  it('this week shows what is overdue, not an empty list', () => {
+    // The report: 45 open, 14 overdue, and "This week" said 0.
+    pick(/^this week$/i);
+    expect(screen.getByText('Late on Monday')).toBeInTheDocument();
+    expect(screen.getByText('Late last month')).toBeInTheDocument();
+  });
+
+  it('this week still shows the week itself', () => {
+    pick(/^this week$/i);
+    expect(screen.getByText('Due today')).toBeInTheDocument();
+    expect(screen.getByText('Due tomorrow')).toBeInTheDocument();
+  });
+
+  it('this week stops at the end of the week', () => {
+    pick(/^this week$/i);
+    expect(screen.queryByText('Due next fortnight')).not.toBeInTheDocument();
+  });
+
+  it('today means today and anything already late', () => {
+    pick(/^today$/i);
+    expect(screen.getByText('Due today')).toBeInTheDocument();
+    expect(screen.getByText('Late on Monday')).toBeInTheDocument();
+    expect(screen.queryByText('Due tomorrow')).not.toBeInTheDocument();
+  });
+
+  it('a mission with no date is in neither', () => {
+    pick(/^this week$/i);
+    expect(screen.queryByText('No date at all')).not.toBeInTheDocument();
+  });
+
+  it('all still means all', () => {
+    pick(/^all$/i);
+    expect(screen.getByText('No date at all')).toBeInTheDocument();
+    expect(screen.getByText('Due next fortnight')).toBeInTheDocument();
+  });
+});
