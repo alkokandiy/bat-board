@@ -246,21 +246,21 @@ describe('Today and This week include what is already late', () => {
     fireEvent.click(screen.getByRole('button', { name: label }));
   };
 
-  it('this week shows what is overdue, not an empty list', () => {
+  it('the next seven days shows what is overdue, not an empty list', () => {
     // The report: 45 open, 14 overdue, and "This week" said 0.
-    pick(/^this week$/i);
+    pick(/^next 7 days$/i);
     expect(screen.getByText('Late on Monday')).toBeInTheDocument();
     expect(screen.getByText('Late last month')).toBeInTheDocument();
   });
 
-  it('this week still shows the week itself', () => {
-    pick(/^this week$/i);
+  it('and still shows the week ahead itself', () => {
+    pick(/^next 7 days$/i);
     expect(screen.getByText('Due today')).toBeInTheDocument();
     expect(screen.getByText('Due tomorrow')).toBeInTheDocument();
   });
 
-  it('this week stops at the end of the week', () => {
-    pick(/^this week$/i);
+  it('and stops seven days out', () => {
+    pick(/^next 7 days$/i);
     expect(screen.queryByText('Due next fortnight')).not.toBeInTheDocument();
   });
 
@@ -272,7 +272,7 @@ describe('Today and This week include what is already late', () => {
   });
 
   it('a mission with no date is in neither', () => {
-    pick(/^this week$/i);
+    pick(/^next 7 days$/i);
     expect(screen.queryByText('No date at all')).not.toBeInTheDocument();
   });
 
