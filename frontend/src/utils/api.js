@@ -46,20 +46,48 @@ export function browserTimezone() {
 let isRefreshing = false;
 let refreshQueue = [];
 
+/**
+ * The session is genuinely over — as opposed to a refresh that merely did
+ * not go through this time.
+ *
+ * Everything used to be the first kind. `if (!res.ok)` threw the tokens
+ * away, so a 429 from the ten-a-minute limit on /auth/refresh, a 502 while
+ * Railway restarted, or any 500 signed the person out on the spot — which
+ * is how a 24-hour token turned into "logged out again after a few
+ * minutes". A failed refresh says nothing about whether the credential is
+ * still good; only the server rejecting the credential says that.
+ */
+class SessionExpired extends Error {}
+
+function endSession(message) {
+  clearTokens();
+  window.dispatchEvent(new CustomEvent('auth:logout'));
+  return new SessionExpired(message || 'Session expired. Please log in again.');
+}
+
 async function refreshAccessToken() {
   const { refresh } = getTokens();
-  if (!refresh) throw new Error('No refresh token');
+  if (!refresh) throw endSession('No refresh token');
 
-  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refresh }),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+  } catch {
+    // Offline, or the server unreachable. Nothing has been learned about
+    // the credential, so nothing is thrown away.
+    throw new Error('Could not reach the server to refresh the session.');
+  }
 
+  // Only the server rejecting the refresh token ends the session.
+  if (res.status === 401 || res.status === 403) {
+    throw endSession();
+  }
   if (!res.ok) {
-    clearTokens();
-    window.dispatchEvent(new CustomEvent('auth:logout'));
-    throw new Error('Session expired');
+    throw new Error(`Could not refresh the session (${res.status}).`);
   }
 
   const data = await res.json();
@@ -103,12 +131,13 @@ async function request(endpoint, options = {}) {
       try {
         newToken = await refreshAccessToken();
         refreshQueue.forEach(({ resolve }) => resolve(newToken));
-      } catch {
+      } catch (err) {
         // Waiters must be released too — they used to hang forever here.
-        refreshQueue.forEach(({ reject }) => reject(new Error('Session expired. Please log in again.')));
-        clearTokens();
-        window.dispatchEvent(new CustomEvent('auth:logout'));
-        throw new Error('Session expired. Please log in again.');
+        refreshQueue.forEach(({ reject }) => reject(err));
+        // refreshAccessToken has already ended the session if it was
+        // genuinely over. A transient failure must leave the tokens alone:
+        // clearing them here is what turned one bad minute into a logout.
+        throw err;
       } finally {
         isRefreshing = false;
         refreshQueue = [];
