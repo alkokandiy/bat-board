@@ -257,11 +257,11 @@ describe('The week is Monday to Sunday, and says so', () => {
     fireEvent.click(screen.getByRole('button', { name: label }));
   };
 
-  it('names the window by its dates', () => {
+  it('says the word and the dates', () => {
     renderPanel([]);
-    // e.g. "9–15 Nov" — the boundaries are visible, not worked out.
     expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
-    expect(label).toMatch(/\d+–\d+ \w{3}|\d+ \w{3}–\d+ \w{3}/);
+    expect(label).toMatch(/^This week · /);
+    expect(label).toMatch(/\d+–\d+$|\d+ \w{3}–\d+ \w{3}$/);
   });
 
   it('starts on Monday and ends on Sunday', () => {
@@ -311,15 +311,24 @@ describe('The week is Monday to Sunday, and says so', () => {
   });
 });
 
-describe('Naming a week that straddles two months', () => {
-  it('says both months', () => {
-    const { label } = currentWeek(new Date(2026, 10, 30));  // Mon 30 Nov 2026
-    expect(label).toBe('30 Nov–6 Dec');
+describe('The dates are worked out, never fixed', () => {
+  // The whole point of the label: it has to follow the calendar, not sit
+  // on whatever week it was written in.
+  it.each([
+    ['2026-11-13', 'This week · 9–15'],         // Friday
+    ['2026-11-16', 'This week · 16–22'],        // the Monday after
+    ['2026-11-23', 'This week · 23–29'],
+    ['2026-11-30', 'This week · 30 Nov–6 Dec'], // over a month end
+    ['2026-12-28', 'This week · 28 Dec–3 Jan'], // over a year end
+    ['2027-01-04', 'This week · 4–10'],
+  ])('%s reads "%s"', (day, expected) => {
+    const [y, m, d] = day.split('-').map(Number);
+    expect(currentWeek(new Date(y, m - 1, d)).label).toBe(expected);
   });
 
-  it('says one month when it fits in one', () => {
-    const { label } = currentWeek(new Date(2026, 10, 13));  // Fri 13 Nov 2026
-    expect(label).toBe('9–15 Nov');
+  it('bare days within one month, both months when it straddles', () => {
+    expect(currentWeek(new Date(2026, 10, 13)).range).toBe('9–15');
+    expect(currentWeek(new Date(2026, 10, 30)).range).toBe('30 Nov–6 Dec');
   });
 
   it('a Sunday belongs to the week it ends, not the one it precedes', () => {
