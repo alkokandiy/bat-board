@@ -199,6 +199,82 @@ on 2026-11-04; a theme is now a swap of `:root` values rather than a hunt.
 
 ---
 
+## Part 5 — The focus window and the habit dialog
+
+From the owner's fourth batch (2026-11-13): TickTick's Pomodoro screen,
+its focus records, and the whole Create Habit dialog.
+
+### The one that matters: the clock does not stop at zero
+
+TickTick's timer **keeps counting past the bell**, upward, showing
+`+09:49`, with "Click to add to focus duration". bat-board ends the
+session the instant the countdown reaches zero:
+
+```js
+if (focusRunning && focusTimeLeft === 0) { setFocusRunning(false); endFocusSession(); }
+```
+
+So every minute worked after the ding is **lost entirely** — and those
+are exactly the minutes of the owner's original problem (a), "I was just
+working and forgot to log it". A timer that stops recording while the
+work continues is the capture problem wearing a friendlier face.
+
+**Phase 22 · Overtime.** At zero the session stays open and the clock
+counts up. Finishing credits the planned time; one tap credits planned +
+overtime. Never silently: the extra time is offered, not assumed, because
+a timer left running on a closed laptop would otherwise invent hours.
+
+### Phase 23 · The focus timeline strip
+
+The right-hand panel draws the session as a block against an hour scale,
+with a line at now. This is recommendation 3 of the TickTick report,
+still unbuilt, and it is the passive half of the capture fix: unlogged
+time shows as a visible hole, which invites backfill without a nag.
+bat-board now has the day-view hour grid to draw it in.
+
+### Phase 24 · Quantified habit goals
+
+The Create Habit dialog's "Reach a certain amount": `5 Pages/Day`, a
+unit, a step, and **When checking: Auto / Manual / Complete all**. The
+habit detail panel then shows monthly completion in that unit and a
+daily-goals chart.
+
+Worth having, and the report already specified the model (`goal`, `step`,
+`unit`, boolean or numeric). Note that bat-board's `minimum_viable` is
+the better half of the same idea — shrinking the goal beats tracking
+fractions of it — so quantities are an addition, not a replacement.
+
+### Phase 25 · A habit detail panel
+
+Monthly check-ins, total, check-in rate, current streak, a month calendar
+of check-ins, and the goal chart. bat-board holds all of this already and
+shows almost none of it: a habit row has a number and a bar.
+
+### Smaller, worth taking
+
+- **A focus note** on the session — "what do you have in mind?" — which
+  is also the obvious place to ask what the unlogged time was.
+- **Icon or emoji per habit**, and per list when lists arrive. Cheap,
+  and a board of twenty identical rows is harder to scan than it needs
+  to be.
+- **Habit sections**, same mechanism as mission sections (Phase 9).
+- **A start date** on a habit, so adherence does not count days before
+  it existed.
+
+### Refused, from this batch
+
+- **"Goal Days: 21 days"** in the dropdown. AGENTS.md rule 4 bans the
+  21-day habit myth outright, and shipping it as a preset would teach it.
+  A horizon is fine — 7, 30, 100, custom — but not that number.
+- **Pomo count as a headline.** "Today's Pomo: 1" counts bells, not work.
+  bat-board already leads with minutes and should keep doing so; a count
+  of completed timers rewards starting them, which is the behaviour that
+  produced a 25-session total against 8 hours.
+- **A badge for the goal-days streak.** Same objection as the 3/7/21
+  ladder already refused.
+
+---
+
 ## What not to copy, and why
 
 - **Premium gating.** Half the screenshots are an upsell. There is one user
