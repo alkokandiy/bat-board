@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import MissionsPanel from '../components/MissionsPanel';
+import MissionsPanel, { currentWeek } from '../components/MissionsPanel';
 import { api } from '../utils/api';
 
 vi.mock('../utils/api', () => ({
@@ -225,60 +225,112 @@ describe('Focus on this', () => {
   });
 });
 
-describe('Today and This week include what is already late', () => {
-  const key = (offsetDays) => {
-    const d = new Date();
-    d.setDate(d.getDate() + offsetDays);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T00:00:00Z`;
+describe('The week is Monday to Sunday, and says so', () => {
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T00:00:00Z`;
+
+  // Anchored to the real current week, so the test means the same thing
+  // whatever day it is run on.
+  const { start: monday, end: sunday, label } = currentWeek();
+  const dayOfWeek = (n) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + n);
+    return iso(d);
+  };
+  const outside = (offsetFromMonday) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + offsetFromMonday);
+    return iso(d);
   };
 
   const board = () => [
-    mission({ id: 1, title: 'Late last month', due_date: key(-30) }),
-    mission({ id: 2, title: 'Late on Monday', due_date: key(-3) }),
-    mission({ id: 3, title: 'Due today', due_date: key(0) }),
-    mission({ id: 4, title: 'Due tomorrow', due_date: key(1) }),
-    mission({ id: 5, title: 'Due next fortnight', due_date: key(12) }),
+    mission({ id: 1, title: 'Last month', due_date: outside(-30) }),
+    mission({ id: 2, title: 'Sunday just gone', due_date: outside(-1) }),
+    mission({ id: 3, title: 'This Monday', due_date: dayOfWeek(0) }),
+    mission({ id: 4, title: 'This Sunday', due_date: dayOfWeek(6) }),
+    mission({ id: 5, title: 'Next Monday', due_date: outside(7) }),
     mission({ id: 6, title: 'No date at all', due_date: null }),
   ];
 
-  const pick = (label) => {
+  const pickWeek = () => {
     renderPanel(board());
     fireEvent.click(screen.getByRole('button', { name: label }));
   };
 
-  it('the next seven days shows what is overdue, not an empty list', () => {
-    // The report: 45 open, 14 overdue, and "This week" said 0.
-    pick(/^next 7 days$/i);
-    expect(screen.getByText('Late on Monday')).toBeInTheDocument();
-    expect(screen.getByText('Late last month')).toBeInTheDocument();
+  it('names the window by its dates', () => {
+    renderPanel([]);
+    // e.g. "9–15 Nov" — the boundaries are visible, not worked out.
+    expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+    expect(label).toMatch(/\d+–\d+ \w{3}|\d+ \w{3}–\d+ \w{3}/);
   });
 
-  it('and still shows the week ahead itself', () => {
-    pick(/^next 7 days$/i);
-    expect(screen.getByText('Due today')).toBeInTheDocument();
-    expect(screen.getByText('Due tomorrow')).toBeInTheDocument();
+  it('starts on Monday and ends on Sunday', () => {
+    expect(monday.getDay()).toBe(1);
+    expect(sunday.getDay()).toBe(0);
   });
 
-  it('and stops seven days out', () => {
-    pick(/^next 7 days$/i);
-    expect(screen.queryByText('Due next fortnight')).not.toBeInTheDocument();
+  it('includes the whole week, both ends', () => {
+    pickWeek();
+    expect(screen.getByText('This Monday')).toBeInTheDocument();
+    expect(screen.getByText('This Sunday')).toBeInTheDocument();
   });
 
-  it('today means today and anything already late', () => {
-    pick(/^today$/i);
-    expect(screen.getByText('Due today')).toBeInTheDocument();
-    expect(screen.getByText('Late on Monday')).toBeInTheDocument();
-    expect(screen.queryByText('Due tomorrow')).not.toBeInTheDocument();
+  it('a mission that slipped earlier THIS week is still in it', () => {
+    // Which was the original complaint: Friday showing nothing while
+    // Monday's work sat there undone.
+    pickWeek();
+    expect(screen.getByText('This Monday')).toBeInTheDocument();
   });
 
-  it('a mission with no date is in neither', () => {
-    pick(/^next 7 days$/i);
+  it('does not reach into last week or next', () => {
+    pickWeek();
+    expect(screen.queryByText('Sunday just gone')).not.toBeInTheDocument();
+    expect(screen.queryByText('Next Monday')).not.toBeInTheDocument();
+    expect(screen.queryByText('Last month')).not.toBeInTheDocument();
+  });
+
+  it('a mission with no date is not in it', () => {
+    pickWeek();
     expect(screen.queryByText('No date at all')).not.toBeInTheDocument();
   });
 
+  it('today still means today or anything already late', () => {
+    // The old overdue has to live somewhere, and this is where.
+    renderPanel(board());
+    fireEvent.click(screen.getByRole('button', { name: /^today$/i }));
+    expect(screen.getByText('Last month')).toBeInTheDocument();
+    expect(screen.getByText('Sunday just gone')).toBeInTheDocument();
+    expect(screen.queryByText('This Sunday')).not.toBeInTheDocument();
+  });
+
   it('all still means all', () => {
-    pick(/^all$/i);
+    renderPanel(board());
+    fireEvent.click(screen.getByRole('button', { name: /^all$/i }));
     expect(screen.getByText('No date at all')).toBeInTheDocument();
-    expect(screen.getByText('Due next fortnight')).toBeInTheDocument();
+    expect(screen.getByText('Next Monday')).toBeInTheDocument();
+  });
+});
+
+describe('Naming a week that straddles two months', () => {
+  it('says both months', () => {
+    const { label } = currentWeek(new Date(2026, 10, 30));  // Mon 30 Nov 2026
+    expect(label).toBe('30 Nov–6 Dec');
+  });
+
+  it('says one month when it fits in one', () => {
+    const { label } = currentWeek(new Date(2026, 10, 13));  // Fri 13 Nov 2026
+    expect(label).toBe('9–15 Nov');
+  });
+
+  it('a Sunday belongs to the week it ends, not the one it precedes', () => {
+    const { startKey, endKey } = currentWeek(new Date(2026, 10, 15));  // Sun 15 Nov
+    expect(startKey).toBe('2026-11-09');
+    expect(endKey).toBe('2026-11-15');
+  });
+
+  it('a Monday is the first day of its own week', () => {
+    const { startKey, endKey } = currentWeek(new Date(2026, 10, 9));   // Mon 9 Nov
+    expect(startKey).toBe('2026-11-09');
+    expect(endKey).toBe('2026-11-15');
   });
 });

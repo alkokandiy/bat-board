@@ -25,6 +25,30 @@ function formatDueDate(due) {
   return new Date(y, m - 1, d).toLocaleDateString();
 }
 
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * The Monday-to-Sunday week `now` falls in, and how to name it.
+ *
+ * Monday-first on purpose: it is what this codebase uses everywhere else
+ * (habit weekdays are Mon=0) and what the owner means by a week. Sunday is
+ * day 0 in JS, hence the shuffle.
+ */
+export function currentWeek(now = new Date()) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+
+  const label = start.getMonth() === end.getMonth()
+    ? `${start.getDate()}–${end.getDate()} ${MONTH_SHORT[end.getMonth()]}`
+    : `${start.getDate()} ${MONTH_SHORT[start.getMonth()]}–${end.getDate()} ${MONTH_SHORT[end.getMonth()]}`;
+
+  return { start, end, startKey: localDateKey(start), endKey: localDateKey(end), label };
+}
+
 function localDateKey(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -325,21 +349,26 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   }, [showForm]);
 
   const todayKey = localDateKey(new Date());
-  const weekEndKey = localDateKey(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-  // Up to and including the end of the window — NOT a band starting today.
-  //
-  // "This week" used to mean `key >= todayKey`, which quietly dropped
-  // everything already late. So a board with forty-five open missions, of
-  // which fourteen were overdue and thirty-one had no date at all, showed
-  // "This week: 0" — an empty list while fourteen things were past their
-  // date, several of them from earlier in that same week.
-  //
-  // A date filter exists to answer "what do I have to deal with by then",
-  // and something you should already have done is the first part of that
-  // answer, not an exception to it.
+  const { startKey: weekStartKey, endKey: weekEndKey, label: weekLabel } = currentWeek();
+
+  // Today means today or anything already late: a date filter answers "what
+  // must I deal with by then", and something that should already have been
+  // done is the first part of that answer, not an exception to it.
   const dueBy = (d, limitKey) => {
     if (!d) return false;
     return dueDateKey(d) <= limitKey;
+  };
+
+  // The week is the CALENDAR week, Monday to Sunday, and the button says
+  // which dates those are. A rolling "next seven days" was neither what the
+  // label claimed nor what anyone pictures when they say "this week", and a
+  // filter you have to guess the boundaries of is a filter you cannot trust.
+  // Days earlier in this week are inside it, so a mission that slipped on
+  // Monday still appears on Friday.
+  const inThisWeek = (d) => {
+    if (!d) return false;
+    const key = dueDateKey(d);
+    return key >= weekStartKey && key <= weekEndKey;
   };
 
   const activeMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
@@ -348,7 +377,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
 
   const filterByDate = (list) => {
     if (dateFilter === 'today') return list.filter(m => dueBy(m.due_date, todayKey));
-    if (dateFilter === 'week') return list.filter(m => dueBy(m.due_date, weekEndKey));
+    if (dateFilter === 'week') return list.filter(m => inThisWeek(m.due_date));
     return list;
   };
 
@@ -648,12 +677,9 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
             options={[
               { value: 'all', label: 'All' },
               { value: 'today', label: 'Today' },
-              // "Next 7 days", not "This week": the window rolls forward from
-              // today rather than ending on Sunday. A calendar week is the
-              // wrong unit for a task list — on a Sunday it would mean one
-              // day — but calling a rolling window "this week" made the
-              // filter misreport itself.
-              { value: 'week', label: 'Next 7 days' },
+              // Named by its actual dates — "9–15 Nov" — so the window is
+              // visible rather than something you work out.
+              { value: 'week', label: weekLabel },
             ]}
           />
         )}
