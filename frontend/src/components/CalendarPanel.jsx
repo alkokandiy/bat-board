@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
-import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass } from './ui';
+import { PageHeader, Panel, Button, EmptyState, Field, IconButton, fieldClass, Segmented } from './ui';
 import DayView from './DayView';
+import TimelineView from './TimelineView';
+import AgendaView from './AgendaView';
+import { addDays, startOfWeek } from '../utils/calendarDays';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -72,6 +75,11 @@ export default function CalendarPanel({ onFocusOn }) {
   // Which day is open, or null. The month grid cannot show a busy day:
   // four chips then "+2 more", unordered and untimed.
   const [openDay, setOpenDay] = useState(null);
+  // One anchor date for every view. Month used to own `year`/`month` while
+  // the others would have needed a date of their own, which is two sources
+  // of truth for "where am I looking" and two ways to disagree.
+  const [view, setView] = useState('month');
+  const [anchorDay, setAnchorDay] = useState(today.getDate());
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +110,17 @@ export default function CalendarPanel({ onFocusOn }) {
   const refreshEvents = useCallback(() => api.getCalendarEvents().then(setEvents), []);
 
   const days = useMemo(() => getMonthDays(year, month), [year, month]);
+
+  // Day, 3 Days and Week are the same drawing with a different column
+  // count, so they share one component and differ only here.
+  const TIMELINE_DAYS = { day: 1, days3: 3, week: 7 };
+  const anchor = useMemo(() => new Date(year, month, anchorDay), [year, month, anchorDay]);
+  const timelineDays = useMemo(() => {
+    const n = TIMELINE_DAYS[view];
+    if (!n) return [];
+    const first = n === 7 ? startOfWeek(anchor) : anchor;
+    return Array.from({ length: n }, (_, i) => addDays(first, i));
+  }, [view, anchor]);
 
   const missionDueMap = useMemo(() => {
     const map = {};
@@ -250,19 +269,48 @@ export default function CalendarPanel({ onFocusOn }) {
   const goToToday = () => {
     setYear(today.getFullYear());
     setMonth(today.getMonth());
+    setAnchorDay(today.getDate());
   };
 
-  const prevMonth = () => {
-    if (month === 0) { setYear(y => y - 1); setMonth(11); }
-    else { setMonth(m => m - 1); }
+  // Back and forward move by whatever the view is made of: a month in the
+  // grid, a week in Week, a day in Day. Stepping a month while looking at
+  // three days would be a different screen, not the next one.
+  const STEP_DAYS = { day: 1, days3: 3, week: 7, agenda: 7 };
+
+  const shift = (direction) => {
+    const step = STEP_DAYS[view];
+    if (!step) {
+      const m = month + direction;
+      if (m < 0) { setYear(y => y - 1); setMonth(11); }
+      else if (m > 11) { setYear(y => y + 1); setMonth(0); }
+      else { setMonth(m); }
+      return;
+    }
+    const moved = addDays(anchor, step * direction);
+    setYear(moved.getFullYear());
+    setMonth(moved.getMonth());
+    setAnchorDay(moved.getDate());
   };
 
-  const nextMonth = () => {
-    if (month === 11) { setYear(y => y + 1); setMonth(0); }
-    else { setMonth(m => m + 1); }
-  };
+  const prevMonth = () => shift(-1);
+  const nextMonth = () => shift(1);
 
-  const isCurrentMonthView = year === today.getFullYear() && month === today.getMonth();
+  const isCurrentMonthView = year === today.getFullYear() && month === today.getMonth()
+    && (view === 'month' || anchorDay === today.getDate());
+
+  // The heading names what is actually on screen, not always a month.
+  const heading = (() => {
+    if (view === 'month') return `${MONTHS[month]} ${year}`;
+    if (view === 'agenda') return 'Next 30 days';
+    if (view === 'day') return anchor.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+    const first = timelineDays[0];
+    const last = timelineDays[timelineDays.length - 1];
+    if (!first || !last) return `${MONTHS[month]} ${year}`;
+    const sameMonth = first.getMonth() === last.getMonth();
+    const fmt = (d, withMonth) => d.toLocaleDateString(undefined,
+      withMonth ? { day: 'numeric', month: 'short' } : { day: 'numeric' });
+    return `${fmt(first, !sameMonth)}–${fmt(last, true)}`;
+  })();
 
   return (
     <div className="h-full flex flex-col gap-3">
@@ -280,14 +328,31 @@ export default function CalendarPanel({ onFocusOn }) {
 
       <div className="flex-1 min-h-0 rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile flex flex-col overflow-hidden">
         <div className="shrink-0 flex items-center justify-between px-5 py-3 border-b border-white/[0.04]">
-          <IconButton label="Previous month" icon={ChevronLeft} onClick={prevMonth} />
-          <div className="flex items-center gap-4">
-            <h2 className="font-display text-xl tracking-wide text-ink">{MONTHS[month]} {year}</h2>
+          <IconButton label="Back" icon={ChevronLeft} onClick={prevMonth} />
+          <div className="flex items-center gap-4 min-w-0">
+            <h2 className="font-display text-xl tracking-wide text-ink truncate">{heading}</h2>
             {!isCurrentMonthView && (
               <Button size="sm" onClick={goToToday}>Today</Button>
             )}
           </div>
-          <IconButton label="Next month" icon={ChevronRight} onClick={nextMonth} />
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Same days, different question. The grid asks what the month
+                is shaped like, the timeline whether Thursday afternoon is
+                free, the agenda what is actually coming up. */}
+            <Segmented
+              label="Calendar view"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: 'day', label: 'Day' },
+                { value: 'days3', label: '3 days' },
+                { value: 'week', label: 'Week' },
+                { value: 'month', label: 'Month' },
+                { value: 'agenda', label: 'Agenda' },
+              ]}
+            />
+            <IconButton label="Forward" icon={ChevronRight} onClick={nextMonth} />
+          </div>
         </div>
 
         {/* Red chips and coloured chips sat side by side with nothing to say
@@ -303,10 +368,36 @@ export default function CalendarPanel({ onFocusOn }) {
           </span>
         </div>
 
+        {view !== 'month' && (
+          view === 'agenda' ? (
+            <AgendaView
+              from={anchor}
+              eventsForDay={getEventsForDay}
+              missionsForDay={getMissionsForDay}
+              onEditEvent={openEditForm}
+              onFocusOn={onFocusOn}
+              onOpenDay={setOpenDay}
+            />
+          ) : (
+            <TimelineView
+              days={timelineDays}
+              events={events}
+              eventsForDay={getEventsForDay}
+              missionsForDay={getMissionsForDay}
+              onEditEvent={openEditForm}
+              onAddEvent={openAddForm}
+              onOpenDay={setOpenDay}
+            />
+          )
+        )}
+
+        {view === 'month' && (
         <div className="shrink-0 grid grid-cols-7 text-center border-b border-white/[0.04]">
           {DAYS.map(d => <div key={d} className="text-[10px] font-mono uppercase tracking-wider text-ink-faint py-2">{d}</div>)}
         </div>
+        )}
 
+        {view === 'month' && (
         <div className="flex-1 grid grid-cols-7 auto-rows-fr">
           {days.map((d, i) => {
             if (!d) return <div key={i} className="border-b border-r border-bat-line bg-bat-bg/60" />;
@@ -374,6 +465,7 @@ export default function CalendarPanel({ onFocusOn }) {
             );
           })}
         </div>
+        )}
       </div>
 
       <Panel title="Upcoming" meta={`${upcomingEvents.length}`} bodyClassName="p-3" className="shrink-0">
