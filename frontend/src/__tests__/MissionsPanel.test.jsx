@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import MissionsPanel, { currentWeek } from '../components/MissionsPanel';
+import MissionsPanel, { byWhatIsDueFirst, currentWeek } from '../components/MissionsPanel';
 import { api } from '../utils/api';
 
 vi.mock('../utils/api', () => ({
@@ -341,5 +341,91 @@ describe('The dates are worked out, never fixed', () => {
     const { startKey, endKey } = currentWeek(new Date(2026, 10, 9));   // Mon 9 Nov
     expect(startKey).toBe('2026-11-09');
     expect(endKey).toBe('2026-11-15');
+  });
+});
+
+describe('The order of the list', () => {
+  const d = (offset) => {
+    const x = new Date();
+    x.setDate(x.getDate() + offset);
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}T00:00:00Z`;
+  };
+  const m = (over) => mission({ priority: 'medium', ...over });
+  const order = (list) => [...list].sort(byWhatIsDueFirst).map((x) => x.title);
+
+  it('puts what is late above what is merely important', () => {
+    // The screenshot: a HIGH with no date sat first, and a MEDIUM that was
+    // a month overdue sat third. Late beats a label.
+    expect(order([
+      m({ id: 1, title: 'High, no date', priority: 'high' }),
+      m({ id: 2, title: 'Overdue', due_date: d(-30) }),
+    ])).toEqual(['Overdue', 'High, no date']);
+  });
+
+  it('orders dated missions soonest first', () => {
+    expect(order([
+      m({ id: 1, title: 'Next week', due_date: d(7) }),
+      m({ id: 2, title: 'Overdue', due_date: d(-3) }),
+      m({ id: 3, title: 'Tomorrow', due_date: d(1) }),
+      m({ id: 4, title: 'Today', due_date: d(0) }),
+    ])).toEqual(['Overdue', 'Today', 'Tomorrow', 'Next week']);
+  });
+
+  it('sinks everything undated below everything dated', () => {
+    expect(order([
+      m({ id: 1, title: 'Critical someday', priority: 'critical' }),
+      m({ id: 2, title: 'Low, due next year', priority: 'low', due_date: d(300) }),
+    ])).toEqual(['Low, due next year', 'Critical someday']);
+  });
+
+  it('uses priority to break a tie on the same day', () => {
+    expect(order([
+      m({ id: 1, title: 'Low today', priority: 'low', due_date: d(0) }),
+      m({ id: 2, title: 'Critical today', priority: 'critical', due_date: d(0) }),
+      m({ id: 3, title: 'Medium today', priority: 'medium', due_date: d(0) }),
+    ])).toEqual(['Critical today', 'Medium today', 'Low today']);
+  });
+
+  it('orders the undated pile by priority too', () => {
+    expect(order([
+      m({ id: 1, title: 'Low', priority: 'low' }),
+      m({ id: 2, title: 'High', priority: 'high' }),
+    ])).toEqual(['High', 'Low']);
+  });
+
+  it('falls back to newest, so the order never wobbles', () => {
+    expect(order([
+      m({ id: 1, title: 'Older' }),
+      m({ id: 2, title: 'Newer' }),
+    ])).toEqual(['Newer', 'Older']);
+  });
+
+  it('a pin outranks everything, including something overdue', () => {
+    expect(order([
+      m({ id: 1, title: 'Overdue', due_date: d(-30) }),
+      m({ id: 2, title: 'Pinned, no date', is_pinned: true }),
+    ])).toEqual(['Pinned, no date', 'Overdue']);
+  });
+
+  it('and the pins are themselves in due order', () => {
+    expect(order([
+      m({ id: 1, title: 'Pinned, later', is_pinned: true, due_date: d(5) }),
+      m({ id: 2, title: 'Pinned, overdue', is_pinned: true, due_date: d(-5) }),
+    ])).toEqual(['Pinned, overdue', 'Pinned, later']);
+  });
+
+  it('says what the order is, on the panel', () => {
+    renderPanel([m({ id: 1, title: 'Anything' })]);
+    expect(screen.getByText(/soonest first/i)).toBeInTheDocument();
+  });
+
+  it('renders the whole board in that order', () => {
+    renderPanel([
+      m({ id: 1, title: 'High no date', priority: 'high' }),
+      m({ id: 2, title: 'Overdue medium', due_date: d(-10) }),
+      m({ id: 3, title: 'Due today', due_date: d(0) }),
+    ]);
+    const titles = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
+    expect(titles.slice(0, 3)).toEqual(['Overdue medium', 'Due today', 'High no date']);
   });
 });
