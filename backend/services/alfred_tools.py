@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import models
 from services import (
+    list_service,
     briefing_service,
     calendar_service,
     countdown_service,
@@ -73,6 +74,10 @@ def _mission_dict(m):
         "status": m.status, "priority": m.priority,
         "due_date": _iso(m.due_date), "tags": m.tags,
         "is_pinned": m.is_pinned, "completed_at": _iso(m.completed_at),
+        # The name, not the id: he is told lists by name and has to say them
+        # back. "Inbox" rather than null for the same reason — "its list is
+        # None" is not a sentence anyone wants read to them.
+        "list": m.bat_list.name if m.bat_list else "Inbox",
     }
 
 
@@ -93,6 +98,45 @@ def _open_mission_titles(db, user) -> dict:
     return {_norm_title(m.title): m for m in rows}
 
 
+class _NoSuchList(ValueError):
+    """A list name he used that does not exist.
+
+    A ValueError on purpose: the agent loop's safety net turns ValueError
+    into `{"error": <the message>}` and anything else into
+    "tool failed (_NoSuchList)", which would tell him nothing and leave him
+    guessing at the same wrong name again. So the message itself has to be
+    the whole answer — what he asked for, what exists, and what to do.
+    """
+
+    def __init__(self, asked, available):
+        self.asked, self.available = asked, available
+        have = ", ".join(available) if available else "no lists yet"
+        super().__init__(
+            f"There is no list called '{asked}'. They have: {have}. "
+            f"Either use one of those, leave the list out to file it in the "
+            f"Inbox, or call create_list if they asked for a new one."
+        )
+
+
+def _list_id_from_name(db, user, name):
+    """Resolve a list NAME to an id. None/"inbox"/"" mean the Inbox.
+
+    An unknown name is refused rather than created. Creating a list as a
+    side effect of filing one mission would quietly fill the rail with
+    near-duplicates — "Health", "health", "Health stuff" — and he has
+    create_list for when that is actually what the user asked for.
+    """
+    if name is None:
+        return None
+    name = str(name).strip()
+    if not name or name.lower() == "inbox":
+        return None
+    row = list_service.find_by_name(db, user, name)
+    if row is None:
+        raise _NoSuchList(name, [l.name for l in list_service.list_lists(db, user)])
+    return row.id
+
+
 def _create_one_mission(db, user, spec: dict):
     """Create a single mission from a spec dict (shared by the single and
     batch tools). Caller handles duplicate checking."""
@@ -102,6 +146,7 @@ def _create_one_mission(db, user, spec: dict):
         priority=spec.get("priority") or "medium", tags=spec.get("tags"),
         location=spec.get("location"), notes=spec.get("notes"),
         subtasks=spec.get("subtasks"),
+        list_id=_list_id_from_name(db, user, spec.get("list")),
         is_pinned=bool(spec.get("is_pinned")) if spec.get("is_pinned") is not None else False)
 
 
@@ -368,6 +413,7 @@ WRITE_TOOLS = [
          "location": {"type": "string"}, "notes": {"type": "string", "description": "Mission intel."},
          "subtasks": {"type": "string", "description": "JSON array of {title, done}."},
          "is_pinned": {"type": "boolean"},
+         "list": {"type": "string", "description": "The NAME of the list this belongs in, as the user says it. Omit, or 'Inbox', for unfiled. Must already exist — use get_lists to see them and create_list to add one."},
      }, "required": ["title"]}},
     {"name": "create_missions", "description": "Create SEVERAL missions at once in a single call. ALWAYS use this (not repeated create_mission) when the user lists more than one mission in a message. Duplicates of existing or repeated titles are skipped automatically. Don't ask about each one — apply sensible defaults (priority medium, no due date unless stated) and report what you added.",
      "parameters": {"type": "object", "properties": {
@@ -379,6 +425,7 @@ WRITE_TOOLS = [
                  "priority": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
                  "tags": {"type": "string", "description": "Comma-separated tags."},
                  "location": {"type": "string"}, "notes": {"type": "string"},
+                 "list": {"type": "string", "description": "The NAME of the list this belongs in. Omit for unfiled."},
              }, "required": ["title"]}},
      }, "required": ["missions"]}},
     {"name": "complete_mission", "description": "Mark a mission completed (awards points).",
@@ -394,7 +441,15 @@ WRITE_TOOLS = [
          "tags": {"type": "string"}, "location": {"type": "string"},
          "notes": {"type": "string"}, "subtasks": {"type": "string"},
          "is_pinned": {"type": "boolean"}, "is_dismissed": {"type": "boolean"},
+         "list": {"type": "string", "description": "Move it to this list, by NAME. 'Inbox' takes it out of whatever list it is in."},
      }, "required": ["mission_id"]}},
+    {"name": "get_lists", "description": "The user's mission lists, with how many open missions are in each. Read this before filing a mission into a list by name.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "create_list", "description": "Create a new mission list. Only when the user has asked for one — do not invent lists to tidy their board.",
+     "parameters": {"type": "object", "properties": {
+         "name": {"type": "string"},
+         "color": {"type": "string", "description": "Hex colour, optional."},
+     }, "required": ["name"]}},
     {"name": "create_habit", "description": "Create a new habit. Ask for a `cue` if they have not given one — it matters more than any other field.",
      "parameters": {"type": "object", "properties": {
          "name": {"type": "string"}, "description": {"type": "string"},
@@ -646,7 +701,7 @@ TOOL_NAMES = {t["name"] for t in ALL_TOOLS}
 CAPABILITY_GROUPS = [
     ("Missions (their own work)", [
         "list_missions", "create_mission", "create_missions", "update_mission",
-        "complete_mission", "delete_mission"]),
+        "complete_mission", "delete_mission", "get_lists", "create_list"]),
     ("Habits", [
         "list_habits", "create_habit", "update_habit", "check_in_habit",
         "rest_habit", "unrest_habit", "delete_habit"]),
@@ -1025,7 +1080,25 @@ def execute_tool(
         if m is None:
             return {"error": "Mission not found"}
         return {"mission": _mission_dict(m)}
+    if name == "get_lists":
+        rows = list_service.list_lists(db, current_user)
+        counts = list_service.open_counts(db, current_user)
+        return {"lists": [{"name": r.name, "open_missions": counts.get(str(r.id), 0)}
+                          for r in rows],
+                "inbox_open_missions": counts.get(list_service.INBOX, 0)}
+    if name == "create_list":
+        try:
+            row = list_service.create_list(
+                db, current_user, name=args.get("name"), color=args.get("color"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"list": {"name": row.name}}
     if name == "update_mission":
+        # Only passed on when he actually sent it: `update_mission` leaves a
+        # field alone when it is absent, and `list: "Inbox"` has to stay
+        # distinguishable from "he said nothing about the list".
+        extra = {"list_id": _list_id_from_name(db, current_user, args["list"])} \
+            if "list" in args else {}
         m = mission_service.update_mission(
             db, current_user, int(args["mission_id"]),
             title=args.get("title"), description=args.get("description"),
@@ -1033,7 +1106,8 @@ def execute_tool(
             priority=args.get("priority"), tags=args.get("tags"),
             location=args.get("location"), notes=args.get("notes"),
             subtasks=args.get("subtasks"),
-            is_pinned=args.get("is_pinned"), is_dismissed=args.get("is_dismissed"))
+            is_pinned=args.get("is_pinned"), is_dismissed=args.get("is_dismissed"),
+            **extra)
         if m is None:
             return {"error": "Mission not found"}
         return {"mission": _mission_dict(m)}

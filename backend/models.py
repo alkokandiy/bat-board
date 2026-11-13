@@ -64,6 +64,7 @@ class BatAccount(Base):
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     missions = relationship("BatMission", back_populates="owner", cascade="all, delete-orphan")
+    lists = relationship("BatList", back_populates="owner", cascade="all, delete-orphan")
     habits = relationship("BatHabit", back_populates="owner", cascade="all, delete-orphan")
     logs = relationship("BatLog", back_populates="owner", cascade="all, delete-orphan")
     focus_sessions = relationship("BatFocus", back_populates="owner", cascade="all, delete-orphan")
@@ -87,6 +88,26 @@ class BatAccount(Base):
     active_alfred_session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="SET NULL"), nullable=True)
 
 
+class BatList(Base):
+    """A grouping of missions. Archived keeps the name and its history
+    without keeping its place in the rail."""
+
+    __tablename__ = "bat_lists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=True)
+    icon = Column(String, nullable=True)
+    position = Column(Integer, default=0, nullable=False)
+    archived = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="lists")
+    missions = relationship("BatMission", back_populates="bat_list")
+
+
 class BatMission(Base):
     __tablename__ = "bat_missions"
 
@@ -108,7 +129,12 @@ class BatMission(Base):
     completed_at = Column(DateTime, nullable=True)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
+    # NULL is the Inbox: unfiled, not a list of its own. SET NULL so deleting
+    # a list refiles its missions rather than deleting them.
+    list_id = Column(Integer, ForeignKey("bat_lists.id", ondelete="SET NULL"),
+                     nullable=True, index=True)
     owner = relationship("BatAccount", back_populates="missions")
+    bat_list = relationship("BatList", back_populates="missions")
     calendar_events = relationship("CalendarEvent", back_populates="mission")
 
 
