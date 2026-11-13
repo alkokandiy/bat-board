@@ -203,6 +203,16 @@ export const api = {
   updateMission: (id, data) => request(`/missions/${id}`, { method: 'PUT', body: data }),
   deleteMission: (id) => request(`/missions/${id}`, { method: 'DELETE' }),
 
+  // Lists. The Inbox is not a row — list_id null means Inbox — and deleting
+  // a list refiles its missions to the Inbox rather than destroying them.
+  getLists: (includeArchived = false) =>
+    request(`/lists${includeArchived ? '?include_archived=true' : ''}`),
+  getListCounts: () => request('/lists/counts'),
+  createList: (data) => request('/lists', { method: 'POST', body: data }),
+  updateList: (id, data) => request(`/lists/${id}`, { method: 'PUT', body: data }),
+  deleteList: (id) => request(`/lists/${id}`, { method: 'DELETE' }),
+  reorderLists: (ordered_ids) => request('/lists/reorder', { method: 'POST', body: { ordered_ids } }),
+
   // Habits
   getHabits: () => request('/habits'),
   createHabit: (data) => request('/habits', { method: 'POST', body: data }),

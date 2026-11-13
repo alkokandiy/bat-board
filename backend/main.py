@@ -38,11 +38,13 @@ from routers.alfred import router as alfred_router
 from routers.cron import router as cron_router
 from routers.admin import router as admin_router
 from routers.work import router as work_router
+from routers.lists import router as lists_router
 from services import telegram_service
 from services import (
     calendar_service,
     focus_service,
     habit_service,
+    list_service,
     logs_service,
     mission_service,
     profile_service,
@@ -172,6 +174,7 @@ app.include_router(alfred_router)
 app.include_router(cron_router)
 app.include_router(admin_router)
 app.include_router(work_router)
+app.include_router(lists_router)
 
 # NOTE: calculate_bat_level / auto_log_event now live in services/common.py
 # (imported above) so services can use them without a circular import.
@@ -224,6 +227,9 @@ class BatMissionBase(BaseModel):
     location: Optional[str] = Field(None, max_length=500)
     notes: Optional[str] = None
     subtasks: Optional[str] = None
+    # NULL is the Inbox. Validated against the caller's own lists before it
+    # ever reaches the column — see the PUT handler and list_service.resolve.
+    list_id: Optional[int] = None
 
 class BatMissionCreate(BatMissionBase):
     pass
@@ -240,6 +246,7 @@ class BatMissionUpdate(BaseModel):
     location: Optional[str] = Field(None, max_length=500)
     notes: Optional[str] = None
     subtasks: Optional[str] = None
+    list_id: Optional[int] = None
 
 class BatMissionSchema(BatMissionBase):
     model_config = ConfigDict(from_attributes=True)
@@ -686,10 +693,18 @@ def reset_points(
 # --- Mission Endpoints ---
 @app.get("/api/missions", response_model=List[BatMissionSchema])
 def list_missions(
+    list_id: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return mission_service.list_missions(db, current_user)
+    # A string, not an int, because "inbox" is a value here: the Inbox has
+    # no row, so it cannot be addressed by id.
+    try:
+        return mission_service.list_missions(db, current_user, list_filter=list_id)
+    except ValueError as exc:
+        # An id that is not a list, or not this user's — a bad request, not
+        # a server fault, and emphatically not somebody else's missions.
+        raise HTTPException(status_code=400, detail=str(exc))
 
 @app.post("/api/missions", response_model=BatMissionSchema, status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")
@@ -699,21 +714,25 @@ def create_mission(
     db: Session = Depends(get_db),
     current_user: models.BatAccount = Depends(get_current_active_user),
 ):
-    return mission_service.create_mission(
-        db,
-        current_user,
-        title=mission_data.title,
-        description=mission_data.description,
-        due_date=mission_data.due_date,
-        priority=mission_data.priority,
-        status=mission_data.status,
-        tags=mission_data.tags,
-        is_pinned=mission_data.is_pinned,
-        is_dismissed=mission_data.is_dismissed,
-        location=mission_data.location,
-        notes=mission_data.notes,
-        subtasks=mission_data.subtasks,
-    )
+    try:
+        return mission_service.create_mission(
+            db,
+            current_user,
+            title=mission_data.title,
+            description=mission_data.description,
+            due_date=mission_data.due_date,
+            priority=mission_data.priority,
+            status=mission_data.status,
+            tags=mission_data.tags,
+            is_pinned=mission_data.is_pinned,
+            is_dismissed=mission_data.is_dismissed,
+            location=mission_data.location,
+            notes=mission_data.notes,
+            subtasks=mission_data.subtasks,
+            list_id=mission_data.list_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 _NON_NULLABLE_MISSION_FIELDS = {"title", "priority", "is_pinned", "is_dismissed"}
 
@@ -743,6 +762,16 @@ def update_mission(
         value = getattr(payload, field)
         if value is None and field in _NON_NULLABLE_MISSION_FIELDS:
             continue  # explicit null on a NOT NULL column used to 500
+        if field == 'list_id':
+            # Not a plain setattr: this loop writes whatever arrived onto
+            # the row, and a list_id is the one field here that names
+            # another table's row. Unchecked, a mission could be filed into
+            # a list belonging to somebody else. None stays None — that is
+            # the Inbox.
+            try:
+                value = list_service.resolve(db, current_user, value)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
         setattr(mission, field, value)
 
     if 'status' in payload.model_fields_set and payload.status is not None:

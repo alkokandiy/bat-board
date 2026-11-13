@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DashboardLayout from './components/DashboardLayout';
 import MissionsPanel from './components/MissionsPanel';
+import ListRail from './components/ListRail';
 import HabitsPanel from './components/HabitsPanel';
 import FocusPanel from './components/FocusPanel';
 import CountdownSection from './components/CountdownSection';
@@ -116,6 +117,15 @@ export default function App() {
   // work side that cannot work.
   const [workEnabled, setWorkEnabled] = useState(false);
 
+  // Lists (Phase 8). `selectedList` is null (All), 'inbox', or a list id —
+  // the same shapes the rail and the API speak. Counts come from their own
+  // endpoint because they must move when a mission does, not only when a
+  // list does.
+  const [lists, setLists] = useState([]);
+  const [archivedLists, setArchivedLists] = useState([]);
+  const [listCounts, setListCounts] = useState({});
+  const [selectedList, setSelectedList] = useState(null);
+
   // Focus timer state - persists across tab switches
   // 25 is folklore — it came from the inventor's kitchen timer, and no study
   // has ever compared it against anything. The real default is the user's own
@@ -154,6 +164,25 @@ export default function App() {
   const focusOvertimeRef = useRef(0);
   focusOvertimeRef.current = focusOvertime;
   const focusTimerRef = useRef(null);
+
+  // Lists and their open counts. Swallowed, not surfaced: lists are
+  // navigation, and a failure here must leave the missions screen working
+  // rather than put up an error wall. Also falls back to All when the
+  // selected list has vanished (deleted, or archived) so the board never
+  // stands on a list it cannot see.
+  const fetchLists = useCallback(async () => {
+    try {
+      const all = await api.getLists(true);
+      const live = all.filter((l) => !l.archived);
+      setLists(live);
+      setArchivedLists(all.filter((l) => l.archived));
+      setListCounts(await api.getListCounts() || {});
+      setSelectedList((sel) => (
+        sel != null && sel !== 'inbox' && !live.some((l) => l.id === sel) ? null : sel));
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
 
   const fetchAllData = useCallback(async () => {
     try {
@@ -224,6 +253,9 @@ export default function App() {
         .then((st) => setWorkEnabled(!!st.enabled))
         .catch(() => setWorkEnabled(false));
 
+      // Lists ride alongside the boot data, never in front of it.
+      fetchLists();
+
       // Their own median session length, once they have enough history for
       // one. Kept off the boot path: a failure here must not block the board.
       api.getSuggestedFocusMinutes()
@@ -246,7 +278,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchLists]);
 
   useEffect(() => {
     const token = localStorage.getItem('bat_access_token');
@@ -261,6 +293,10 @@ export default function App() {
       setAccount(null);
       setMissions([]);
       setHabits([]);
+      setLists([]);
+      setArchivedLists([]);
+      setListCounts({});
+      setSelectedList(null);
       setWorkEnabled(false);
     };
     window.addEventListener('auth:logout', handleLogout);
@@ -332,7 +368,34 @@ export default function App() {
     } catch (err) {
       console.error(err);
     }
+    // Anything that moved a mission (created, completed, refiled) moved the
+    // per-list counts with it; the rail reads its numbers from here.
+    fetchLists();
   };
+
+  // --- lists (Phase 8) --------------------------------------------------
+  // Each handler mutates and then re-reads; the error is rethrown so the
+  // rail can show the server's message inline (a duplicate or empty name).
+  const handleCreateList = useCallback(async (name) => {
+    await api.createList({ name });
+    await fetchLists();
+  }, [fetchLists]);
+
+  const handleRenameList = useCallback(async (id, name) => {
+    await api.updateList(id, { name });
+    await fetchLists();
+  }, [fetchLists]);
+
+  const handleArchiveList = useCallback(async (id, archived) => {
+    await api.updateList(id, { archived });
+    await fetchLists();
+  }, [fetchLists]);
+
+  const handleDeleteList = useCallback(async (id) => {
+    // The server refiles the list's missions to the Inbox; nothing is lost.
+    await api.deleteList(id);
+    await fetchLists();
+  }, [fetchLists]);
 
   const handleRefreshHabits = async () => {
     try {
@@ -524,6 +587,10 @@ export default function App() {
     api.logout();
     setIsAuthenticated(false);
     setAccount(null);
+    setLists([]);
+    setArchivedLists([]);
+    setListCounts({});
+    setSelectedList(null);
     setCurrentView('dashboard');
   };
 
@@ -652,12 +719,32 @@ export default function App() {
     switch (currentView) {
       case 'missions':
         return (
-          <MissionsPanel
-            missions={missions}
-            onRefreshMissions={handleRefreshMissions}
-            onRefreshAccount={handleRefreshAccount}
-            onFocusOn={(id) => handleFocusOn('mission', id)}
-          />
+          /* A rail, not a header: beside the missions on a wide screen and
+             above them on a narrow one. Stacked full-width it pushed the
+             first mission a panel's height down the page, on the one screen
+             that exists to show missions. */
+          <div className="grid grid-cols-1 lg:grid-cols-[13rem_minmax(0,1fr)] gap-4 lg:gap-6 items-start">
+            <ListRail
+              lists={lists}
+              archivedLists={archivedLists}
+              counts={listCounts}
+              selected={selectedList}
+              onSelect={setSelectedList}
+              onCreate={handleCreateList}
+              onRename={handleRenameList}
+              onArchive={(id) => handleArchiveList(id, true)}
+              onRestore={(id) => handleArchiveList(id, false)}
+              onDelete={handleDeleteList}
+            />
+            <MissionsPanel
+              missions={missions}
+              onRefreshMissions={handleRefreshMissions}
+              onRefreshAccount={handleRefreshAccount}
+              onFocusOn={(id) => handleFocusOn('mission', id)}
+              lists={lists}
+              selectedList={selectedList}
+            />
+          </div>
         );
       case 'habits':
         return (

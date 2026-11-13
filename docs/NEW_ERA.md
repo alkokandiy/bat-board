@@ -53,7 +53,7 @@ none of it and it sucks", 44 rows of equal weight.
 
 ## Part 1 — Structure (the spine)
 
-### Phase 8 · Lists
+### Phase 8 · Lists — **done** (backend + Alfred; front end in the same PR)
 A mission belongs to a list: Khorasan, Cybersecurity, Health, Admin. The
 sidebar shows them with counts; the missions screen filters to one.
 

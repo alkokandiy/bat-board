@@ -10,6 +10,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 import models
+from services import list_service
 from services.common import auto_log_event, calculate_bat_level
 
 
@@ -17,13 +18,28 @@ def list_missions(
     db: Session,
     current_user: models.BatAccount,
     due_date: Optional[datetime] = None,
+    list_filter: Optional[str] = None,
 ) -> List[models.BatMission]:
     q = db.query(models.BatMission).filter(models.BatMission.owner_id == current_user.id)
+    if list_filter:
+        if list_filter == list_service.INBOX:
+            q = q.filter(models.BatMission.list_id.is_(None))
+        else:
+            # Through resolve() so an id from another owner returns nothing
+            # rather than that owner's missions.
+            q = q.filter(models.BatMission.list_id == list_service.resolve(
+                db, current_user, list_filter))
     if due_date is not None:
         day_start = due_date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999999)
         q = q.filter(models.BatMission.due_date >= day_start, models.BatMission.due_date <= day_end)
     return q.all()
+
+
+# Every other field below is "None means leave it alone", which cannot say
+# "move this back to the Inbox". The list needs that, so it gets a sentinel
+# of its own and None keeps its ordinary meaning: unfiled.
+_UNSET = object()
 
 
 def update_mission(
@@ -40,6 +56,7 @@ def update_mission(
     subtasks: Optional[str] = None,
     is_pinned: Optional[bool] = None,
     is_dismissed: Optional[bool] = None,
+    list_id=_UNSET,
 ) -> Optional[models.BatMission]:
     """Update an existing mission. Returns None if not found."""
     mission = (
@@ -69,6 +86,10 @@ def update_mission(
         mission.notes = notes
     if subtasks is not None:
         mission.subtasks = subtasks
+    if list_id is not _UNSET:
+        # Through resolve() so a mission can never be filed into a list
+        # belonging to somebody else.
+        mission.list_id = list_service.resolve(db, current_user, list_id)
     if is_pinned is not None:
         mission.is_pinned = is_pinned
     if is_dismissed is not None:
@@ -121,6 +142,7 @@ def create_mission(
     location: Optional[str] = None,
     notes: Optional[str] = None,
     subtasks: Optional[str] = None,
+    list_id=None,
 ) -> models.BatMission:
     mission = models.BatMission(
         title=title,
@@ -134,6 +156,7 @@ def create_mission(
         location=location,
         notes=notes,
         subtasks=subtasks,
+        list_id=list_service.resolve(db, current_user, list_id),
         owner_id=current_user.id,
     )
     db.add(mission)

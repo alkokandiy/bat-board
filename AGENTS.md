@@ -14,8 +14,8 @@ Merging to `main` therefore ships to real users — treat it that way.
 ## Commands
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/ -q      # 294 tests
-cd frontend && npx vitest run                           # 56 tests
+cd backend && .venv/bin/python -m pytest tests/ -q      # 772 tests
+cd frontend && npx vitest run                           # 333 tests
 cd frontend && npm run build
 ```
 
@@ -33,7 +33,12 @@ Never run a dev server to "check" something; run the tests.
   minute by an external cron. Anything periodic belongs in `services/scheduler.py`
   and must be safe to run repeatedly and from multiple workers.
 - Per-user timezones: use `services/timezones.py`, never naive "today".
-- Migrations are numbered (`031` is current head). New migration = next number,
+- **The Inbox is not a row.** A mission's `list_id` is nullable and NULL means
+  unfiled; `list_service.INBOX` (`"inbox"`) is how the API addresses it. Never
+  create a real list to stand in for it, and never let a `list_id` reach a
+  mission without `list_service.resolve` — it is the only thing stopping a
+  mission being filed into another user's list.
+- Migrations are numbered (`032` is current head). New migration = next number,
   additive where possible, and must be reversible.
 - Comments explain **why**, not what — especially the non-obvious decision behind a
   line. Match the surrounding density; don't narrate the code.

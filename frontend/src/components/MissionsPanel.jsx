@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Timer, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
@@ -68,8 +68,12 @@ const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
  * Today rather than tomorrow or nothing, because the date can be changed
  * in one tap and a wrong date is visible where a missing one is not. Clear
  * it and the mission is undated, exactly as before.
+ *
+ * `listId` is where it is filed: the list currently selected in the rail,
+ * or null (Inbox) when the rail is on All. Inbox means "not filed yet" —
+ * null is what the API stores, 'inbox' is only what the rail calls it.
  */
-export function blankMission(today = new Date()) {
+export function blankMission(today = new Date(), listId = null) {
   return {
     title: '',
     description: '',
@@ -79,6 +83,7 @@ export function blankMission(today = new Date()) {
     location: '',
     notes: '',
     subtasks: '',
+    list_id: listId ?? null,
   };
 }
 
@@ -207,7 +212,7 @@ function SubtaskEditor({ value, onChange }) {
   );
 }
 
-function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
+function MissionCard({ mission, list, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
   const isCompleted = mission.status === 'completed';
   const subtasks = parseSubtasks(mission.subtasks);
   const doneSubtasks = subtasks.filter(s => s.done).length;
@@ -253,6 +258,20 @@ function MissionCard({ mission, onEdit, onDelete, onToggleStatus, onDuplicate, o
               <span className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded-chip ring-1 ${PRIORITY_CHIP[mission.priority] || PRIORITY_CHIP.low}`}>
                 {mission.priority}
               </span>
+              {/* Which list it is filed under, only when it has one — the
+                  Inbox is "no list yet", so it gets no chip. */}
+              {list && (
+                <span className="inline-flex items-center gap-1 text-[9px] font-mono text-ink-muted px-1.5 py-0.5 rounded-chip bg-bat-surface ring-1 ring-bat-line">
+                  {list.color && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full"
+                      style={{ backgroundColor: list.color }}
+                      aria-hidden="true"
+                    />
+                  )}
+                  {list.name}
+                </span>
+              )}
               {tags.map((t, i) => (
                 <span key={t + '-' + i} className="text-[9px] font-mono text-ink-muted px-1.5 py-0.5 rounded-chip bg-bat-surface ring-1 ring-bat-line">
                   {t}
@@ -367,7 +386,7 @@ const QUADRANTS = [
   { key: 'delegate', label: 'Delegate', sub: 'neither' },
 ];
 
-function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
+function EisenhowerQuadrant({ missions, listsById, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
   const classify = (m) => {
     const urgent = m.priority === 'critical' || m.priority === 'high';
     const important = m.priority !== 'low';
@@ -386,7 +405,7 @@ function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDupl
             {ms.length === 0
               ? <EmptyState compact>Nothing here</EmptyState>
               : ms.map(m => (
-                  <MissionCard key={m.id} mission={m} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} onLogTime={onLogTime} onFocusOn={onFocusOn} />
+                  <MissionCard key={m.id} mission={m} list={listsById[m.list_id]} onEdit={onEdit} onDelete={onDelete} onToggleStatus={onToggleStatus} onDuplicate={onDuplicate} onWontDo={onWontDo} onLogTime={onLogTime} onFocusOn={onFocusOn} />
                 ))}
           </Panel>
         );
@@ -395,7 +414,7 @@ function EisenhowerQuadrant({ missions, onEdit, onDelete, onToggleStatus, onDupl
   );
 }
 
-export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAccount, onFocusOn }) {
+export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAccount, onFocusOn, lists = [], selectedList = null }) {
   const [viewMode, setViewMode] = useState('list');
   const [showForm, setShowForm] = useState(false);
   const [editMission, setEditMission] = useState(null);
@@ -407,6 +426,15 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const [flash, setFlash] = useState(null);
 
   const [dateFilter, setDateFilter] = useState('all');
+
+  const listsById = useMemo(
+    () => Object.fromEntries(lists.map((l) => [l.id, l])),
+    [lists]);
+
+  // A new mission files itself wherever the rail is standing: the selected
+  // list, or the Inbox when the rail is on All ('inbox' and null both mean
+  // no list yet, so both become null).
+  const defaultListId = selectedList === 'inbox' ? null : selectedList;
 
   useEffect(() => {
     if (!flash) return;
@@ -444,9 +472,15 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
     return key >= weekStartKey && key <= weekEndKey;
   };
 
-  const activeMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed);
-  const completedMissions = missions.filter(m => m.status === 'completed');
-  const dismissedMissions = missions.filter(m => m.is_dismissed);
+  // The list filter is a SECOND, independent filter: it narrows by where a
+  // mission is filed, and the date filter below still applies on top of it.
+  // null (the rail's All) and undefined (no rail wired) both mean everything.
+  const matchesList = (m) => selectedList == null
+    || (selectedList === 'inbox' ? !m.list_id : m.list_id === selectedList);
+
+  const activeMissions = missions.filter(m => m.status !== 'completed' && !m.is_dismissed && matchesList(m));
+  const completedMissions = missions.filter(m => m.status === 'completed' && matchesList(m));
+  const dismissedMissions = missions.filter(m => m.is_dismissed && matchesList(m));
 
   const filterByDate = (list) => {
     if (dateFilter === 'overdue') return list.filter(m => isOverdue(m.due_date));
@@ -458,7 +492,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
   const sortedMissions = [...filterByDate(activeMissions)].sort(byWhatIsDueFirst);
 
   const resetForm = () => {
-    setForm(blankMission());
+    setForm(blankMission(undefined, defaultListId));
     setError(null);
   };
 
@@ -479,6 +513,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       location: mission.location || '',
       notes: mission.notes || '',
       subtasks: mission.subtasks || '',
+      list_id: mission.list_id ?? null,
     });
     setShowForm(true);
   };
@@ -498,6 +533,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         location: form.location.trim() || null,
         notes: form.notes.trim() || null,
         subtasks: form.subtasks.trim() || null,
+        list_id: form.list_id ?? null,
       };
       // Status is only set on create: editing a completed mission used to
       // send status 'pending' and silently reopen it.
@@ -563,6 +599,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         subtasks: mission.subtasks,
         is_pinned: false,
         status: 'pending',
+        list_id: mission.list_id ?? null,
       });
       setFlash(`Copied "${mission.title}"`);
       await onRefreshMissions();
@@ -651,6 +688,17 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
               />
             </Field>
           </div>
+
+          <Field label="List" hint="Inbox means not filed yet.">
+            <select
+              value={form.list_id ?? ''}
+              onChange={e => setForm({ ...form, list_id: e.target.value ? Number(e.target.value) : null })}
+              className={fieldClass}
+            >
+              <option value="">Inbox</option>
+              {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+          </Field>
 
           <Field label="Tags" hint="Comma-separated.">
             <input
@@ -760,7 +808,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       </div>
 
       {viewMode === 'eisenhower' ? (
-        <EisenhowerQuadrant missions={activeMissions} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
+        <EisenhowerQuadrant missions={activeMissions} listsById={listsById} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
       ) : (
         <div className="space-y-gutter">
           {/* The order is stated, because a list you cannot explain the
@@ -772,14 +820,15 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
           >
             {sortedMissions.length === 0 ? (
               <EmptyState>
-                {dateFilter === 'all' ? 'Nothing on the board'
+                {selectedList != null ? 'Nothing in this list'
+                  : dateFilter === 'all' ? 'Nothing on the board'
                   : dateFilter === 'today' ? 'Nothing due today'
                   : dateFilter === 'overdue' ? 'Nothing overdue'
                   : 'Nothing due in this window'}
               </EmptyState>
             ) : (
               sortedMissions.map(m => (
-                <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
+                <MissionCard key={m.id} mission={m} list={listsById[m.list_id]} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
               ))
             )}
           </Panel>
@@ -821,7 +870,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
               </summary>
               <div className="space-y-2 mt-2">
                 {completedMissions.map(m => (
-                  <MissionCard key={m.id} mission={m} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
+                  <MissionCard key={m.id} mission={m} list={listsById[m.list_id]} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
                 ))}
               </div>
             </details>
