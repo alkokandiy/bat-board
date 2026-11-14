@@ -378,7 +378,10 @@ def test_alfred_sees_the_lists_with_their_counts(client, auth_headers, db_for):
     with db_for("alfred_get_lists") as (db, user):
         from services import alfred_tools
         out = alfred_tools.execute_tool(db, user, "get_lists", {})
-    assert out["lists"] == [{"name": "Counted", "open_missions": 1}]
+    # Sections ride along with the lists: he needs both in one breath to
+    # file anything, and a second tool call to find out a list has no
+    # sections is a wasted turn.
+    assert out["lists"] == [{"name": "Counted", "open_missions": 1, "sections": []}]
     assert out["inbox_open_missions"] == 1
 
 
