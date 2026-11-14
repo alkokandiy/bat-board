@@ -106,3 +106,47 @@ def test_full_refresh_round_trip(client):
 
     r = client.post("/api/auth/refresh", json="not-a-token")
     assert r.status_code in (400, 401, 422)
+
+
+def test_refresh_accepts_the_shape_the_browser_actually_sends(client):
+    """The outage of 2026-11-14.
+
+    `refresh_token: str = Body(...)` makes the token the WHOLE body, so the
+    endpoint only ever accepted a bare JSON string — while the frontend has
+    always sent `{"refresh_token": "..."}`. Every refresh from a browser was
+    answered 422, and because a failed refresh used to clear the stored
+    tokens, it looked like "signed out again after a few minutes" instead of
+    an error. When a failed refresh stopped ending the session, the app
+    could not boot at all.
+
+    The tests never caught it because they sent the bare string — the one
+    shape no real client uses.
+    """
+    client.post("/api/auth/register",
+                json={"username": "refresh_shape", "password": "pass1234"})
+    pair = client.post("/api/auth/login",
+                       data={"username": "refresh_shape", "password": "pass1234"}).json()
+
+    r = client.post("/api/auth/refresh", json={"refresh_token": pair["refresh_token"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["access_token"]
+
+
+def test_and_still_accepts_the_bare_string_it_always_took(client):
+    """Tokens already issued are in the wild; refusing a shape this endpoint
+    has accepted for its whole life would log those people out to fix a bug
+    about logging people out."""
+    client.post("/api/auth/register",
+                json={"username": "refresh_bare", "password": "pass1234"})
+    pair = client.post("/api/auth/login",
+                       data={"username": "refresh_bare", "password": "pass1234"}).json()
+
+    r = client.post("/api/auth/refresh", json=pair["refresh_token"])
+    assert r.status_code == 200, r.text
+
+
+def test_a_rubbish_token_in_either_shape_is_still_refused(client):
+    assert client.post("/api/auth/refresh",
+                       json={"refresh_token": "not-a-token"}).status_code in (400, 401, 422)
+    assert client.post("/api/auth/refresh",
+                       json="not-a-token").status_code in (400, 401, 422)

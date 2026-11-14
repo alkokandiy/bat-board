@@ -5,7 +5,7 @@ import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone, date
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Union
 
 import structlog
 from fastapi import FastAPI, Depends, HTTPException, status, Request, Body, Query
@@ -558,10 +558,37 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
 
     return Token(access_token=access_token, refresh_token=refresh_token)
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 @app.post("/api/auth/refresh", response_model=Token)
 @limiter.limit("10/minute")
-def refresh_token(request: Request, refresh_token: str = Body(...), db: Session = Depends(get_db)):
-    token_data = decode_refresh_token(refresh_token)
+def refresh_token(
+    request: Request,
+    payload: Union[RefreshRequest, str] = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Exchange a refresh token for a new pair.
+
+    Both body shapes are accepted on purpose. A lone scalar `Body(...)` in
+    FastAPI is the WHOLE body, not a field inside it, so this endpoint used
+    to take only a bare JSON string — while the browser has always sent
+    `{"refresh_token": "..."}` and been answered with 422.
+
+    Nobody noticed because a failed refresh used to clear the stored tokens,
+    so the symptom was "signed out again after a few minutes" rather than an
+    error: refresh had in fact never once succeeded in a browser. Once a
+    failed refresh stopped ending the session, the 422 surfaced and the app
+    could not boot at all.
+
+    The object form is what clients send and what the docs page shows. The
+    bare string stays accepted because tokens already issued are in the
+    wild, and refusing a shape this endpoint has accepted for its whole
+    life would log those people out to fix a bug about logging people out.
+    """
+    token = payload.refresh_token if isinstance(payload, RefreshRequest) else payload
+    token_data = decode_refresh_token(token)
     if token_data is None:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 

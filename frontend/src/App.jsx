@@ -702,12 +702,22 @@ export default function App() {
         <div className="max-w-md w-full bg-bat-surface p-6 rounded-lg border border-signal-late/30 text-center space-y-4">
           <div className="text-signal-late text-3xl font-bold">BOOT CRITICAL ERROR</div>
           <p className="text-sm text-ink-muted">{error}</p>
-          <div className="pt-2">
+          <div className="pt-2 flex items-center justify-center gap-2">
             <button
               onClick={fetchAllData}
               className="px-4 py-2 bg-bat-raised hover:bg-bat-line-strong text-ink font-semibold rounded text-xs transition duration-200"
             >
               RETRY BOOT SEQUENCING
+            </button>
+            {/* The way out. Not every boot failure is one a retry can fix —
+                a stored credential the server will not take puts the same
+                wall up on every attempt, and with only a Retry button there
+                is no way back to the login screen to get a working one. */}
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-ink-muted hover:text-ink font-semibold rounded text-xs transition duration-200"
+            >
+              SIGN OUT AND START AGAIN
             </button>
           </div>
         </div>

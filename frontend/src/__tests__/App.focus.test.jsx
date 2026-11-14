@@ -706,3 +706,17 @@ describe('Working past the bell', () => {
     expect(api.endFocusSession).toHaveBeenCalledWith(101, { duration_minutes: 31 });
   });
 });
+
+describe('When the board cannot boot', () => {
+  it('offers a way out, not only a retry that cannot work', async () => {
+    // A stored credential the server refuses puts the same wall up on
+    // every attempt; with only Retry there is no route back to the login
+    // screen to get a working one.
+    api.getAccount.mockRejectedValue(new Error('Could not refresh the session (422).'));
+    render(<App />);
+    expect(await screen.findByText(/BOOT CRITICAL ERROR/i)).toBeTruthy();
+    const out = screen.getByRole('button', { name: /sign out and start again/i });
+    fireEvent.click(out);
+    expect(api.logout).toHaveBeenCalled();
+  });
+});
