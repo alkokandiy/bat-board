@@ -10,7 +10,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 
 import models
-from services import list_service
+from services import list_service, section_service
 from services.common import auto_log_event, calculate_bat_level
 
 
@@ -19,6 +19,7 @@ def list_missions(
     current_user: models.BatAccount,
     due_date: Optional[datetime] = None,
     list_filter: Optional[str] = None,
+    section_filter: Optional[str] = None,
 ) -> List[models.BatMission]:
     q = db.query(models.BatMission).filter(models.BatMission.owner_id == current_user.id)
     if list_filter:
@@ -29,6 +30,14 @@ def list_missions(
             # rather than that owner's missions.
             q = q.filter(models.BatMission.list_id == list_service.resolve(
                 db, current_user, list_filter))
+    if section_filter:
+        if section_filter == section_service.NONE_SECTION:
+            q = q.filter(models.BatMission.section_id.is_(None))
+        else:
+            row = section_service.get_section(db, current_user, int(section_filter))
+            if row is None:
+                raise ValueError("No such section")
+            q = q.filter(models.BatMission.section_id == row.id)
     if due_date is not None:
         day_start = due_date.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -37,9 +46,49 @@ def list_missions(
 
 
 # Every other field below is "None means leave it alone", which cannot say
-# "move this back to the Inbox". The list needs that, so it gets a sentinel
-# of its own and None keeps its ordinary meaning: unfiled.
-_UNSET = object()
+# "move this back to the Inbox". The list and section need that, so they get
+# a sentinel of their own and None keeps its ordinary meaning: unfiled, or
+# ungrouped. Public, because the web API's PUT handler passes it to
+# resolve_placement to say "nothing was sent about this field".
+UNSET = object()
+_UNSET = UNSET
+
+
+def get_mission(db, current_user, mission_id):
+    """One of this owner's missions, or None."""
+    return (
+        db.query(models.BatMission)
+        .filter(models.BatMission.id == mission_id,
+                models.BatMission.owner_id == current_user.id)
+        .first()
+    )
+
+
+def resolve_placement(db, current_user, mission, list_id=_UNSET, section_id=_UNSET):
+    """Work out where a mission ends up: `(list_id, section_id)`.
+
+    The one place the list/section invariant lives, because both the web
+    API's PUT handler and this module's `update_mission` need it and a
+    second copy would be a second chance to get it wrong.
+
+    Order matters. A section exists only inside a list, so it is checked
+    against the list the mission ENDS UP in, not the one it started in — a
+    single request may move it and set its section together.
+    """
+    new_list = (list_service.resolve(db, current_user, list_id)
+                if list_id is not _UNSET else mission.list_id)
+    if section_id is not _UNSET:
+        new_section = section_service.resolve(db, current_user, section_id, new_list)
+    elif mission.section_id is not None and new_list != mission.list_id:
+        # Moved to another list without being told a section. The old one
+        # belongs to the old list and cannot come along, so the mission
+        # lands ungrouped rather than pointing at a section outside its
+        # own list — which every view that groups by section would then
+        # have to make a decision about.
+        new_section = None
+    else:
+        new_section = mission.section_id
+    return new_list, new_section
 
 
 def update_mission(
@@ -57,6 +106,7 @@ def update_mission(
     is_pinned: Optional[bool] = None,
     is_dismissed: Optional[bool] = None,
     list_id=_UNSET,
+    section_id=_UNSET,
 ) -> Optional[models.BatMission]:
     """Update an existing mission. Returns None if not found."""
     mission = (
@@ -86,10 +136,9 @@ def update_mission(
         mission.notes = notes
     if subtasks is not None:
         mission.subtasks = subtasks
-    if list_id is not _UNSET:
-        # Through resolve() so a mission can never be filed into a list
-        # belonging to somebody else.
-        mission.list_id = list_service.resolve(db, current_user, list_id)
+    if list_id is not _UNSET or section_id is not _UNSET:
+        mission.list_id, mission.section_id = resolve_placement(
+            db, current_user, mission, list_id=list_id, section_id=section_id)
     if is_pinned is not None:
         mission.is_pinned = is_pinned
     if is_dismissed is not None:
@@ -143,7 +192,9 @@ def create_mission(
     notes: Optional[str] = None,
     subtasks: Optional[str] = None,
     list_id=None,
+    section_id=None,
 ) -> models.BatMission:
+    _resolved_list = list_service.resolve(db, current_user, list_id)
     mission = models.BatMission(
         title=title,
         description=description,
@@ -156,7 +207,8 @@ def create_mission(
         location=location,
         notes=notes,
         subtasks=subtasks,
-        list_id=list_service.resolve(db, current_user, list_id),
+        list_id=_resolved_list,
+        section_id=section_service.resolve(db, current_user, section_id, _resolved_list),
         owner_id=current_user.id,
     )
     db.add(mission)

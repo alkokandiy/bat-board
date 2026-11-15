@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 import models
 from services import (
     list_service,
+    section_service,
     briefing_service,
     calendar_service,
     countdown_service,
@@ -78,6 +79,7 @@ def _mission_dict(m):
         # back. "Inbox" rather than null for the same reason — "its list is
         # None" is not a sentence anyone wants read to them.
         "list": m.bat_list.name if m.bat_list else "Inbox",
+        "section": m.section.name if m.section else None,
     }
 
 
@@ -96,6 +98,9 @@ def _open_mission_titles(db, user) -> dict:
         .all()
     )
     return {_norm_title(m.title): m for m in rows}
+
+
+_NOT_GIVEN = object()
 
 
 class _NoSuchList(ValueError):
@@ -137,16 +142,46 @@ def _list_id_from_name(db, user, name):
     return row.id
 
 
+def _section_id_from_name(db, user, name, list_id):
+    """Resolve a section NAME within a list. None/"none"/"" mean ungrouped.
+
+    Refused rather than created, for the same reason an unknown list is: a
+    tool that invents groupings while filing one mission fills the board
+    with near-duplicates nobody asked for.
+    """
+    if name is None:
+        return None
+    name = str(name).strip()
+    if not name or name.lower() in ("none", "no section"):
+        return None
+    if list_id is None:
+        raise ValueError(
+            "A section lives inside a list, and this mission has none. "
+            "Give it a list first, or leave the section out."
+        )
+    row = section_service.find_by_name(db, user, list_id, name)
+    if row is None:
+        have = [sec.name for sec in section_service.list_sections(db, user, list_id)]
+        raise ValueError(
+            f"That list has no section called '{name}'. It has: "
+            f"{', '.join(have) if have else 'no sections'}. Leave the section "
+            f"out to put it straight in the list."
+        )
+    return row.id
+
+
 def _create_one_mission(db, user, spec: dict):
     """Create a single mission from a spec dict (shared by the single and
     batch tools). Caller handles duplicate checking."""
+    _spec_list_id = _list_id_from_name(db, user, spec.get("list"))
     return mission_service.create_mission(
         db, user, title=spec["title"], description=spec.get("description"),
         due_date=_parse_dt(spec.get("due_date"), "due_date") if spec.get("due_date") else None,
         priority=spec.get("priority") or "medium", tags=spec.get("tags"),
         location=spec.get("location"), notes=spec.get("notes"),
         subtasks=spec.get("subtasks"),
-        list_id=_list_id_from_name(db, user, spec.get("list")),
+        list_id=_spec_list_id,
+        section_id=_section_id_from_name(db, user, spec.get("section"), _spec_list_id),
         is_pinned=bool(spec.get("is_pinned")) if spec.get("is_pinned") is not None else False)
 
 
@@ -414,6 +449,7 @@ WRITE_TOOLS = [
          "subtasks": {"type": "string", "description": "JSON array of {title, done}."},
          "is_pinned": {"type": "boolean"},
          "list": {"type": "string", "description": "The NAME of the list this belongs in, as the user says it. Omit, or 'Inbox', for unfiled. Must already exist — use get_lists to see them and create_list to add one."},
+         "section": {"type": "string", "description": "The NAME of a section WITHIN that list. Needs `list` too. Omit to put it straight in the list."},
      }, "required": ["title"]}},
     {"name": "create_missions", "description": "Create SEVERAL missions at once in a single call. ALWAYS use this (not repeated create_mission) when the user lists more than one mission in a message. Duplicates of existing or repeated titles are skipped automatically. Don't ask about each one — apply sensible defaults (priority medium, no due date unless stated) and report what you added.",
      "parameters": {"type": "object", "properties": {
@@ -426,6 +462,7 @@ WRITE_TOOLS = [
                  "tags": {"type": "string", "description": "Comma-separated tags."},
                  "location": {"type": "string"}, "notes": {"type": "string"},
                  "list": {"type": "string", "description": "The NAME of the list this belongs in. Omit for unfiled."},
+                 "section": {"type": "string", "description": "The NAME of a section within that list."},
              }, "required": ["title"]}},
      }, "required": ["missions"]}},
     {"name": "complete_mission", "description": "Mark a mission completed (awards points).",
@@ -442,7 +479,13 @@ WRITE_TOOLS = [
          "notes": {"type": "string"}, "subtasks": {"type": "string"},
          "is_pinned": {"type": "boolean"}, "is_dismissed": {"type": "boolean"},
          "list": {"type": "string", "description": "Move it to this list, by NAME. 'Inbox' takes it out of whatever list it is in."},
+         "section": {"type": "string", "description": "Move it to this section of its list, by NAME. 'none' takes it out of its section but leaves it in the list."},
      }, "required": ["mission_id"]}},
+    {"name": "create_section", "description": "Create a section inside one of their lists. Only when they asked for one.",
+     "parameters": {"type": "object", "properties": {
+         "list": {"type": "string", "description": "The NAME of the list it goes in."},
+         "name": {"type": "string"},
+     }, "required": ["list", "name"]}},
     {"name": "get_lists", "description": "The user's mission lists, with how many open missions are in each. Read this before filing a mission into a list by name.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "create_list", "description": "Create a new mission list. Only when the user has asked for one — do not invent lists to tidy their board.",
@@ -701,7 +744,8 @@ TOOL_NAMES = {t["name"] for t in ALL_TOOLS}
 CAPABILITY_GROUPS = [
     ("Missions (their own work)", [
         "list_missions", "create_mission", "create_missions", "update_mission",
-        "complete_mission", "delete_mission", "get_lists", "create_list"]),
+        "complete_mission", "delete_mission", "get_lists", "create_list",
+        "create_section"]),
     ("Habits", [
         "list_habits", "create_habit", "update_habit", "check_in_habit",
         "rest_habit", "unrest_habit", "delete_habit"]),
@@ -1083,7 +1127,11 @@ def execute_tool(
     if name == "get_lists":
         rows = list_service.list_lists(db, current_user)
         counts = list_service.open_counts(db, current_user)
-        return {"lists": [{"name": r.name, "open_missions": counts.get(str(r.id), 0)}
+        # Sections come back with the lists rather than behind another tool
+        # call: he needs them in the same breath to file anything.
+        return {"lists": [{"name": r.name, "open_missions": counts.get(str(r.id), 0),
+                           "sections": [sec.name for sec
+                                        in section_service.list_sections(db, current_user, r.id)]}
                           for r in rows],
                 "inbox_open_missions": counts.get(list_service.INBOX, 0)}
     if name == "create_list":
@@ -1093,12 +1141,30 @@ def execute_tool(
         except ValueError as exc:
             return {"error": str(exc)}
         return {"list": {"name": row.name}}
+    if name == "create_section":
+        try:
+            list_id = _list_id_from_name(db, current_user, args.get("list"))
+            row = section_service.create_section(
+                db, current_user, list_id=list_id, name=args.get("name"))
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"section": {"name": row.name, "list": row.bat_list.name}}
     if name == "update_mission":
         # Only passed on when he actually sent it: `update_mission` leaves a
         # field alone when it is absent, and `list: "Inbox"` has to stay
         # distinguishable from "he said nothing about the list".
-        extra = {"list_id": _list_id_from_name(db, current_user, args["list"])} \
-            if "list" in args else {}
+        extra = {}
+        if "list" in args:
+            extra["list_id"] = _list_id_from_name(db, current_user, args["list"])
+        if "section" in args:
+            # Against the list it is ENDING UP in: he may move it and set a
+            # section in one call, and the section must exist in the new list.
+            target_list = extra.get("list_id", _NOT_GIVEN)
+            if target_list is _NOT_GIVEN:
+                current = mission_service.get_mission(db, current_user, int(args["mission_id"]))
+                target_list = current.list_id if current else None
+            extra["section_id"] = _section_id_from_name(
+                db, current_user, args["section"], target_list)
         m = mission_service.update_mission(
             db, current_user, int(args["mission_id"]),
             title=args.get("title"), description=args.get("description"),

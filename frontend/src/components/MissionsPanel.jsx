@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Ban, Check, Copy, MapPin, Pencil, Pin, Plus, Target, Timer, Trash2, X } from 'lucide-react';
+import { Ban, Check, ChevronDown, ChevronRight, Copy, MapPin, Pencil, Pin, Plus, Target, Timer, Trash2, X } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
 
@@ -84,6 +84,10 @@ export function blankMission(today = new Date(), listId = null) {
     notes: '',
     subtasks: '',
     list_id: listId ?? null,
+    // In the list, but not in a section. Only ever a section of list_id —
+    // the form clears it whenever the list changes, because a section
+    // belongs to exactly one list.
+    section_id: null,
   };
 }
 
@@ -386,6 +390,205 @@ const QUADRANTS = [
   { key: 'delegate', label: 'Delegate', sub: 'neither' },
 ];
 
+/**
+ * Manage the sections of ONE list, in place: add, rename inline, delete.
+ * Deleting never destroys missions — they stay in the list, ungrouped — so
+ * the confirmation says exactly that, and both the sections and the
+ * missions are re-read afterwards.
+ */
+function SectionManager({ listId, sections, onRefreshSections, onRefreshMissions }) {
+  const [adding, setAdding] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [renamingId, setRenamingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [confirmingId, setConfirmingId] = useState(null);
+  const [error, setError] = useState(null);
+
+  const run = async (fn) => {
+    setError(null);
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      // The server's message is meant to be read: a duplicate or empty
+      // name comes back as a 400 with the reason in it.
+      setError(err.message);
+      return false;
+    }
+  };
+
+  const submitCreate = async () => {
+    const name = draftName.trim();
+    if (!name) return;
+    const ok = await run(async () => {
+      await api.createSection({ list_id: listId, name });
+      await onRefreshSections();
+    });
+    if (ok) { setDraftName(''); setAdding(false); }
+  };
+
+  const submitRename = async (id) => {
+    const name = renameDraft.trim();
+    if (!name) return;
+    const ok = await run(async () => {
+      await api.renameSection(id, name);
+      await onRefreshSections();
+    });
+    if (ok) setRenamingId(null);
+  };
+
+  const submitDelete = async (id) => {
+    setConfirmingId(null);
+    await run(async () => {
+      await api.deleteSection(id);
+      // Its missions are now ungrouped, so the missions list is stale too.
+      await Promise.all([onRefreshSections(), onRefreshMissions()]);
+    });
+  };
+
+  return (
+    <Panel
+      title="Sections"
+      meta={sections.length ? `${sections.length}` : null}
+      bodyClassName="p-2.5 space-y-0.5"
+    >
+      {sections.map((s) => (
+        <div key={s.id}>
+          {renamingId === s.id ? (
+            <div className="flex items-center gap-1 px-1 py-0.5">
+              <input
+                type="text"
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); submitRename(s.id); }
+                  if (e.key === 'Escape') setRenamingId(null);
+                }}
+                autoFocus
+                aria-label={`Rename section ${s.name}`}
+                className={`${fieldClass} text-xs py-1`}
+              />
+              <IconButton label={`Save name for "${s.name}"`} onClick={() => submitRename(s.id)} icon={Check} />
+              <IconButton label={`Cancel renaming "${s.name}"`} onClick={() => setRenamingId(null)} icon={X} />
+            </div>
+          ) : confirmingId === s.id ? (
+            <div className="rounded-chip bg-bat-raised ring-1 ring-signal-late/30 px-2.5 py-2 space-y-2">
+              <p className="text-[11px] leading-snug text-ink-muted">
+                Delete <span className="text-ink">{s.name}</span>?
+                {' '}Its missions stay in the list, ungrouped — nothing is deleted.
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => submitDelete(s.id)}
+                  className="rounded-chip px-2 py-1 text-[10px] font-mono uppercase tracking-widest
+                    text-signal-late ring-1 ring-signal-late/40 hover:bg-signal-late/10
+                    transition-colors duration-200"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingId(null)}
+                  className="px-2 py-1 text-[10px] font-mono uppercase tracking-widest text-ink-faint hover:text-ink-muted transition-colors duration-200"
+                >
+                  Keep
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="group flex items-center gap-1">
+              <span className="flex-1 min-w-0 truncate px-2.5 py-1.5 font-mono text-xs text-ink-muted">
+                {s.name}
+              </span>
+              {s.open_missions > 0 && (
+                <span className="shrink-0 text-[10px] tabular-nums px-1.5 py-0.5 rounded-chip bg-bat-surface text-ink-faint ring-1 ring-bat-line">
+                  {s.open_missions}
+                </span>
+              )}
+              {/* Row actions stay out of the way until the row is approached. */}
+              <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200">
+                <IconButton
+                  label={`Rename "${s.name}"`}
+                  onClick={() => { setRenamingId(s.id); setRenameDraft(s.name); }}
+                  icon={Pencil}
+                />
+                <IconButton
+                  label={`Delete "${s.name}"`}
+                  onClick={() => setConfirmingId(s.id)}
+                  icon={Trash2}
+                  tone="danger"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="flex items-center gap-1 px-1 py-0.5">
+          <input
+            type="text"
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); submitCreate(); }
+              if (e.key === 'Escape') { setAdding(false); setDraftName(''); }
+            }}
+            autoFocus
+            placeholder="New section"
+            aria-label="New section name"
+            className={`${fieldClass} text-xs py-1`}
+          />
+          <IconButton label="Save section" onClick={submitCreate} icon={Check} />
+          <IconButton label="Cancel new section" onClick={() => { setAdding(false); setDraftName(''); }} icon={X} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="w-full flex items-center gap-1.5 rounded-chip px-2.5 py-1.5
+            font-mono text-xs text-ink-faint hover:text-ink hover:bg-bat-raised
+            transition-all duration-200 ease-soft
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60"
+        >
+          <Plus size={12} /> Add section
+        </button>
+      )}
+
+      {error && (
+        <p role="alert" className="px-2.5 pt-1 text-[10px] text-signal-late">{error}</p>
+      )}
+    </Panel>
+  );
+}
+
+/**
+ * A collapsible heading over one section's missions. The count is what is
+ * actually visible under it, so it never argues with the list below.
+ */
+function SectionGroupHeading({ name, count, collapsed, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      className="w-full flex items-center gap-1.5 rounded-chip px-1.5 py-1 text-left
+        font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint
+        hover:text-ink-muted transition-colors duration-200
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-signal-self/60"
+    >
+      {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+      <span className="truncate">{name}</span>
+      {count > 0 && (
+        <span className="shrink-0 text-[9px] tabular-nums px-1.5 py-0.5 rounded-chip bg-bat-surface text-ink-faint ring-1 ring-bat-line">
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function EisenhowerQuadrant({ missions, listsById, onEdit, onDelete, onToggleStatus, onDuplicate, onWontDo, onLogTime, onFocusOn }) {
   const classify = (m) => {
     const urgent = m.priority === 'critical' || m.priority === 'high';
@@ -414,7 +617,16 @@ function EisenhowerQuadrant({ missions, listsById, onEdit, onDelete, onToggleSta
   );
 }
 
-export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAccount, onFocusOn, lists = [], selectedList = null }) {
+export default function MissionsPanel({
+  missions,
+  onRefreshMissions,
+  onRefreshAccount,
+  onFocusOn,
+  lists = [],
+  selectedList = null,
+  sections = [],
+  onRefreshSections = () => {},
+}) {
   const [viewMode, setViewMode] = useState('list');
   const [showForm, setShowForm] = useState(false);
   const [editMission, setEditMission] = useState(null);
@@ -491,6 +703,47 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
 
   const sortedMissions = [...filterByDate(activeMissions)].sort(byWhatIsDueFirst);
 
+  // Sections (Phase 9). Grouping exists only when ONE list is selected:
+  // All and Inbox have no single list to take sections from, so they stay
+  // the flat list they have always been.
+  const groupedView = typeof selectedList === 'number';
+
+  const listSections = useMemo(
+    () => sections.filter((s) => s.list_id === selectedList),
+    [sections, selectedList]);
+
+  // ...and even then only when the list actually has some: an Ungrouped
+  // heading over a list with no sections would be furniture, not function.
+  const useGroups = groupedView && listSections.length > 0;
+
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+  // Collapsed state is keyed by section id; a stale key from another list
+  // must not keep this one folded.
+  useEffect(() => setCollapsedGroups({}), [selectedList]);
+
+  // Grouping happens AFTER filtering and sorting: what the date filter
+  // hid stays hidden, and within each section the order is the same
+  // soonest-first order as the flat list.
+  const groups = useMemo(() => {
+    if (!useGroups) return null;
+    const buckets = [...listSections]
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((s) => ({ id: `s${s.id}`, section: s, missions: [] }));
+    const byId = new Map(buckets.map((b) => [b.section.id, b]));
+    const ungrouped = { id: 'ungrouped', section: null, missions: [] };
+    for (const m of sortedMissions) {
+      // A section always belongs to the mission's own list — the server
+      // enforces it. A stale id (a section just deleted) lands in the
+      // ungrouped bucket rather than making the mission vanish.
+      const bucket = (m.section_id != null ? byId.get(m.section_id) : null) || ungrouped;
+      bucket.missions.push(m);
+    }
+    // A section with no missions was made on purpose: its heading stays.
+    // Ungrouped is the leftover bucket, so it only speaks when it holds
+    // something.
+    return [...buckets, ...(ungrouped.missions.length ? [ungrouped] : [])];
+  }, [useGroups, listSections, sortedMissions]);
+
   const resetForm = () => {
     setForm(blankMission(undefined, defaultListId));
     setError(null);
@@ -514,6 +767,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
       notes: mission.notes || '',
       subtasks: mission.subtasks || '',
       list_id: mission.list_id ?? null,
+      section_id: mission.section_id ?? null,
     });
     setShowForm(true);
   };
@@ -534,6 +788,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         notes: form.notes.trim() || null,
         subtasks: form.subtasks.trim() || null,
         list_id: form.list_id ?? null,
+        section_id: form.section_id ?? null,
       };
       // Status is only set on create: editing a completed mission used to
       // send status 'pending' and silently reopen it.
@@ -600,6 +855,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         is_pinned: false,
         status: 'pending',
         list_id: mission.list_id ?? null,
+        section_id: mission.section_id ?? null,
       });
       setFlash(`Copied "${mission.title}"`);
       await onRefreshMissions();
@@ -692,13 +948,31 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
           <Field label="List" hint="Inbox means not filed yet.">
             <select
               value={form.list_id ?? ''}
-              onChange={e => setForm({ ...form, list_id: e.target.value ? Number(e.target.value) : null })}
+              onChange={e => setForm({ ...form, list_id: e.target.value ? Number(e.target.value) : null, section_id: null })}
               className={fieldClass}
             >
               <option value="">Inbox</option>
               {lists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </Field>
+
+          {/* A section belongs to exactly ONE list, so the control exists
+              only while a list is chosen, and only offers that list's
+              sections — changing the list cleared it above. */}
+          {form.list_id != null && (
+            <Field label="Section" hint="A subdivision of the list. Optional.">
+              <select
+                value={form.section_id ?? ''}
+                onChange={e => setForm({ ...form, section_id: e.target.value ? Number(e.target.value) : null })}
+                className={fieldClass}
+              >
+                <option value="">None — just in the list</option>
+                {sections.filter(s => s.list_id === form.list_id).map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </Field>
+          )}
 
           <Field label="Tags" hint="Comma-separated.">
             <input
@@ -807,6 +1081,18 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
         )}
       </div>
 
+      {groupedView && (
+        <SectionManager
+          // Remount per list, so draft/rename/confirm state from one list
+          // is never pointed at another.
+          key={selectedList}
+          listId={selectedList}
+          sections={listSections}
+          onRefreshSections={onRefreshSections}
+          onRefreshMissions={onRefreshMissions}
+        />
+      )}
+
       {viewMode === 'eisenhower' ? (
         <EisenhowerQuadrant missions={activeMissions} listsById={listsById} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
       ) : (
@@ -818,7 +1104,7 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
             meta={`${sortedMissions.length} · soonest first`}
             bodyClassName="p-3 space-y-2"
           >
-            {sortedMissions.length === 0 ? (
+            {sortedMissions.length === 0 && !useGroups ? (
               <EmptyState>
                 {selectedList != null ? 'Nothing in this list'
                   : dateFilter === 'all' ? 'Nothing on the board'
@@ -826,6 +1112,24 @@ export default function MissionsPanel({ missions, onRefreshMissions, onRefreshAc
                   : dateFilter === 'overdue' ? 'Nothing overdue'
                   : 'Nothing due in this window'}
               </EmptyState>
+            ) : useGroups ? (
+              groups.map(group => (
+                <div key={group.id} className="space-y-2">
+                  <SectionGroupHeading
+                    name={group.section ? group.section.name : 'Ungrouped'}
+                    count={group.missions.length}
+                    collapsed={!!collapsedGroups[group.id]}
+                    onToggle={() => setCollapsedGroups(prev => ({ ...prev, [group.id]: !prev[group.id] }))}
+                  />
+                  {!collapsedGroups[group.id] && (
+                    <div className="space-y-2">
+                      {group.missions.map(m => (
+                        <MissionCard key={m.id} mission={m} list={listsById[m.list_id]} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
             ) : (
               sortedMissions.map(m => (
                 <MissionCard key={m.id} mission={m} list={listsById[m.list_id]} onEdit={openEdit} onDelete={handleDelete} onToggleStatus={handleToggleStatus} onDuplicate={handleDuplicate} onWontDo={handleWontDo} onLogTime={handleLogTime} onFocusOn={onFocusOn} />
