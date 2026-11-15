@@ -551,8 +551,14 @@ class BatReminder(Base):
     message = Column(String, nullable=False)
     enabled = Column(Boolean, default=True, nullable=False)
 
-    recurrence = Column(String, nullable=False)  # once | daily | weekly | monthly
+    recurrence = Column(String, nullable=False)  # once | daily | weekly | monthly | relative
     send_time = Column(String, nullable=False)   # "HH:MM" in the owner's timezone
+    # `relative` only: how many days BEFORE the linked mission's due date to
+    # warn, fired at `send_time` on that day. 0 is the morning of. The date is
+    # never stored — it is read from the mission every tick, so a rescheduled
+    # mission carries its warnings with it and there is nothing here to go
+    # stale. NULL on every other recurrence, where it means nothing.
+    offset_days = Column(Integer, nullable=True)
     weekdays = Column(String, nullable=True)     # weekly: CSV of 0-6 (Mon=0)
     day_of_month = Column(Integer, nullable=True)  # monthly: 1-31 (clamped to month end)
     run_date = Column(String, nullable=True)     # once: "YYYY-MM-DD" local

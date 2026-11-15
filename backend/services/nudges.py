@@ -30,7 +30,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import structlog
 
 import models
-from services import activity, alfred_principles, habit_service
+from services import activity, alfred_principles, briefing_service, habit_service
 from services.timezones import day_bounds_utc, local_date, user_tz
 
 log = structlog.get_logger(__name__)
@@ -980,13 +980,13 @@ def sig_reminder_not_working(ctx: Ctx) -> Optional[Nudge]:
         key=f"reminder_dead:{r.id}",
         kind="reminder_dead",
         priority=24,
-        draft=(f"I have stopped the {r.send_time} reminder about "
+        draft=(f"I have stopped the {briefing_service.when_label(r)} reminder about "
                f"\u201c{r.message}\u201d, {ctx.address} \u2014 it went out several "
                f"times with no answer either way, and sending it again would "
                f"only make it easier to tune out. Is the time wrong, is it too "
                f"big a thing to do at that moment, or is a reminder simply the "
                f"wrong tool for this one?"),
-        facts=(f"Reminder #{r.id} '{r.message}' at {r.send_time} "
+        facts=(f"Reminder #{r.id} '{r.message}' at {briefing_service.when_label(r)} "
                f"({r.recurrence}) went unanswered "
                f"{r.consecutive_ignored or 0} times in a row and has been "
                f"suspended. It is still saved and can be changed or resumed."),

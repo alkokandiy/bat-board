@@ -299,6 +299,9 @@ def _reminder_dict(r):
     d = {
         "id": r.id, "message": r.message, "enabled": r.enabled,
         "recurrence": r.recurrence, "send_time": r.send_time,
+        # The schedule as a phrase, because "08:00" alone is a lie for a
+        # relative reminder — it says nothing about which day it lands on.
+        "when": briefing_service.when_label(r),
         "ends_on": getattr(r, "ends_on", None) or "no end date",
         # What it is about, if anything. A linked reminder can offer to start
         # the work; one about taking a tablet cannot and should not.
@@ -315,6 +318,8 @@ def _reminder_dict(r):
         d["day_of_month"] = r.day_of_month
     elif r.recurrence == "once":
         d["run_date"] = r.run_date
+    elif r.recurrence == "relative":
+        d["offset_days"] = r.offset_days
     return d
 
 
@@ -650,11 +655,12 @@ WRITE_TOOLS = [
     {"name": "create_reminder", "description": "Create a reminder Alfred pushes over Telegram on a schedule (e.g. 'take medicine' every morning, 'call mum' every Sunday). Ask for the time and how often it should repeat when missing. Requires a linked Telegram.",
      "parameters": {"type": "object", "properties": {
          "message": {"type": "string", "description": "What to remind the user about."},
-         "recurrence": {"type": "string", "enum": ["once", "daily", "weekly", "monthly"]},
-         "send_time": {"type": "string", "description": "HH:MM, 24-hour, user's timezone."},
+         "recurrence": {"type": "string", "enum": ["once", "daily", "weekly", "monthly", "relative"], "description": "Use 'relative' for a warning before a mission's due date — it then needs mission_id and offset_days, and it MOVES with the mission, so rescheduling never leaves a stale reminder behind. Use a fixed recurrence only for things with a time of their own, like medicine."},
+         "send_time": {"type": "string", "description": "HH:MM, 24-hour, user's timezone. For 'relative' this is the time of day the warning arrives on its day."},
          "weekdays": {"type": "string", "description": "weekly only: comma-separated, e.g. 'Mon,Thu' or '0,3' (Mon=0)."},
          "day_of_month": {"type": "integer", "description": "monthly only: 1-31 (clamped to month end)."},
          "run_date": {"type": "string", "description": "once only: YYYY-MM-DD."},
+         "offset_days": {"type": "integer", "description": "relative only: how many days before the due date to warn. 0 = on the day it is due, 1 = the day before. \"A day ahead and again on the day\" is TWO reminders, one with 1 and one with 0."},
          "ends_on": {"type": "string", "description": "Optional last day, YYYY-MM-DD, inclusive. Use whenever the user bounds it in time ('for one month', 'for two weeks', 'until 1 December') — work out the date from today. Omit for an open-ended reminder."},
          "mission_id": {"type": "integer", "description": "Point the reminder at a mission. A linked reminder gets a 'Start focus' button, so use this whenever the reminder is about doing a specific piece of work. Leave it out for anything that is not work — taking medicine is not a focus session."},
          "habit_id": {"type": "integer", "description": "Point the reminder at a habit. Tapping 'Done' then checks the habit in as well, so the reminder finishes the thing it exists to start."},
@@ -664,10 +670,11 @@ WRITE_TOOLS = [
      "parameters": {"type": "object", "properties": {
          "reminder_id": {"type": "integer"},
          "message": {"type": "string"}, "enabled": {"type": "boolean"},
-         "recurrence": {"type": "string", "enum": ["once", "daily", "weekly", "monthly"]},
+         "recurrence": {"type": "string", "enum": ["once", "daily", "weekly", "monthly", "relative"]},
          "send_time": {"type": "string", "description": "HH:MM."},
          "weekdays": {"type": "string"}, "day_of_month": {"type": "integer"},
          "run_date": {"type": "string", "description": "YYYY-MM-DD."},
+         "offset_days": {"type": "integer", "description": "relative only: how many days before the due date to warn. 0 = on the day it is due, 1 = the day before. \"A day ahead and again on the day\" is TWO reminders, one with 1 and one with 0."},
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
               "mission_id": {"type": "integer", "description": "Point the reminder at a mission. A linked reminder gets a 'Start focus' button, so use this whenever the reminder is about doing a specific piece of work. Leave it out for anything that is not work — taking medicine is not a focus session."},
          "habit_id": {"type": "integer", "description": "Point the reminder at a habit. Tapping 'Done' then checks the habit in as well, so the reminder finishes the thing it exists to start."},
@@ -1307,6 +1314,7 @@ def execute_tool(
             r = briefing_service.create_reminder(
                 db, current_user, message=args["message"], recurrence=args["recurrence"],
                 send_time=args["send_time"], weekdays=args.get("weekdays"),
+                offset_days=args.get("offset_days"),
                 day_of_month=args.get("day_of_month"), run_date=args.get("run_date"),
                 ends_on=args.get("ends_on"),
             mission_id=args.get("mission_id"), habit_id=args.get("habit_id"),
@@ -1324,6 +1332,7 @@ def execute_tool(
                 db, current_user, int(args["reminder_id"]),
                 message=args.get("message"), enabled=args.get("enabled"),
                 recurrence=args.get("recurrence"), send_time=args.get("send_time"),
+                offset_days=args.get("offset_days"),
                 weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
                 run_date=args.get("run_date"), ends_on=args.get("ends_on"),
             mission_id=args.get("mission_id"), habit_id=args.get("habit_id"),

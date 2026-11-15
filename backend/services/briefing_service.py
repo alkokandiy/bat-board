@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 import models
 
 BRIEFING_KINDS = ("morning", "night")
-RECURRENCES = ("once", "daily", "weekly", "monthly")
+RECURRENCES = ("once", "daily", "weekly", "monthly", "relative")
 _HHMM = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _WEEKDAY_NAMES = {
     "mon": 0, "monday": 0, "tue": 1, "tues": 1, "tuesday": 1, "wed": 2, "weds": 2,
@@ -57,6 +57,43 @@ def _normalize_weekdays(value) -> str:
     if not nums:
         raise ValueError("At least one weekday is required for a weekly reminder.")
     return ",".join(str(n) for n in sorted(nums))
+
+
+def _valid_offset_days(value) -> int:
+    """Days of notice: 0 (the morning it is due) up to a year ahead.
+
+    Negative is refused rather than read as "after", because a warning that
+    arrives once the deadline has passed is a different feature with a
+    different name, and silently accepting -1 would ship it by accident.
+    """
+    if value is None:
+        raise ValueError(
+            "A reminder counting back from a due date needs offset_days "
+            "(0 = on the day, 1 = the day before).")
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"offset_days must be a whole number of days, got {value!r}.")
+    if not 0 <= days <= 365:
+        raise ValueError("offset_days must be between 0 and 365.")
+    return days
+
+
+def when_label(r: models.BatReminder) -> str:
+    """How this reminder's timing reads to a person.
+
+    A relative reminder has no time of day on its own worth quoting — "the
+    08:00 reminder" is wrong for one that fires the day before whenever the
+    mission happens to be due. Anything putting a reminder's schedule into a
+    sentence goes through here so there is one answer, not one per caller.
+    """
+    if r.recurrence != "relative":
+        return r.send_time
+    if r.offset_days == 0:
+        return f"{r.send_time} on the day it is due"
+    if r.offset_days == 1:
+        return f"{r.send_time} the day before it is due"
+    return f"{r.send_time}, {r.offset_days} days before it is due"
 
 
 def _valid_run_date(value: str) -> str:
@@ -193,7 +230,7 @@ def _valid_link(db: Session, user: models.BatAccount, *, mission_id=None,
 def create_reminder(db: Session, user: models.BatAccount, *, message: str, recurrence: str,
                     send_time: str, weekdays=None, day_of_month: Optional[int] = None,
                     run_date: Optional[str] = None,
-                    ends_on: Optional[str] = None,
+                    ends_on: Optional[str] = None, offset_days: Optional[int] = None,
                     mission_id: Optional[int] = None, habit_id: Optional[int] = None,
                     work_task_id: Optional[int] = None) -> models.BatReminder:
     message = (message or "").strip()
@@ -203,8 +240,16 @@ def create_reminder(db: Session, user: models.BatAccount, *, message: str, recur
         raise ValueError(f"recurrence must be one of {RECURRENCES}, got {recurrence!r}.")
     send_time = _valid_time(send_time)
 
-    wk, dom, rd = None, None, None
-    if recurrence == "weekly":
+    wk, dom, rd, off = None, None, None, None
+    if recurrence == "relative":
+        # Validated before the link is resolved so the error names the thing
+        # the caller actually got wrong, rather than the next thing.
+        off = _valid_offset_days(offset_days)
+        if mission_id is None:
+            raise ValueError(
+                "A reminder that counts back from a due date needs a mission "
+                "to count back from.")
+    elif recurrence == "weekly":
         wk = _normalize_weekdays(weekdays)
     elif recurrence == "monthly":
         if day_of_month is None or not 1 <= int(day_of_month) <= 31:
@@ -224,7 +269,7 @@ def create_reminder(db: Session, user: models.BatAccount, *, message: str, recur
 
     r = models.BatReminder(owner_id=user.id, message=message, recurrence=recurrence,
                            send_time=send_time, weekdays=wk, day_of_month=dom, run_date=rd,
-                           ends_on=end, **link)
+                           ends_on=end, offset_days=off, **link)
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -236,7 +281,7 @@ def update_reminder(db: Session, user: models.BatAccount, reminder_id: int, *,
                     recurrence: Optional[str] = None, send_time: Optional[str] = None,
                     weekdays=None, day_of_month: Optional[int] = None,
                     run_date: Optional[str] = None,
-                    ends_on: Optional[str] = None,
+                    ends_on: Optional[str] = None, offset_days: Optional[int] = None,
                     mission_id: Optional[int] = None, habit_id: Optional[int] = None,
                     work_task_id: Optional[int] = None) -> Optional[models.BatReminder]:
     r = get_reminder(db, user, reminder_id)
@@ -270,6 +315,17 @@ def update_reminder(db: Session, user: models.BatAccount, reminder_id: int, *,
         if dom is None or not 1 <= int(dom) <= 31:
             raise ValueError("Monthly reminders need day_of_month between 1 and 31.")
         updates["day_of_month"] = int(dom)
+    if new_rec == "relative" and (offset_days is not None or recurrence is not None):
+        updates["offset_days"] = _valid_offset_days(
+            offset_days if offset_days is not None else r.offset_days)
+        # The mission it counts back from may be arriving in this same call,
+        # so check what the row will HAVE rather than what it has. Switching
+        # an unlinked reminder to `relative` without one would otherwise save
+        # a reminder that can never fire and never say why.
+        if updates.get("mission_id", r.mission_id) is None:
+            raise ValueError(
+                "A reminder that counts back from a due date needs a mission "
+                "to count back from.")
     if new_rec == "once" and (run_date is not None or recurrence is not None):
         rd = run_date if run_date is not None else r.run_date
         if not rd:

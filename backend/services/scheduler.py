@@ -73,12 +73,24 @@ def _within_window(local_now: datetime, scheduled: time, since: Optional[datetim
     """
     today_at = local_now.replace(hour=scheduled.hour, minute=scheduled.minute,
                                  second=0, microsecond=0)
-    delta = local_now - today_at
+    return _window_ok(local_now, today_at, since)
+
+
+def _window_ok(local_now: datetime, target: datetime,
+               since: Optional[datetime] = None) -> bool:
+    """The window rule against a full local datetime rather than a daily slot.
+
+    Split out of `_within_window` for relative reminders, whose target is a
+    moment on a particular date rather than a time of day. Same rule, so a
+    warning that counts back from a due date cannot be back-dated or fired
+    late by a rule of its own.
+    """
+    delta = local_now - target
     if not (timedelta(0) <= delta <= LATE_WINDOW):
         return False
     # Small grace so setting something for the current minute still fires —
     # only genuinely past slots (an 08:00 set at 09:50) are suppressed.
-    if since is not None and (since - today_at.astimezone(timezone.utc)) > BACKFIRE_GRACE:
+    if since is not None and (since - target.astimezone(timezone.utc)) > BACKFIRE_GRACE:
         return False
     return True
 
@@ -111,6 +123,51 @@ def _reminder_due_today(reminder: models.BatReminder, local_now: datetime) -> bo
     if rec == "once":
         return (reminder.run_date or "") == today.isoformat()
     return False
+
+
+def _relative_due_at(db: Session, user: models.BatAccount,
+                     reminder: models.BatReminder,
+                     local_now: datetime) -> Optional[datetime]:
+    """When a `relative` reminder should fire, in the owner's local time.
+
+    `offset_days` before the linked mission's due date, at the reminder's own
+    `send_time`. Read fresh from the mission on every tick rather than
+    stored, which is the whole point of the recurrence: the warning has no
+    date of its own, so a rescheduled mission moves every warning on it and
+    there is nothing left behind to be wrong.
+
+    None means "not now, and not an error" — and it covers more than a
+    missing mission. A mission with no due date has nothing to count back
+    from; a completed or dismissed one does not need warning about. Each of
+    those would otherwise fire a reminder about work that is done or gone,
+    which is the kind of notification that teaches someone to ignore the
+    rest of them.
+    """
+    if reminder.mission_id is None or reminder.offset_days is None:
+        return None
+    scheduled = _parse_hhmm(reminder.send_time)
+    if scheduled is None:
+        return None
+    mission = (
+        db.query(models.BatMission)
+        .filter(models.BatMission.id == reminder.mission_id,
+                models.BatMission.owner_id == user.id)
+        .first()
+    )
+    if mission is None or mission.due_date is None:
+        return None
+    if mission.status == "completed" or mission.is_dismissed:
+        return None
+
+    # The due date is read in the OWNER's timezone, not UTC. These columns are
+    # naive UTC by convention, so a mission due at 2026-01-02T02:00Z is due on
+    # the 2nd in UTC and still the 1st in New York — and "the day before it is
+    # due" has to mean the day before it is due *to them*.
+    due = mission.due_date
+    if due.tzinfo is None:
+        due = due.replace(tzinfo=timezone.utc)
+    warn_on = due.astimezone(local_now.tzinfo).date() - timedelta(days=reminder.offset_days)
+    return datetime.combine(warn_on, scheduled, tzinfo=local_now.tzinfo)
 
 
 def _send(db: Session, user: models.BatAccount, chat_id: str, text: str,
@@ -210,21 +267,39 @@ def _fire_reminders(db: Session, user: models.BatAccount, chat_id: str,
         .all()
     )
     for r in rems:
-        scheduled = _parse_hhmm(r.send_time)
         # Past its last day? Stop for good rather than checking forever.
         if _reminder_expired(r, local_now):
             r.enabled = False
             db.commit()
             continue
-        if not scheduled or not _within_window(local_now, scheduled, _effective_since(r)):
-            continue
-        if not _reminder_due_today(r, local_now):
-            continue
+
+        if r.recurrence == "relative":
+            target = _relative_due_at(db, user, r, local_now)
+            if target is None:
+                continue
+            if not _window_ok(local_now, target, _effective_since(r)):
+                continue
+            # Keyed on the date the WARNING was for, not the date it went
+            # out. Usually the same day, but LATE_WINDOW lets a 23:00 slot
+            # deliver at 01:00 after a cron outage, and filing that under
+            # the day it arrived would put the row on a date the warning was
+            # never about — suppressing the next deadline that genuinely
+            # falls there as a duplicate, which loses a warning outright.
+            # It is also what lets a rescheduled mission ring again: the new
+            # warning lands on a date this reminder has no row for.
+            local_date = target.date().isoformat()
+        else:
+            scheduled = _parse_hhmm(r.send_time)
+            if not scheduled or not _within_window(local_now, scheduled, _effective_since(r)):
+                continue
+            if not _reminder_due_today(r, local_now):
+                continue
+            local_date = local_now.date().isoformat()
+
         # A run of unanswered occurrences has retired it. Alfred raises it as
         # a question; the scheduler does not keep ringing in the meantime.
         if reminder_feedback.is_suspended(r):
             continue
-        local_date = local_now.date().isoformat()
 
         # The previous occurrence is now superseded. If it was never answered,
         # that silence is the signal — count it before sending another.
