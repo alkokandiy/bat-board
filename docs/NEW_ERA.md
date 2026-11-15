@@ -68,7 +68,7 @@ mission belongs to when it is obvious he should.
 *Why first: nothing else in this document means much while the board is one
 pile. A filter over a flat list is still a flat list.*
 
-### Phase 9 · Sections inside a list
+### Phase 9 · Sections inside a list — **done**
 The `Getting Started / Feature Modules / Explore More` grouping in the
 screenshot. Named by the user, not fixed — TickTick's habit sections are
 hard-coded Morning/Afternoon/Evening and that is the wrong call.

@@ -213,6 +213,15 @@ export const api = {
   deleteList: (id) => request(`/lists/${id}`, { method: 'DELETE' }),
   reorderLists: (ordered_ids) => request('/lists/reorder', { method: 'POST', body: { ordered_ids } }),
 
+  // Sections. A section subdivides ONE list; deleting one leaves its
+  // missions in that list, ungrouped — nothing is deleted.
+  getSections: (listId) =>
+    request(`/sections${listId != null ? `?list_id=${listId}` : ''}`),
+  createSection: (data) => request('/sections', { method: 'POST', body: data }),
+  renameSection: (id, name) => request(`/sections/${id}`, { method: 'PUT', body: { name } }),
+  deleteSection: (id) => request(`/sections/${id}`, { method: 'DELETE' }),
+  reorderSections: (body) => request('/sections/reorder', { method: 'POST', body }),
+
   // Habits
   getHabits: () => request('/habits'),
   createHabit: (data) => request('/habits', { method: 'POST', body: data }),
