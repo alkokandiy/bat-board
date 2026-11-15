@@ -2,7 +2,7 @@
 
 Driven by a protected cron endpoint (POST /api/internal/cron/tick) hit about
 once a minute — NOT an in-process scheduler, so it is correct at any worker
-count (see docs/ROADMAP.md). Each due item is fired at most once per local day
+count (see docs/PLAN.md). Each due item is fired at most once per local day
 via an insert-first on a *_log table with a UNIQUE constraint: if the insert
 conflicts (a concurrent tick, a retry), we roll back and skip. A missed window
 is skipped rather than fired late, so a morning brief never lands at noon.
