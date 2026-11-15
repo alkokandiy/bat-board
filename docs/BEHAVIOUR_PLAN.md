@@ -75,10 +75,15 @@ adherence, and what they tell Alfred.
 
 ## Phases
 
+All eight are built. The markers below had drifted behind the work — only
+Phase 7 said so, while 0–6 had shipped. Status for every phase in the
+project, including these, is in `PLAN.md`; this file is the reasoning.
+
+
 Ordered by how much of the owner's actual pain each removes, not by how
 interesting it is to build.
 
-### Phase 0 — Make a miss visible (the precondition for everything)
+### Phase 0 — Make a miss visible (the precondition for everything) *(done)*
 
 Nothing else is possible while the system cannot tell "done" from "ignored".
 
@@ -93,7 +98,7 @@ Nothing else is possible while the system cannot tell "done" from "ignored".
 Deliverable: the system can finally observe the difference between a working
 reminder and a dead one.
 
-### Phase 1 — Stop firing into the void
+### Phase 1 — Stop firing into the void *(done)*
 
 With outcomes recorded, apply what `nudges.py` already knows:
 
@@ -111,7 +116,7 @@ With outcomes recorded, apply what `nudges.py` already knows:
 Deliverable: the medicine reminder either gets fixed or gets retired. It does
 not keep ringing for a month.
 
-### Phase 2 — Capture time without remembering to
+### Phase 2 — Capture time without remembering to *(done)*
 
 The timer stops being the source of truth and becomes one optional input.
 
@@ -129,7 +134,7 @@ The timer stops being the source of truth and becomes one optional input.
 
 Deliverable: a day's work can be recorded in one sentence, after the fact.
 
-### Phase 3 — Downscale instead of breaking
+### Phase 3 — Downscale instead of breaking *(done)*
 
 The paper's central insight for adherence: preserve the bracket, shrink the
 load.
@@ -142,7 +147,7 @@ load.
 - **Grace periods**, as in the paper's schema: a miss inside an allowance
   does not reset the run, and the allowance is visible and finite.
 
-### Phase 4 — Anchor habits to real time
+### Phase 4 — Anchor habits to real time *(done)*
 
 - A habit can be placed on the calendar as a block, not just a free-text cue.
 - Conflicts are surfaced: six habits all cued "after work" is a plan that
@@ -150,13 +155,13 @@ load.
 - Habit stacking: the cue can reference a *completed* habit or event, so
   the anchor is something the system can actually observe.
 
-### Phase 5 — Alfred reads the record
+### Phase 5 — Alfred reads the record *(done)*
 
 Everything above produces data Alfred currently cannot see. This phase is
 about him using it: naming the pattern ("you have never once done this on a
 Tuesday"), proposing the revision, and holding the contract.
 
-### Phase 6 — Alfred knows what he said *(from the owner, 4 Nov 2026)*
+### Phase 6 — Alfred knows what he said *(done; from the owner, 4 Nov 2026)*
 
 > "it's just firing messages without knowing the context, what sent last time
 > and what received. and if i reply to older message it doesn't know i am

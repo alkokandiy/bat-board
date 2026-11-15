@@ -1,4 +1,46 @@
-# bat-board, the next era
+# bat-board — the plan
+
+**One document, one numbering.** Every phase this project has had lives
+here, 0 to 25, with its status. The reasoning behind phases 0–7 is in
+`BEHAVIOUR_PLAN.md`; the reasoning behind 8–25 is below.
+
+Absorbed `ROADMAP.md` on 2026-11-15. That file carried a *second* phase
+numbering for the Alfred work (its own "Phase 2–5"), which meant "Phase 4"
+could mean image understanding or drag-to-reschedule depending on which
+document you had open. Its content is at the end of this file under
+*Before phase 0*.
+
+## Status
+
+| Phase | What | Status |
+|---|---|---|
+| — | Telegram, Alfred tool-calling, multi-provider, BYOK, memory, voice, images, briefings, reminders | done — see *Before phase 0* |
+| 0 | Make a miss visible | done |
+| 1 | Stop firing into the void | done |
+| 2 | Capture time without remembering to | done |
+| 3 | Downscale instead of breaking | done |
+| 4 | Anchor habits to real time | done |
+| 5 | Alfred reads the record | done |
+| 6 | Alfred knows what he said | done |
+| 7 | "X times per week", and rest as a state | done |
+| 8 | Lists | done (2026-11-13) |
+| 9 | Sections inside a list | done (2026-11-14) |
+| 10–13 | Tags, saved filters, smart lists, calendar subscription | **dropped by the owner, 2026-11-15** |
+| 13b | The seven calendar views | done (2026-11-13) |
+| 14 | Drag to reschedule | open |
+| 15 | Multiple reminders per mission | open |
+| 16–18 | Completion rate headline, focus presets, habit archiving | **dropped by the owner, 2026-11-15** |
+| 19 | Per-mission activity | open |
+| 20 | Attachments | open |
+| 21 | Themes | open |
+| 22 | Overtime — the clock does not stop at zero | done (2026-11-13) |
+| 23 | The focus timeline strip | open |
+| 24 | Quantified habit goals | open |
+| 25 | A habit detail panel | open |
+
+**12 done, 8 open, 7 dropped.**
+
+---
 
 What to build after the behaviour work, in the order worth building it.
 
@@ -42,8 +84,14 @@ of 44**, and no amount of sorting or filtering fixes that, because sorting
 reorders a pile and filtering hides part of it.
 
 TickTick's entire left rail is the answer to this: **Lists → Sections →
-Tags → Filters → Smart Lists.** Five mechanisms, and bat-board has a weak
+Tags → Filters → Smart Lists.** Five mechanisms, and bat-board had a weak
 version of one.
+
+Two of the five were built — lists and sections — and that closed the
+hole: the board is no longer one flat pile. The owner dropped the other
+three on 2026-11-15, which is a reasonable place to stop. Grouping is what
+a pile needed; a second and third way to slice the same missions is what
+an app builds when it has run out of problems.
 
 Everything in Part 1 below is that hole. It is also what the owner has been
 reporting for days without naming it — "31 with no date", "this look is
@@ -53,7 +101,7 @@ none of it and it sucks", 44 rows of equal weight.
 
 ## Part 1 — Structure (the spine)
 
-### Phase 8 · Lists — **done** (backend + Alfred; front end in the same PR)
+### Phase 8 · Lists — **done** (2026-11-13)
 A mission belongs to a list: Khorasan, Cybersecurity, Health, Admin. The
 sidebar shows them with counts; the missions screen filters to one.
 
@@ -68,49 +116,26 @@ mission belongs to when it is obvious he should.
 *Why first: nothing else in this document means much while the board is one
 pile. A filter over a flat list is still a flat list.*
 
-### Phase 9 · Sections inside a list
+### Phase 9 · Sections inside a list — **done** (2026-11-14)
 The `Getting Started / Feature Modules / Explore More` grouping in the
 screenshot. Named by the user, not fixed — TickTick's habit sections are
 hard-coded Morning/Afternoon/Evening and that is the wrong call.
 
 `bat_sections` (list_id, name, position) and a nullable `section_id`.
 
-### Phase 10 · Tags, promoted
-`tags` is already a comma-separated string nobody can browse. Normalise it:
-`bat_tags` + a join table, a tag rail in the sidebar, click to filter, and
-`#tag` recognised while typing a title.
+### Phases 10–13 · Dropped by the owner (2026-11-15)
 
-A tag crosses lists where a list cannot — "#deep" spans Khorasan and
-Cybersecurity. That is the whole reason to have both.
+Tags promoted out of the comma-separated string, saved filters,
+configurable smart lists, and subscribing to a real calendar. All four
+were planned, none are wanted.
 
-### Phase 11 · Saved filters
-A named, stored query: list + tag + priority + date window + status.
-"Overdue in Khorasan", "#deep this week". The Eisenhower view and the date
-chips are already saved filters with no name and no way to add one.
-
-### Phase 12 · Smart lists you can configure
-TickTick's `Show / Hide / Show if not empty` per smart list, and the
-Features panel where whole modules switch off.
-
-bat-board already does the hard half: `work_service.is_enabled` turns the
-work track off everywhere. Generalise that to the rest — somebody who does
-not use countdowns should not see Countdowns.
+Recorded rather than deleted so they are not proposed again as if they
+were an oversight. They were considered and declined; the board already
+groups by list and section, which was the part that mattered.
 
 ---
 
 ## Part 2 — The calendar is half a product
-
-### Phase 13 · Subscribe to a real calendar
-The owner's actual appointments are in Google Calendar. bat-board's
-calendar shows only what was typed into bat-board, which is why it looks
-empty next to a board with 44 missions on it.
-
-Read-only ICS subscription first (`CalDAV`/`.ics` URL, polled by the cron
-tick, cached, never written back). One-way is most of the value for a
-fraction of the risk, and it does not need OAuth.
-
-Two-way Google sync is a much bigger piece of work and should only follow
-if one-way proves it is used.
 
 ### Phase 13b · The seven calendar views *(done, 2026-11-13)*
 
@@ -166,20 +191,20 @@ Carried from the TickTick report, still unbuilt, ordered by value:
 "1 day ahead, and again on the day." Reminders currently attach to a
 reminder row, not to the mission, so a mission cannot carry its own.
 
-### Phase 16 · Completion rate as the headline number
-Completed ÷ *originally scheduled*, per week. A rate, not a volume:
-uninflatable by creating easy work, and it penalises over-planning as well
-as under-doing. The most honest metric in TickTick and bat-board does not
-have it.
+### Phases 16–18 · Dropped by the owner (2026-11-15)
 
-### Phase 17 · Named focus presets
-`/focus reading` → a saved "Reading, stopwatch, linked to the Quran
-mission". Starting a session and deciding what it is for become one action.
+Completion rate as the headline number, named focus presets, and habit
+archiving with streaks derived from the log.
 
-### Phase 18 · Habit archiving, and streaks derived from the log
-`status` + `archived_at`, history preserved, `best_streak` untouched. And
-move streak computation server-side off the check-in log, because a stored
-counter drifts across backfills and devices.
+Recorded rather than deleted so they are not proposed again as if they
+were an oversight.
+
+One of the three is worth a note for whoever reads this next. Phase 18
+carried a real correctness point inside a feature nobody asked for:
+streaks are a stored counter, and a stored counter drifts across
+backfills and devices. If a streak is ever seen to be wrong, that is the
+cause, and deriving it from the check-in log is the fix — as a bug fix,
+not as this phase.
 
 ---
 
@@ -219,7 +244,7 @@ are exactly the minutes of the owner's original problem (a), "I was just
 working and forgot to log it". A timer that stops recording while the
 work continues is the capture problem wearing a friendlier face.
 
-**Phase 22 · Overtime.** At zero the session stays open and the clock
+**Phase 22 · Overtime — done (2026-11-13).** At zero the session stays open and the clock
 counts up. Finishing credits the planned time; one tap credits planned +
 overtime. Never silently: the extra time is offered, not assumed, because
 a timer left running on a closed laptop would otherwise invent hours.
@@ -310,6 +335,50 @@ something urgent cuts in. Every phase: additive migration, tests that fail
 before the change, mutation-check the ones that matter, merge to `main`
 and watch it deploy.
 
-Phases 8–12 are the spine and should not be reordered — sections need
-lists, filters need tags, and configuring smart lists is meaningless until
-there are lists to be smart about.
+Phases 8 and 9 are the spine and were built in that order, because
+sections need lists to live in. 10–13 were the rest of that plan and the
+owner dropped them; the spine stops at sections.
+
+---
+
+## Before phase 0 — the Alfred build (2026-10, absorbed from ROADMAP.md)
+
+All done. Kept because the constraints below still bind, not for the
+history.
+
+| What | Status |
+|---|---|
+| Telegram link + webhook, Alfred tool-calling, multi-provider, BYOK, self-managed memory | done |
+| Security/points audit, multi-user, per-user timezone and form of address | done |
+| Focus session `mode` column and "by mode" stats | done (migration 013) |
+| Telegram voice messages | done |
+| Image understanding (Telegram photos) | done |
+| Focus-week chart and daily-brief card images | done |
+| Image *generation* | deferred — chart visuals cover the stated use cases; AI-generated images only via a BYOK key |
+| Daily briefings and reminders | done (migration 014) |
+
+### Constraints from that work that still apply
+
+- **Capability flags live in `services/llm_providers/capabilities.py`**:
+  `supports_audio_input`, `supports_vision_input`,
+  `supports_image_generation`. Reuse them rather than inventing new names.
+- **One worker in production** (`WEB_CONCURRENCY`, default 1) — but every
+  periodic design must still be safe at any worker count: DB-backed
+  counters, unique constraints, and a cron endpoint instead of an
+  in-process scheduler. They are correct at one worker and allow scaling.
+- **Timezones** come from `bat_account.timezone`, never a per-feature
+  default, and never a hard-coded city.
+- **Form of address** is `bat_account.alfred_address`, falling back to the
+  username. Never a hard-coded name.
+- **Failed turns** (a transcript or image that could not be processed) are
+  kept out of the model's context, like any other failed turn —
+  `FAILED_TURN_REPLIES` in `alfred_agent.py`.
+
+### Scheduling, for the operator
+
+`POST /api/internal/cron/tick` is pinged every minute by an external cron
+and guarded by `X-Cron-Secret` (compared with `secrets.compare_digest`).
+`services/scheduler.py` fires each due item **at most once per local day**,
+inside a 3-hour window, in each user's own timezone; the two insert-first
+logs (`bat_briefing_log`, `bat_reminder_log`) are what make it
+exactly-once. The Railway cron setup steps are in the README.

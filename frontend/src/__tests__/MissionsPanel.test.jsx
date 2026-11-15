@@ -297,11 +297,21 @@ describe('The week is Monday to Sunday, and says so', () => {
   it('today means today, and nothing else', () => {
     // It briefly meant "today or anything already late", which filed a
     // mission from the 15th of October under a button marked Today.
+    //
+    // The fixtures are dated by weekday, so one of them IS today — and on
+    // a Sunday that is "This Sunday", which this test used to assert was
+    // absent. It passed six days a week and failed on the seventh. What
+    // the button promises is exactly the missions due today, so that is
+    // what is checked, whatever day it is run on.
+    const todayKey = iso(new Date()).slice(0, 10);
+    const isToday = (m) => m.due_date && m.due_date.startsWith(todayKey);
+    const shown = board().filter(isToday).map(m => m.title);
+    const hidden = board().filter(m => !isToday(m)).map(m => m.title);
+
     renderPanel(board());
     fireEvent.click(screen.getByRole('button', { name: /^today$/i }));
-    expect(screen.queryByText('Last month')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sunday just gone')).not.toBeInTheDocument();
-    expect(screen.queryByText('This Sunday')).not.toBeInTheDocument();
+    shown.forEach(title => expect(screen.getByText(title)).toBeInTheDocument());
+    hidden.forEach(title => expect(screen.queryByText(title)).not.toBeInTheDocument());
   });
 
   it('overdue has its own button, carrying the count', () => {

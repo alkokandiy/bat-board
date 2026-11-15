@@ -8,7 +8,6 @@
 
 export const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-export const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /** Monday-first, like the missions filter and the habit weekdays. */
 export function startOfWeek(date) {

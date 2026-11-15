@@ -5,7 +5,7 @@ Meant to be called about once a minute by a scheduler outside the app process
 compared in constant time, NOT by user auth. It does the firing itself and is
 safe to call repeatedly: every due item is sent at most once per local day.
 
-Setup steps for the operator live in docs/ROADMAP.md / README.
+Setup steps for the operator live in docs/PLAN.md / README.
 """
 
 import secrets as secrets_lib
