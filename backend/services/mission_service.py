@@ -54,6 +54,44 @@ UNSET = object()
 _UNSET = UNSET
 
 
+def move_to_day(
+    db,
+    current_user,
+    mission_id: int,
+    day: str,
+):
+    """Re-date a mission to `day` ("YYYY-MM-DD"), keeping its time of day.
+
+    A mission's due day is the first ten characters of what is stored —
+    that is how the board reads it everywhere — so moving one replaces
+    the date text and leaves the time alone. No timezone conversion:
+    converting here and slicing there is how a mission dropped on Friday
+    lands on Thursday.
+
+    A mission with no due date gets one at the start of that day; there is
+    no previous time of day to keep.
+    """
+    mission = get_mission(db, current_user, mission_id)
+    if mission is None:
+        return None
+
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        raise ValueError(f"'{day}' is not a date (expected YYYY-MM-DD)")
+
+    if mission.due_date is None:
+        mission.due_date = datetime.strptime(day, "%Y-%m-%d")
+    else:
+        mission.due_date = mission.due_date.replace(
+            year=int(day[0:4]), month=int(day[5:7]), day=int(day[8:10]),
+        )
+
+    db.commit()
+    db.refresh(mission)
+    return mission
+
+
 def get_mission(db, current_user, mission_id):
     """One of this owner's missions, or None."""
     return (
