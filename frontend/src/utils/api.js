@@ -285,6 +285,13 @@ export const api = {
   createCalendarEvent: (data) => request('/calendar/events', { method: 'POST', body: data }),
   updateCalendarEvent: (id, data) => request(`/calendar/events/${id}`, { method: 'PUT', body: data }),
   deleteCalendarEvent: (id) => request(`/calendar/events/${id}`, { method: 'DELETE' }),
+  // Drag to reschedule. The server keeps what a drag must keep — an event's
+  // duration, a mission's time of day — so the client sends only the new
+  // start, or only the day, and never an end it computed for itself.
+  moveEvent: (id, start_time) =>
+    request(`/calendar/events/${id}/move`, { method: 'POST', body: { start_time } }),
+  moveMission: (id, day) =>
+    request(`/missions/${id}/move`, { method: 'POST', body: { day } }),
 
   // Notes
   // scope: 'mine' (default, excludes Alfred's private memory) | 'alfred' | 'all'
