@@ -333,12 +333,31 @@ def test_an_overlap_with_a_live_timed_session_is_also_caught():
 
 # --- logging hours from the keyboard, not only through Alfred --------------
 
+def _tz_where_local_hour_is(hour: int) -> str:
+    """A fixed-offset zone in which it is currently `hour` o'clock.
+
+    Lets a test about "today" stop depending on what time it is here. Etc/GMT
+    signs are inverted: Etc/GMT-5 is UTC+5.
+    """
+    want = (hour - datetime.now(timezone.utc).hour) % 24
+    offset = want if want <= 12 else want - 24          # into [-11, 12]
+    return f"Etc/GMT{-offset:+d}"
+
+
 def test_the_web_can_log_hours_that_already_happened(client, auth_headers):
     """It existed only as an Alfred tool, so somebody at the keyboard had no
     way to say "I did two hours on this yesterday" — and asking Alfred before
     that tool existed produced a work NOTE claiming hours the report read as
     zero."""
     h = auth_headers("logpast_web")
+    # Pinned to a zone where it is currently the middle of the day, because
+    # the report is for TODAY in the user's timezone and the block has to
+    # land inside it. Read against the real clock this test failed every
+    # night between midnight and 05:00 UTC, when "five hours ago" was
+    # yesterday and today's report was correctly reporting zero.
+    midday = _tz_where_local_hour_is(12)
+    assert client.put("/api/account", headers=h,
+                      json={"timezone": midday}).status_code == 200
     client.put("/api/work/status", headers=h, json={"enabled": True})
     task = client.post("/api/work/tasks", headers=h, json={"title": "fix discrepency"}).json()
 
