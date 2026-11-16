@@ -28,7 +28,7 @@ document you had open. Its content is at the end of this file under
 | 10–13 | Tags, saved filters, smart lists, calendar subscription | **dropped by the owner, 2026-11-15** |
 | 13b | The seven calendar views | done (2026-11-13) |
 | 14 | Drag to reschedule | done (2026-11-15) |
-| 15 | Multiple reminders per mission | open |
+| 15 | Multiple reminders per mission | done (2026-11-16) |
 | 16–18 | Completion rate headline, focus presets, habit archiving | **dropped by the owner, 2026-11-15** |
 | 19 | Per-mission activity | open |
 | 20 | Attachments | open |
@@ -38,7 +38,7 @@ document you had open. Its content is at the end of this file under
 | 24 | Quantified habit goals | open |
 | 25 | A habit detail panel | open |
 
-**13 done, 7 open, 7 dropped.**
+**14 done, 6 open, 7 dropped.**
 
 ---
 
@@ -200,9 +200,41 @@ something.
 
 Carried from the TickTick report, still unbuilt, ordered by value:
 
-### Phase 15 · Multiple reminders per mission
-"1 day ahead, and again on the day." Reminders currently attach to a
-reminder row, not to the mission, so a mission cannot carry its own.
+### Phase 15 · Multiple reminders per mission — **done** (2026-11-16)
+"1 day ahead, and again on the day."
+
+The premise as written here was wrong, and worth correcting rather than
+deleting: a reminder could already point at a mission — `mission_id` has
+been on `bat_reminders` for ages. What it could not do was take its *date*
+from that mission. It fired at a clock time the user typed, so the link was
+decorative, and Phase 14 turned that into a defect you could cause with a
+flick of the wrist: drag a mission to next week and its warning still went
+off on the old day, about work that was no longer due.
+
+So reminders gain the recurrence `relative`: `offset_days` of notice, at
+the reminder's own `send_time`, with the date read off the mission on every
+tick. Nothing about the date is stored, so there is nothing to go stale —
+reschedule the mission and every warning on it moves, with no second write
+to get wrong. "A day ahead and again on the day" is two rows, offset 1 and
+offset 0, which is what `mission_id` always allowed and nothing used.
+
+Days rather than minutes on purpose. Counting back from the due *moment*
+sounds more precise and is worse where it matters: a mission due Friday
+23:59 with a day's notice would ring on Thursday at 23:59. The cost is
+that "30 minutes before this meeting" is not expressible — timed warnings
+belong to calendar events, not missions.
+
+Two things it deliberately does not do. A warning is never sent about a
+mission that is completed, dismissed, or has no due date, because a
+notification about finished work is how someone learns to ignore the rest
+of them. And a *fixed-time* reminder pointing at a mission still does not
+move: "08:00 daily" means 08:00, whatever the mission does.
+
+Reminders have no web API — they are created through Alfred over Telegram
+and nothing in `frontend/` mentions them. This phase therefore lands in
+`services/scheduler.py`, `services/briefing_service.py` and Alfred's
+tools, with no UI. A reminders panel in the web app would be a separate
+piece of work, and a larger one than this was.
 
 ### Phases 16–18 · Dropped by the owner (2026-11-15)
 
