@@ -14,8 +14,8 @@ Merging to `main` therefore ships to real users — treat it that way.
 ## Commands
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/ -q      # 845 tests
-cd frontend && npx vitest run                           # 371 tests
+cd backend && .venv/bin/python -m pytest tests/ -q      # 859 tests
+cd frontend && npx vitest run                           # 390 tests
 cd frontend && npm run build
 ```
 

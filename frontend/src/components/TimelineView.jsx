@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Flag } from 'lucide-react';
 import { HOURS, byHour, isToday, timeRange } from '../utils/calendarDays';
 
@@ -24,8 +24,14 @@ export default function TimelineView({
   onEditEvent,
   onAddEvent,
   onOpenDay,
+  onMoveEventToHour,
 }) {
   const scrollRef = useRef(null);
+  // The event being dragged and the cell it is over. Held in state rather
+  // than dataTransfer: jsdom fires drag events without a usable
+  // dataTransfer, and the component owns the question either way.
+  const [dragEvent, setDragEvent] = useState(null);
+  const [overCell, setOverCell] = useState(null);   // { day, hour }
   // One grid template for the whole view, so the header, the due strip and
   // every hour row stay in the same columns however many days there are.
   const columns = { gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))` };
@@ -109,8 +115,32 @@ export default function TimelineView({
             </div>
             {days.map((d) => {
               const here = byHour(eventsForDay(d), d)[h] || [];
+              const dayKey = d.toDateString();
+              const isOver = Boolean(dragEvent) && overCell?.day === dayKey && overCell.hour === h;
               return (
-                <div key={d.toDateString()} className="border-l border-bat-line/40 min-h-[2rem] p-[2px]">
+                <div
+                  key={dayKey}
+                  data-cell-hour={h}
+                  data-cell-day={dayKey}
+                  data-drop-target={isOver ? 'true' : undefined}
+                  onDragOver={(de) => {
+                    if (!dragEvent) return;
+                    de.preventDefault();
+                    setOverCell({ day: dayKey, hour: h });
+                  }}
+                  onDragLeave={() => {
+                    if (overCell?.day === dayKey && overCell.hour === h) setOverCell(null);
+                  }}
+                  onDrop={(de) => {
+                    de.preventDefault();
+                    setOverCell(null);
+                    const dragged = dragEvent;
+                    setDragEvent(null);
+                    if (dragged) onMoveEventToHour?.(dragged, d, h);
+                  }}
+                  className={`border-l border-bat-line/40 min-h-[2rem] p-[2px]
+                    ${isOver ? 'bg-signal-self/[0.12] ring-1 ring-inset ring-signal-self/60' : ''}`}
+                >
                   {here.length === 0 ? (
                     <button
                       type="button"
@@ -127,6 +157,14 @@ export default function TimelineView({
                         <button
                           key={e.id}
                           type="button"
+                          draggable={Boolean(onMoveEventToHour)}
+                          onDragStart={(de) => {
+                            if (!onMoveEventToHour) return;
+                            setDragEvent(e);
+                            de.dataTransfer?.setData('text/plain', e.title);
+                            if (de.dataTransfer) de.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragEnd={() => { setDragEvent(null); setOverCell(null); }}
                           onClick={() => onEditEvent?.(e)}
                           title={`${e.title} · ${timeRange(e)}`}
                           aria-label={`Edit "${e.title}"`}

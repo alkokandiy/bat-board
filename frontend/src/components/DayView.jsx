@@ -42,9 +42,15 @@ export default function DayView({
   onAddEvent,
   onFocusOn,
   onRescheduleMission,
+  onMoveEventToHour,
 }) {
   const scrollRef = useRef(null);
   const [moving, setMoving] = useState(null);   // mission id being rescheduled
+  // The event being dragged and the hour row it is over — same scheme as
+  // TimelineView, one day wide. The drop itself only reports intent; the
+  // same-day check and the new start time belong to the panel.
+  const [dragEvent, setDragEvent] = useState(null);
+  const [overHour, setOverHour] = useState(null);
 
   // An event belongs to the hour it STARTS in. A block spanning the real
   // duration would be the honest drawing, but it collides with overlapping
@@ -168,8 +174,28 @@ export default function DayView({
         <div ref={scrollRef} className="max-h-[55vh] overflow-y-auto">
           {HOURS.map((h) => {
             const here = byHour[h] || [];
+            const isOver = Boolean(dragEvent) && overHour === h;
             return (
-              <div key={h} data-hour={h} className="flex border-b border-bat-line/50 last:border-0">
+              <div
+                key={h}
+                data-hour={h}
+                data-drop-target={isOver ? 'true' : undefined}
+                onDragOver={(de) => {
+                  if (!dragEvent) return;
+                  de.preventDefault();
+                  setOverHour(h);
+                }}
+                onDragLeave={() => { if (overHour === h) setOverHour(null); }}
+                onDrop={(de) => {
+                  de.preventDefault();
+                  setOverHour(null);
+                  const dragged = dragEvent;
+                  setDragEvent(null);
+                  if (dragged) onMoveEventToHour?.(dragged, h);
+                }}
+                className={`flex border-b border-bat-line/50 last:border-0
+                  ${isOver ? 'bg-signal-self/[0.12] ring-1 ring-inset ring-signal-self/60' : ''}`}
+              >
                 <div className="w-14 shrink-0 px-2 py-2 text-right">
                   <span className="text-[10px] font-mono tabular-nums text-ink-faint">
                     {String(h).padStart(2, '0')}:00
@@ -197,6 +223,14 @@ export default function DayView({
                         <button
                           key={e.id}
                           type="button"
+                          draggable={Boolean(onMoveEventToHour)}
+                          onDragStart={(de) => {
+                            if (!onMoveEventToHour) return;
+                            setDragEvent(e);
+                            de.dataTransfer?.setData('text/plain', e.title);
+                            if (de.dataTransfer) de.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragEnd={() => { setDragEvent(null); setOverHour(null); }}
                           onClick={() => onEditEvent?.(e)}
                           title={`Edit "${e.title}"`}
                           aria-label={`Edit "${e.title}"`}

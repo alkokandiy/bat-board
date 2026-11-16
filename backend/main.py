@@ -943,6 +943,49 @@ def update_calendar_event(
     db.refresh(event)
     return event
 
+class EventMove(BaseModel):
+    start_time: datetime
+
+
+@app.post("/api/calendar/events/{event_id}/move", response_model=CalendarEventSchema)
+@limiter.limit("60/minute")
+def move_event(
+    request: Request,
+    event_id: int,
+    payload: EventMove,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Move an event, keeping its length. A drag means "later", not "shorter"."""
+    event = calendar_service.move_event(db, current_user, event_id, payload.start_time)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+
+class MissionMove(BaseModel):
+    day: str = Field(..., min_length=10, max_length=10)
+
+
+@app.post("/api/missions/{mission_id}/move", response_model=BatMissionSchema)
+@limiter.limit("60/minute")
+def move_mission(
+    request: Request,
+    mission_id: int,
+    payload: MissionMove,
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    """Re-date a mission to a day, keeping the time of day it was due at."""
+    try:
+        mission = mission_service.move_to_day(db, current_user, mission_id, payload.day)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if mission is None:
+        raise HTTPException(status_code=404, detail="Mission not found")
+    return mission
+
+
 @app.delete("/api/calendar/events/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("30/minute")
 def delete_calendar_event(

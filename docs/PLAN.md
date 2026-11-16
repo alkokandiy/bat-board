@@ -27,7 +27,7 @@ document you had open. Its content is at the end of this file under
 | 9 | Sections inside a list | done (2026-11-14) |
 | 10–13 | Tags, saved filters, smart lists, calendar subscription | **dropped by the owner, 2026-11-15** |
 | 13b | The seven calendar views | done (2026-11-13) |
-| 14 | Drag to reschedule | open |
+| 14 | Drag to reschedule | done (2026-11-15) |
 | 15 | Multiple reminders per mission | done (2026-11-16) |
 | 16–18 | Completion rate headline, focus presets, habit archiving | **dropped by the owner, 2026-11-15** |
 | 19 | Per-mission activity | open |
@@ -38,7 +38,7 @@ document you had open. Its content is at the end of this file under
 | 24 | Quantified habit goals | open |
 | 25 | A habit detail panel | open |
 
-**13 done, 7 open, 7 dropped.**
+**14 done, 6 open, 7 dropped.**
 
 ---
 
@@ -176,10 +176,23 @@ Decisions worth keeping:
 `GET /api/stats/year?year=` returns the heatmap sparsely — only days with
 something in them — and is fetched only while the year is on screen.
 
-### Phase 14 · Drag to reschedule
+### Phase 14 · Drag to reschedule — **done** (2026-11-15)
 In the month grid and the day view. The day view already has the hour rows;
 rescheduling a mission is currently a date picker, which is correct but
 slow for the one operation a calendar exists to make fast.
+
+Two rules live on the server, so a drag and Alfred cannot disagree about
+what a move means. **An event keeps its length** — the end moves by the
+same delta, because a drag means "later", not "shorter", and setting the
+start alone would silently shorten a meeting or be refused for ending
+before it begins. **A mission keeps its time of day** and only its date
+text is replaced, with no timezone conversion: converting on the way in
+and slicing on the way out is how a mission dropped on Friday lands on
+Thursday.
+
+The date picker and the edit dialog stay. Drag works with neither a
+keyboard nor a touchscreen, so it can never be the only way to move
+something.
 
 ---
 

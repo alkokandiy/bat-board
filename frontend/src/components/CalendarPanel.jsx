@@ -45,6 +45,15 @@ function startOfDay(date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
+// A mission's day is a calendar date, spoken as plain text: the server
+// replaces only this date and keeps whatever time of day was stored, so a
+// datetime here would be converted and sliced apart somewhere else.
+function dayKey(date) {
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${m}-${d}`;
+}
+
 /**
  * Does this event touch this day?
  *
@@ -73,6 +82,12 @@ export default function CalendarPanel({ onFocusOn }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [flash, setFlash] = useState(null);
+  // What is being dragged, and which day cell it is over. The payload is
+  // held here rather than in dataTransfer because a React handler can read
+  // its own state on drop, and dataTransfer.getData is unavailable in the
+  // event types jsdom fires.
+  const [dragItem, setDragItem] = useState(null);
+  const [dragOverDay, setDragOverDay] = useState(null);
   // Which day is open, or null. The month grid cannot show a busy day:
   // four chips then "+2 more", unordered and untimed.
   const [openDay, setOpenDay] = useState(null);
@@ -110,6 +125,67 @@ export default function CalendarPanel({ onFocusOn }) {
   }, [showForm, closeForm]);
 
   const refreshEvents = useCallback(() => api.getCalendarEvents().then(setEvents), []);
+
+  // The three drag handlers below share one shape: ask the server, then
+  // redraw from the server. The server decides the resulting times — the
+  // event's duration and the mission's time of day are its business — so
+  // the client must show what it decided, never its own guess. Nothing is
+  // patched locally first, which is also why a failed move needs no undo:
+  // the board was never moved.
+
+  /** An event onto a day cell, at the clock time it already had. */
+  const moveEventToDay = useCallback(async (event, day) => {
+    const start = new Date(event.start_time);
+    if (sameDay(start, day)) return;
+    const moved = new Date(day.getFullYear(), day.getMonth(), day.getDate(),
+      start.getHours(), start.getMinutes(), start.getSeconds());
+    try {
+      await api.moveEvent(event.id, moved.toISOString());
+      setError(null);
+      setFlash('Moved');
+      await refreshEvents();
+    } catch (err) {
+      setError(err.message || 'Could not move that event');
+    }
+  }, [refreshEvents]);
+
+  /** An event onto an hour row: that day at the whole hour, minutes zero. */
+  const moveEventToHour = useCallback(async (event, day, hour) => {
+    const start = new Date(event.start_time);
+    if (sameDay(start, day) && start.getHours() === hour) return;
+    const moved = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0);
+    try {
+      await api.moveEvent(event.id, moved.toISOString());
+      setError(null);
+      setFlash('Moved');
+      await refreshEvents();
+    } catch (err) {
+      setError(err.message || 'Could not move that event');
+    }
+  }, [refreshEvents]);
+
+  /** A mission onto a day cell: a plain date, no conversion. */
+  const moveMissionToDay = useCallback(async (mission, day) => {
+    const dayStr = dayKey(day);
+    if (String(mission.due_date || '').slice(0, 10) === dayStr) return;
+    try {
+      await api.moveMission(mission.id, dayStr);
+      setError(null);
+      setFlash('Moved');
+      setMissions(await api.getMissions());
+    } catch (err) {
+      setError(err.message || 'Could not move that mission');
+    }
+  }, []);
+
+  const handleGridDrop = useCallback((day) => {
+    setDragOverDay(null);
+    const item = dragItem;
+    setDragItem(null);
+    if (!item) return;
+    if (item.kind === 'event') moveEventToDay(item.event, day);
+    else moveMissionToDay(item.mission, day);
+  }, [dragItem, moveEventToDay, moveMissionToDay]);
 
   // Only while the year is being looked at: it is a year of rows and
   // nothing else on this screen needs it.
@@ -397,6 +473,16 @@ export default function CalendarPanel({ onFocusOn }) {
           </span>
         </div>
 
+        {/* A drag that refused must say so out here, where the calendar
+            still is — the form's own error div only shows while it is open. */}
+        {error && !showForm && (
+          <div role="alert"
+            className="shrink-0 mx-5 mt-3 rounded-chip bg-signal-late/10 ring-1 ring-signal-late/30
+              px-3 py-2 text-[11px] text-signal-late">
+            {error}
+          </div>
+        )}
+
         {view === 'year' && (
           <YearView year={year} activity={yearActivity} onOpenDay={setOpenDay} />
         )}
@@ -420,6 +506,7 @@ export default function CalendarPanel({ onFocusOn }) {
               onEditEvent={openEditForm}
               onAddEvent={openAddForm}
               onOpenDay={setOpenDay}
+              onMoveEventToHour={moveEventToHour}
             />
           )
         )}
@@ -446,6 +533,9 @@ export default function CalendarPanel({ onFocusOn }) {
             const hidden = (dayMissions.length - shownMissions.length)
               + (dayEvents.length - shownEvents.length);
 
+            const dayKeyStr = d.toDateString();
+            const isDropTarget = Boolean(dragItem) && dragOverDay === dayKeyStr;
+
             return (
               <div key={i}
                 role="button"
@@ -453,10 +543,25 @@ export default function CalendarPanel({ onFocusOn }) {
                 aria-label={`Open ${d.toLocaleDateString()}`}
                 onClick={() => setOpenDay(d)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenDay(d); } }}
+                onDragOver={(e) => {
+                  if (!dragItem) return;
+                  e.preventDefault();
+                  setDragOverDay(dayKeyStr);
+                }}
+                onDragLeave={(e) => {
+                  // A child (a chip) firing leave is not the cursor leaving
+                  // the cell; only clear when it is genuinely outside.
+                  if (dragOverDay === dayKeyStr && !e.currentTarget.contains(e.relatedTarget)) {
+                    setDragOverDay(null);
+                  }
+                }}
+                onDrop={(e) => { e.preventDefault(); handleGridDrop(d); }}
+                data-drop-target={isDropTarget ? 'true' : undefined}
                 className={`border-b border-r border-bat-line p-2 cursor-pointer
                   transition-colors duration-200 ease-soft hover:bg-bat-raised
                   focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-signal-self/60
-                  ${isToday(d) ? 'bg-signal-self/[0.07] ring-1 ring-inset ring-signal-self/30' : ''}`}
+                  ${isToday(d) ? 'bg-signal-self/[0.07] ring-1 ring-inset ring-signal-self/30' : ''}
+                  ${isDropTarget ? 'bg-signal-self/[0.12] ring-1 ring-inset ring-signal-self/70' : ''}`}
               >
                 <div className="h-full flex flex-col">
                   <div className={`text-xs font-mono mb-1.5 leading-none tabular-nums ${isToday(d) ? 'text-signal-self font-bold' : isCurrentMonth(d) ? 'text-ink-muted' : 'text-ink-faint/50'}`}>
@@ -471,6 +576,13 @@ export default function CalendarPanel({ onFocusOn }) {
                       <button
                         key={m.id}
                         type="button"
+                        draggable
+                        onDragStart={(e) => {
+                          setDragItem({ kind: 'mission', mission: m });
+                          e.dataTransfer?.setData('text/plain', m.title);
+                          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => { setDragItem(null); setDragOverDay(null); }}
                         title={`Mission due: ${m.title}`}
                         aria-label={`Mission due: ${m.title} — open ${d.toLocaleDateString()}`}
                         onClick={evtClick => { evtClick.stopPropagation(); setOpenDay(d); }}
@@ -483,6 +595,13 @@ export default function CalendarPanel({ onFocusOn }) {
                     ))}
                     {shownEvents.map(evt => (
                       <div key={evt.id} title={evt.title}
+                        draggable
+                        onDragStart={(e) => {
+                          setDragItem({ kind: 'event', event: evt });
+                          e.dataTransfer?.setData('text/plain', evt.title);
+                          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragEnd={() => { setDragItem(null); setDragOverDay(null); }}
                         onClick={evtClick => { evtClick.stopPropagation(); openEditForm(evt); }}
                         className="text-[10px] px-1.5 py-0.5 rounded-sm truncate leading-tight cursor-pointer border-l-2 hover:brightness-125 transition-all duration-200 ease-soft"
                         style={{ backgroundColor: (evt.color || '#eab308') + '26', color: evt.color || '#eab308', borderColor: evt.color || '#eab308' }}>
@@ -538,6 +657,7 @@ export default function CalendarPanel({ onFocusOn }) {
           onAddEvent={(d, hour) => openAddForm(d, hour)}
           onFocusOn={onFocusOn ? (id) => { setOpenDay(null); onFocusOn(id); } : undefined}
           onRescheduleMission={rescheduleMission}
+          onMoveEventToHour={(e, hour) => moveEventToHour(e, openDay, hour)}
         />
       )}
 
