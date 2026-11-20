@@ -30,8 +30,8 @@ document you had open. Its content is at the end of this file under
 | 14 | Drag to reschedule | done (2026-11-15) |
 | 15 | Multiple reminders per mission | done (2026-11-16) |
 | 16–18 | Completion rate headline, focus presets, habit archiving | **dropped by the owner, 2026-11-15** |
-| 19 | Per-mission activity | open |
-| 20 | Attachments | open |
+| 19 | Per-mission activity | **dropped by the owner, 2026-11-20** |
+| 20 | Attachments, starting with receipts | open — unblocked 2026-11-20 |
 | 21 | Themes | open |
 | 22 | Overtime — the clock does not stop at zero | done (2026-11-13) |
 | 23 | The focus timeline strip | done (2026-11-20) |
@@ -49,7 +49,7 @@ document you had open. Its content is at the end of this file under
 | 35 | Before you commit to it | open |
 | 36 | Alfred's financial register | open |
 
-**17 done, 14 open, 7 dropped.**
+**17 done, 13 open, 8 dropped.**
 
 ---
 
@@ -432,6 +432,44 @@ and watch it deploy.
 Phases 8 and 9 are the spine and were built in that order, because
 sections need lists to live in. 10–13 were the rest of that plan and the
 owner dropped them; the spine stops at sections.
+
+---
+
+## 19 and 20, revisited 2026-11-20
+
+**19 — Per-mission activity: dropped.** The owner read it back and did not
+want it. He is right: a per-mission audit log is written constantly and read
+almost never, and "what happened to this mission" is already answerable from
+the mission itself, the logs feed and Alfred's memory. Not an oversight — a
+decision, and not to be re-proposed.
+
+**20 — Attachments: unblocked, and re-scoped to receipts first.**
+
+The old note said Railway's filesystem is ephemeral, so there was nowhere to
+put a file. That conflated two things: the container's own disk is ephemeral,
+but a **mounted Railway volume is not**, and the project already runs one —
+`postgres-volume`, attached to the database service. Volumes mount to any
+service and survive deploys. Hobby allows 5 GB and ten volumes per project,
+resizable live, at roughly $0.15/GB/month against $5 of included usage. At
+~200 KB a photo that is tens of thousands of receipts, so storage is not the
+constraint it was assumed to be.
+
+Two constraints that are real, and belong in the phase rather than in a
+footnote:
+
+- **A volume pins its service to one replica.** Nothing today needs more, and
+  the scheduler's multi-worker safety is unaffected — but scaling out later
+  means moving to object storage, so the upload path should go through one
+  service function rather than being scattered, to keep that a swap.
+- **Backups are the open question.** Postgres gets Railway's backups; a file
+  volume is a separate story and must be confirmed BEFORE it holds the only
+  copy of anything. A receipt the user cannot get back is worse than no
+  attachment feature.
+
+**Receipts first, because finance gave this a reason to exist.** The app this
+project is replacing puts a camera on its expense form. A photo of the receipt
+attached to the transaction is the use with real pull; attachments on missions
+and notes follow the same machinery once it works.
 
 ---
 
