@@ -37,7 +37,7 @@ document you had open. Its content is at the end of this file under
 | 23 | The focus timeline strip | done (2026-11-20) |
 | 24 | Quantified habit goals | open |
 | 25 | A habit detail panel | done (2026-11-20) |
-| 26 | The ledger | open |
+| 26 | The ledger | done (2026-11-20) |
 | 27 | Alfred can log it, and what he is allowed to say | open |
 | 28 | Bringing the history in, and getting it out | open |
 | 29 | Budgets, and the month that starts on payday | open |
@@ -49,7 +49,7 @@ document you had open. Its content is at the end of this file under
 | 35 | Before you commit to it | open |
 | 36 | Alfred's financial register | open |
 
-**16 done, 15 open, 7 dropped.**
+**17 done, 14 open, 7 dropped.**
 
 ---
 
@@ -462,9 +462,15 @@ phase 26 lands:
 
 ---
 
-## 26 — The ledger
+## 26 — The ledger ✅ done 2026-11-20
 
 The foundation, and the only phase that is hard to change afterwards.
+
+Shipped with one refusal worth recording: **a transfer between two different
+currencies is rejected rather than booked.** One row carries one amount, so the
+sum that leaves is not the sum that arrives, and guessing would invent money at
+the far end. It needs a second amount and its own rate — a change to the row,
+not a patch to the check. Everything else in this phase is as described below.
 
 **Accounts** with a group (cash, bank, card, savings, investment, loan,
 insurance, other), each with its own currency and an opening balance.

@@ -43,7 +43,7 @@ Never run a dev server to "check" something; run the tests.
   create a real list to stand in for it, and never let a `list_id` reach a
   mission without `list_service.resolve` — it is the only thing stopping a
   mission being filed into another user's list.
-- Migrations are numbered (`034` is current head). New migration = next number,
+- Migrations are numbered (`035` is current head). New migration = next number,
   additive where possible, and must be reversible.
 - Comments explain **why**, not what — especially the non-obvious decision behind a
   line. Match the surrounding density; don't narrate the code.
@@ -72,8 +72,20 @@ Never run a dev server to "check" something; run the tests.
    either: the adherence figure already says how it is going, and pricing the
    points by it made the number argue with the person. `best_streak` must
    never be reset.
-5. Secrets come from env via `config.py`. Never log or return an API key.
-6. Tests are part of the change, not an afterthought — and a bug fix gets a test
+5. **Money earns no Bat Points.** The same boundary as the work track, for a
+   sharper reason: paying for logging rewards logging over accuracy, and paying
+   for spending or saving gamifies money. `points` and `bat_level` are written
+   in exactly three services — mission, habit, focus. Finance is not a fourth,
+   and a test asserts it. Finance is also switchable off per user —
+   `finance_service.is_enabled` is the single source of truth, tri-state like
+   `work_enabled`, and "off" must mean off everywhere.
+   **Every amount is a BigInteger count of minor units**, never a Float: a
+   ledger on floating point drifts and cannot be reconciled. Every record moves
+   money between accounts, and `finance_service.resolve_posting` is the only
+   place that knows what shape each of the three kinds takes — routers, Alfred's
+   tools and any importer all go through it.
+6. Secrets come from env via `config.py`. Never log or return an API key.
+7. Tests are part of the change, not an afterthought — and a bug fix gets a test
    that fails before the fix.
 
 ## If you are a delegated agent

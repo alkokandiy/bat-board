@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, UniqueConstraint
+from sqlalchemy import BigInteger, Date, Float, Text
 from sqlalchemy import DateTime as _SQLDateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
@@ -58,6 +59,17 @@ class BatAccount(Base):
     # for anyone already using it (it shipped before this switch existed) and
     # stays out of the way for everyone else, with no backfill and no guessing.
     work_enabled = Column(Boolean, nullable=True)
+    # The finance track, switched off the same way the work track is: tri-state,
+    # NULL meaning "never decided" and resolved at read time to "on if they
+    # already have finance data". Money is the most sensitive thing on the
+    # board, so the default must not be "on" for somebody who never asked.
+    finance_enabled = Column(Boolean, nullable=True)
+    # ISO 4217 code every report is converted into. NULL until they choose;
+    # never defaulted in code, because rule 1 says no currency is the house one.
+    main_currency = Column(String, nullable=True)
+    # Which day of the month a budget month starts on. Salary dates, not the
+    # 1st, are what make a month match a life. NULL = the 1st.
+    period_start_day = Column(Integer, nullable=True)
     # Embedded in every JWT ("tv"); bumping it revokes all issued tokens.
     token_version = Column(Integer, default=0, server_default="0", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -74,6 +86,9 @@ class BatAccount(Base):
     countdowns = relationship("BatCountdown", back_populates="owner", cascade="all, delete-orphan")
     personal_access_tokens = relationship("BatPersonalAccessToken", back_populates="owner", cascade="all, delete-orphan")
     telegram_link_codes = relationship("BatTelegramLinkCode", back_populates="owner", cascade="all, delete-orphan")
+    finance_accounts = relationship("FinanceAccount", back_populates="owner", cascade="all, delete-orphan")
+    finance_categories = relationship("FinanceCategory", back_populates="owner", cascade="all, delete-orphan")
+    finance_transactions = relationship("FinanceTransaction", back_populates="owner", cascade="all, delete-orphan")
     alfred_messages = relationship("BatAlfredMessage", back_populates="owner", cascade="all, delete-orphan")
     alfred_sessions = relationship("BatAlfredSession", back_populates="owner", cascade="all, delete-orphan",
                                     foreign_keys="[BatAlfredSession.owner_id]")
@@ -731,3 +746,103 @@ class BatWorkProfile(Base):
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"),
                       nullable=False, unique=True, index=True)
     owner = relationship("BatAccount", back_populates="work_profile")
+
+
+# ---------------------------------------------------------------------------
+# Finance. Three tables and one invariant, in the shape Money Manager proved:
+# every record MOVES MONEY BETWEEN ACCOUNTS. There is no fourth record type and
+# no bare number with a label — which is what makes a credit-card payment a
+# transfer rather than a second expense, and keeps balances derivable from the
+# rows instead of stored and drifting.
+# ---------------------------------------------------------------------------
+
+class FinanceAccount(Base):
+    """Somewhere money sits. Cash, a bank account, a card, a loan."""
+
+    __tablename__ = "finance_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    # cash | bank | card | savings | investment | loan | insurance | other.
+    # Cards and loans are the ones that carry a negative balance honestly,
+    # which is the whole reason the group is stored rather than inferred.
+    group = Column(String, nullable=False, default="cash")
+    currency = Column(String, nullable=False)
+    # BigInteger throughout, not Integer: a year of UZS at two minor digits is
+    # already 1.5e9, and anything car-sized overflows a 32-bit column.
+    opening_balance_minor = Column(BigInteger, nullable=False, default=0)
+    # Cards only: the day of the month the statement settles. It is what turns
+    # a running card balance into "payable now" versus "outstanding".
+    settlement_day = Column(Integer, nullable=True)
+    archived = Column(Boolean, default=False, server_default="0", nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="finance_accounts")
+
+
+class FinanceCategory(Base):
+    """What a movement was for. Two separate trees, income and expense."""
+
+    __tablename__ = "finance_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    kind = Column(String, nullable=False)          # income | expense
+    icon = Column(String, nullable=True)           # an emoji, as the app does it
+    # One level deep on purpose: Food > Lunch, not Food > Out > Lunch > Drinks.
+    # A deeper tree is a filing problem disguised as a feature.
+    parent_id = Column(Integer, ForeignKey("finance_categories.id", ondelete="CASCADE"),
+                       nullable=True, index=True)
+    archived = Column(Boolean, default=False, server_default="0", nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="finance_categories")
+    children = relationship("FinanceCategory", cascade="all, delete-orphan")
+
+
+class FinanceTransaction(Base):
+    """One movement of money. Income, expense or transfer — never anything else.
+
+    The three types constrain the row differently, and `finance_service.
+    resolve_posting` is the only place that knows how. Nothing writes one of
+    these without going through it.
+    """
+
+    __tablename__ = "finance_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, nullable=False)          # income | expense | transfer
+    # The local calendar day the money moved, in the owner's timezone. A date,
+    # not a timestamp: "which day did I spend this" has no meaningful clock
+    # time, and storing one would invite the naive-UTC bucketing bug again.
+    occurred_on = Column(Date, nullable=False, index=True)
+
+    amount_minor = Column(BigInteger, nullable=False)
+    currency = Column(String, nullable=False)
+    # The rate to the owner's main currency AT THE TIME, stored so that last
+    # year's totals do not change every time the exchange rate moves. 1.0 when
+    # the account is already in the main currency.
+    rate_to_main = Column(Float, nullable=False, default=1.0)
+    # Transfers only: what the move itself cost. A card withdrawal with a fee
+    # is one movement plus a cost, not two transactions to reconcile by hand.
+    fee_minor = Column(BigInteger, nullable=True)
+
+    # expense: from_account only. income: to_account only. transfer: both.
+    from_account_id = Column(Integer, ForeignKey("finance_accounts.id", ondelete="CASCADE"),
+                             nullable=True, index=True)
+    to_account_id = Column(Integer, ForeignKey("finance_accounts.id", ondelete="CASCADE"),
+                           nullable=True, index=True)
+    # NULL for a transfer: moving your own money between your own pockets is
+    # not spending, and giving it a category would double-count it in reports.
+    category_id = Column(Integer, ForeignKey("finance_categories.id", ondelete="SET NULL"),
+                         nullable=True, index=True)
+
+    note = Column(String, nullable=True)           # the short label: "Taxi", "Orbit"
+    description = Column(Text, nullable=True)      # the longer one, rarely used
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
+    owner = relationship("BatAccount", back_populates="finance_transactions")

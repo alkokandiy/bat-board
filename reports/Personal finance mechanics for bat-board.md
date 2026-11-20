@@ -31,11 +31,19 @@ rather than from memory:
 | **Period start day** | The budget month need not start on the 1st. |
 | **Reports** | Pie by category, bars by month, a calendar with daily totals, budget-versus-actual. |
 | **Export** | Excel out, and a PC/Wi-Fi editing path. |
+| **Five views on one month** | Daily (the record, grouped by day), Calendar (a month grid with income, expense and net per day), Monthly (the year, each month split into its weeks), Summary (where the money sits, plus the budget bar), Description (notes). The three figures — Income, Exp., Total — sit above all five and never move. |
+| **Stats, separately** | A pie by category with a ranked list underneath, an Income/Expense toggle, and a period selector offering Weekly, Monthly, Annually, Period, List and Trend. |
+| **Notes are data** | A note on a record ("Taxi", "Abed") is aggregated in its own view, counted and totalled — so the free-text field is a reporting dimension, not a scribble. |
+| **A transfer carries a fee** | The transfer form has its own Fees control beside the amount. |
+| **Entry is a calculator** | The amount field opens a keypad with + − × ÷ and =, because real amounts are often a sum of several. |
 
-**What it does *not* have, and users keep asking for: budget carry-over** —
-unspent budget rolling into next month. Parity does not require it. It is the
-one place where going beyond the target is clearly wanted, so it belongs in the
-plan as a deliberate, opt-in improvement rather than an assumed default.
+**Carry-over exists, contrary to what the reviews say.** The web write-ups
+describe it as a frequently requested missing feature; the app's own Settings
+screen lists *Monthly Start Date, Carry-over Setting, Period* together under
+**Transaction Settings**. Parity therefore includes it: unspent budget rolling
+into the next period, as a setting rather than a default. This is the clearest
+case in this document for trusting a screenshot of the running app over any
+amount of secondary writing about it.
 
 The free tier's caps (10 accounts, 5 budgets, 5 goals) are a business model,
 not a mechanic. Copy none of them.
