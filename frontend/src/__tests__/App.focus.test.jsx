@@ -19,6 +19,11 @@ vi.mock('../utils/api', () => ({
     getWorkStatus: vi.fn(),
     getSuggestedFocusMinutes: vi.fn(),
     getActiveFocusSession: vi.fn(),
+    // The Focus page draws the day's strip below the timer, so reaching it
+    // calls this. Mocked here rather than made optional in the component:
+    // a strip that quietly tolerates a missing API is one that shows an
+    // empty day when the request is actually broken.
+    getFocusDay: vi.fn(),
   },
 }));
 
@@ -70,6 +75,9 @@ describe('App focus session state machine', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
+    });
   });
 
   afterEach(() => {
@@ -228,6 +236,9 @@ describe('Focus on this, from the mission list', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
+    });
   });
 
   afterEach(() => {
@@ -335,6 +346,9 @@ describe('Focus on this, from the habit list', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
+    });
   });
 
   afterEach(() => {
@@ -415,6 +429,9 @@ describe('Picking the clock back up after a reload or a re-login', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
+    });
   });
 
   afterEach(() => {
@@ -553,6 +570,9 @@ describe('Staying signed in', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
+    });
   });
 
   afterEach(() => {
@@ -625,6 +645,9 @@ describe('Working past the bell', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
+    });
   });
 
   afterEach(() => {
@@ -718,5 +741,48 @@ describe('When the board cannot boot', () => {
     const out = screen.getByRole('button', { name: /sign out and start again/i });
     fireEvent.click(out);
     expect(api.logout).toHaveBeenCalled();
+  });
+});
+
+
+// --- the day's strip on the Focus page (Phase 23 wiring) -------------------
+
+describe('the day strip under the timer', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('bat_access_token', 'test-token');
+    api.getAccount.mockResolvedValue({ username: 'tester', points: 0, bat_level: 'Bronze' });
+    api.getMissions.mockResolvedValue([]);
+    api.getHabits.mockResolvedValue([]);
+    api.getLogs.mockResolvedValue([]);
+    api.refreshToken.mockResolvedValue({});
+    api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
+    api.getActiveFocusSession.mockResolvedValue({ active: false });
+    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
+    api.getFocusDay.mockResolvedValue({
+      date: '2026-11-20', now_minute: 600, total_minutes: 45,
+      sessions: [{
+        id: 3, type: 'mission', name: 'Read Kahf surah',
+        start_minute: 540, end_minute: 585, minutes: 45,
+        mode: null, logged_manually: false, running: false,
+      }],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  it('draws the day beneath the timer, not only inside Stats', async () => {
+    await act(async () => { render(<App />); });
+    await goToFocusView();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(api.getFocusDay).toHaveBeenCalled();
+    expect(screen.getByTestId('focus-track')).toBeTruthy();
+    expect(screen.getByTestId('focus-block-3')).toBeTruthy();
   });
 });
