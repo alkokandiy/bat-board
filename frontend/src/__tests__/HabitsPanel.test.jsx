@@ -12,6 +12,7 @@ vi.mock('../utils/api', () => ({
     checkInHabit: vi.fn(),
     restHabit: vi.fn(),
     unrestHabit: vi.fn(),
+    getHabitHistory: vi.fn(),
   },
 }));
 
@@ -472,5 +473,41 @@ describe('Time spent on a habit', () => {
     renderPanel([habit({ focus_minutes_period: 12, focus_minutes: 0 })]);
     expect(screen.getByText('12m today')).toBeInTheDocument();
     expect(screen.queryByText(/all told/)).not.toBeInTheDocument();
+  });
+});
+
+// --- the record behind the row (Phase 25 wiring) ---------------------------
+// The panel itself is covered in HabitDetailPanel.test.jsx; what is tested
+// here is that there is a way to REACH it, and a way back. A component
+// nothing renders is just a file.
+
+describe('opening a habit record from its row', () => {
+  const history = {
+    habit_id: 1, name: 'Fifty press-ups', month: '2026-11',
+    days: [{ date: '2026-11-01', state: 'done', count: 1 }],
+    due_so_far: 1, done_this_month: 1, rested_this_month: 0,
+    missed_this_month: 0, check_in_rate: 100, total_check_ins: 1,
+    streak: 1, best_streak: 1,
+  };
+
+  it('opens the record for that habit and closes again', async () => {
+    api.getHabitHistory.mockResolvedValue(history);
+    render(<HabitsPanel habits={[habit()]} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('See the record for "Fifty press-ups"'));
+
+    await waitFor(() => expect(api.getHabitHistory).toHaveBeenCalledWith(1, expect.any(String)));
+    const close = await screen.findByLabelText(/close/i);
+    fireEvent.click(close);
+    await waitFor(() => expect(screen.queryByText(/check-in rate/i)).toBeNull());
+  });
+
+  it('asks for the record of the habit whose button was pressed', async () => {
+    api.getHabitHistory.mockResolvedValue(history);
+    const two = [habit(), { ...habit(), id: 2, name: 'Read a page' }];
+    render(<HabitsPanel habits={two} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('See the record for "Read a page"'));
+    await waitFor(() => expect(api.getHabitHistory).toHaveBeenCalledWith(2, expect.any(String)));
   });
 });

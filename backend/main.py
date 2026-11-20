@@ -1241,6 +1241,22 @@ def list_habit_rest_days(
     return out
 
 
+@app.get("/api/habits/{habit_id}/history")
+def habit_history(
+    habit_id: int,
+    month: Optional[str] = Query(None, description="YYYY-MM; defaults to this month"),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    try:
+        out = habit_service.history(db, current_user, habit_id, month)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if out is None:
+        raise HTTPException(status_code=404, detail="Habit not found")
+    return out
+
+
 # --- Logs Endpoints ---
 @app.get("/api/logs", response_model=List[BatLogSchema])
 def list_logs(
@@ -1334,6 +1350,15 @@ def list_focus_sessions(
     return db.query(models.BatFocus).filter(
         models.BatFocus.owner_id == current_user.id
     ).order_by(models.BatFocus.start_time.desc()).limit(limit).all()
+
+
+@app.get("/api/focus/day")
+def focus_day(
+    day: Optional[date] = Query(None, description="YYYY-MM-DD; defaults to today"),
+    db: Session = Depends(get_db),
+    current_user: models.BatAccount = Depends(get_current_active_user),
+):
+    return focus_service.day_timeline(db, current_user, day)
 
 
 # --- Focus Stats Endpoints ---

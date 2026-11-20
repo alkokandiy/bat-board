@@ -645,3 +645,116 @@ def rest_days(db: Session, current_user: models.BatAccount, habit_id: int,
         .all()
     )
     return [{"date": r.local_date, "note": r.note} for r in rows]
+
+
+# --- the habit's own record (Phase 25) -------------------------------------
+
+def _month_bounds(month: Optional[str], today: date) -> tuple:
+    """First and last day of the requested month, defaulting to today's."""
+    if not month:
+        first = today.replace(day=1)
+    else:
+        try:
+            year, mon = str(month).split("-")
+            first = date(int(year), int(mon), 1)
+        except (ValueError, TypeError):
+            raise ValueError("A month must look like 2026-11.")
+    last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    return first, last
+
+
+def history(db: Session, current_user: models.BatAccount, habit_id: int,
+            month: Optional[str] = None) -> Optional[dict]:
+    """One month of this habit's record, day by day. None if not theirs.
+
+    Every figure here already existed and none of it was shown: a habit row
+    gave a number and a bar over a record going back to the day it started.
+
+    The four states are the point. `rested` is NOT `missed` — a planned rest
+    leaves the denominator rather than entering it as a miss, and a calendar
+    that drew them the same colour would re-tell the person the exact thing
+    the rest day exists to stop saying. `not_due` is likewise not a miss: a
+    weekly habit is not failing on the other six days.
+
+    `completed_at` is an instant and is bucketed into the user's local day,
+    the same way the check-in itself was recorded. The log has no owner of
+    its own — it hangs off the habit — so the habit is resolved against the
+    owner FIRST and every row read through that.
+    """
+    habit = _owned_habit(db, current_user, habit_id)
+    if habit is None:
+        return None
+
+    tz = user_tz(current_user)
+    today = local_date(datetime.now(timezone.utc), tz)
+    first, last = _month_bounds(month, today)
+
+    # Ownership is established by the habit above; these rows are reached
+    # only through its id, which is why this query needs no owner filter and
+    # must never be given the habit_id from anywhere else.
+    done_counts: dict = {}
+    for (completed_at,) in (db.query(models.HabitCompletionLog.completed_at)
+                            .filter(models.HabitCompletionLog.habit_id == habit.id)
+                            .all()):
+        day = local_date(completed_at if completed_at.tzinfo
+                         else completed_at.replace(tzinfo=timezone.utc), tz)
+        done_counts[day] = done_counts.get(day, 0) + 1
+
+    rested = {
+        date.fromisoformat(r.local_date)
+        for r in db.query(models.BatHabitSkip)
+        .filter(models.BatHabitSkip.habit_id == habit.id,
+                models.BatHabitSkip.owner_id == current_user.id).all()
+    }
+
+    days = []
+    due_count = done_in_month = rested_in_month = missed = 0
+    # Kept on a day that ASKED for it. Separate from `done_in_month`, which
+    # counts every day it was kept: a weekly habit done on a spare Tuesday is
+    # real and worth showing, but counting it against a denominator it was
+    # never in produces a check-in rate above 100%.
+    done_on_due = 0
+    day = first
+    while day <= last:
+        count = done_counts.get(day, 0)
+        is_due = habit_schedule.is_due_on(habit, day)
+        if count:
+            state = "done"
+            done_in_month += 1
+            if is_due:
+                done_on_due += 1
+        elif day in rested:
+            state = "rested"
+            rested_in_month += 1
+        elif not is_due:
+            state = "not_due"
+        elif day > today:
+            # Not yet missed. A month view of November on the 20th must not
+            # colour the rest of the month as failure.
+            state = "upcoming"
+        else:
+            state = "missed"
+            missed += 1
+        if is_due and day <= today and state != "rested":
+            due_count += 1
+        days.append({"date": day.isoformat(), "state": state, "count": count})
+        day += timedelta(days=1)
+
+    return {
+        "habit_id": habit.id,
+        "name": habit.name,
+        "month": first.strftime("%Y-%m"),
+        "days": days,
+        "due_so_far": due_count,
+        "done_this_month": done_in_month,
+        "rested_this_month": rested_in_month,
+        "missed_this_month": missed,
+        # Out of the occasions that actually asked for it, rest days excluded.
+        # None rather than 0 when nothing was due: a habit with no occasions
+        # yet is not a habit at 0%, and showing one would be a lie told by
+        # a division.
+        "check_in_rate": round(done_on_due / due_count * 100) if due_count else None,
+        "total_check_ins": sum(done_counts.values()),
+        "streak": habit.streak,
+        "best_streak": habit.best_streak,
+    }

@@ -34,11 +34,11 @@ document you had open. Its content is at the end of this file under
 | 20 | Attachments | open |
 | 21 | Themes | open |
 | 22 | Overtime — the clock does not stop at zero | done (2026-11-13) |
-| 23 | The focus timeline strip | open |
+| 23 | The focus timeline strip | done (2026-11-20) |
 | 24 | Quantified habit goals | open |
-| 25 | A habit detail panel | open |
+| 25 | A habit detail panel | done (2026-11-20) |
 
-**14 done, 6 open, 7 dropped.**
+**16 done, 4 open, 7 dropped.**
 
 ---
 
@@ -294,13 +294,30 @@ counts up. Finishing credits the planned time; one tap credits planned +
 overtime. Never silently: the extra time is offered, not assumed, because
 a timer left running on a closed laptop would otherwise invent hours.
 
-### Phase 23 · The focus timeline strip
+### Phase 23 · The focus timeline strip — **done** (2026-11-20)
+The right-hand panel draws the day as blocks against a 24-hour scale, with
+a line at now. This is recommendation 3 of the TickTick report and the
+passive half of the capture fix: unlogged time shows as a visible hole,
+which invites backfill without a nag.
 
-The right-hand panel draws the session as a block against an hour scale,
-with a line at now. This is recommendation 3 of the TickTick report,
-still unbuilt, and it is the passive half of the capture fix: unlogged
-time shows as a visible hole, which invites backfill without a nag.
-bat-board now has the day-view hour grid to draw it in.
+`GET /api/focus/day` returns each block already placed on a 0–1440 scale.
+The placement is the server's job, not the browser's: these columns are
+naive UTC and the day is the user's own, so which date a 23:30 block
+belongs to depends on who is looking.
+
+Three decisions the tests pin down. A block crossing midnight appears on
+**both** days as the part that happened on each, while `minutes` stays the
+whole session, so the bar and the number never quietly disagree. An
+unfinished session is drawn up to now but **no further than
+`STALE_FOCUS_HOURS`** from its start — the scheduler already closes a
+session left open that long as abandoned, and without the cap a tab closed
+last week painted itself across every day since. And **work time is named**
+rather than dropped into "unassigned": the work track earns no points and
+nothing here touches points, but an unlabelled block is exactly the hole
+this strip exists to make visible.
+
+The strip sits full width below the timer rather than in the right-hand
+column — twenty-four hours squeezed into a third of the page is unreadable.
 
 ### Phase 24 · Quantified habit goals
 
@@ -314,11 +331,32 @@ Worth having, and the report already specified the model (`goal`, `step`,
 the better half of the same idea — shrinking the goal beats tracking
 fractions of it — so quantities are an addition, not a replacement.
 
-### Phase 25 · A habit detail panel
+### Phase 25 · A habit detail panel — **done** (2026-11-20)
+Monthly check-ins, total, check-in rate, current streak and a month
+calendar. bat-board held all of this already and showed almost none of it:
+a habit row had a number and a bar over a log going back to the day it
+started.
 
-Monthly check-ins, total, check-in rate, current streak, a month calendar
-of check-ins, and the goal chart. bat-board holds all of this already and
-shows almost none of it: a habit row has a number and a bar.
+`GET /api/habits/{id}/history?month=YYYY-MM` returns the month day by day
+in **five** states, and the distinctions are the substance:
+
+- `rested` is **not** `missed`. A planned rest leaves the denominator
+  rather than entering it as a miss, so resting cannot lower the rate —
+  there is a test that says exactly that. A calendar drawing the two the
+  same would re-tell the person the one thing the rest day exists to stop
+  saying.
+- `not_due` is not a miss either. A weekly habit is not failing on the
+  other six days.
+- `upcoming` is not a miss. Opening November on the 20th must not paint
+  the rest of the month red.
+- `check_in_rate` is **null, never 0**, when nothing has been due yet. 0%
+  is a verdict, and a habit that has not been asked for anything has not
+  failed.
+
+`HabitCompletionLog` has no owner of its own — it hangs off the habit — so
+the habit is resolved against the owner first and every row read through
+that. Check-ins are bucketed into the user's local day, the same way the
+check-in was recorded.
 
 ### Smaller, worth taking
 

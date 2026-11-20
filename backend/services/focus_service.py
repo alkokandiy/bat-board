@@ -7,13 +7,15 @@ End semantics mirror the original route exactly (wall-clock duration,
 mission/habit fan-out, point rewards); the route delegates here.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import models
 from services.common import auto_log_event, calculate_bat_level
+from services.timezones import day_bounds_utc, local_today, user_tz
 
 _UNSET = object()
 
@@ -436,3 +438,119 @@ def end_focus_session(
 
     session.discarded = False
     return session
+
+
+# --- the day's timeline (Phase 23) -----------------------------------------
+
+MINUTES_IN_DAY = 24 * 60
+
+# How long an unfinished session may be drawn for before it is treated as
+# abandoned. Same number the scheduler uses to close stale sessions, and for
+# the same reason: a tab closed without stopping stays "open" forever, and
+# drawing it to "now" would smear one block across every day since.
+STALE_FOCUS_HOURS = 12
+
+
+def _label_for(db: Session, current_user: models.BatAccount,
+               session: models.BatFocus) -> tuple:
+    """(type, name) for what a session was spent on.
+
+    Work is named rather than folded into "unassigned": the strip is a
+    picture of where the hours went, and an unlabelled block is exactly the
+    hole it is meant to make visible. Naming it does not score it — the work
+    track earns no points, and nothing here touches points.
+    """
+    pairs = (("mission", session.mission_id, models.BatMission, "title"),
+             ("habit", session.habit_id, models.BatHabit, "name"),
+             ("work", session.work_task_id, models.BatWorkTask, "title"))
+    for kind, row_id, model, field in pairs:
+        if row_id is None:
+            continue
+        row = (db.query(model)
+               .filter(model.id == row_id, model.owner_id == current_user.id)
+               .first())
+        # A deleted target leaves the link dangling (ondelete=SET NULL races
+        # aside); the block is still real time, so it stays, unnamed.
+        return (kind, getattr(row, field)) if row is not None else ("none", None)
+    return ("none", None)
+
+
+def day_timeline(db: Session, current_user: models.BatAccount,
+                 day: Optional[date] = None) -> dict:
+    """Every focus block touching one local day, placed on a 0–1440 scale.
+
+    The placement is computed here, not in the browser. These columns are
+    naive UTC and the day is the user's own, so a block at 23:30 belongs to
+    a different date depending on who is looking — the kind of arithmetic
+    that has no business being repeated in a React component.
+
+    `start_minute`/`end_minute` are minutes from the user's local midnight,
+    CLAMPED to the day. A session running 23:00–01:00 therefore appears on
+    both days, as the part that actually happened on each, which is what a
+    picture of a day should show. `minutes` stays the whole session's
+    duration, so the two never silently disagree about which is which.
+
+    An unfinished session is drawn up to "now" — the hour you are in the
+    middle of is the one you most want to see — but no further than
+    STALE_FOCUS_HOURS from its start, or a tab closed last week would paint
+    itself across every day since.
+    """
+    tz = user_tz(current_user)
+    selected = day or local_today(current_user)
+    day_start, day_end = day_bounds_utc(selected, tz)
+    now = datetime.now(timezone.utc)
+
+    rows = (
+        db.query(models.BatFocus)
+        .filter(models.BatFocus.owner_id == current_user.id,
+                models.BatFocus.start_time < day_end.replace(tzinfo=None),
+                # An open session has no end yet; it still overlaps today if
+                # it started before the day ended, so it is matched on start
+                # alone rather than excluded for being unfinished.
+                or_(models.BatFocus.end_time.is_(None),
+                    models.BatFocus.end_time > day_start.replace(tzinfo=None)))
+        .order_by(models.BatFocus.start_time.asc())
+        .all()
+    )
+
+    sessions = []
+    for s in rows:
+        start = _as_utc(s.start_time)
+        if s.end_time is not None:
+            end = _as_utc(s.end_time)
+        else:
+            # Capped, not simply "now". The scheduler closes a session left
+            # open this long as abandoned; until it runs, one started a
+            # fortnight ago must not be painted across a fortnight of days.
+            end = min(now, start + timedelta(hours=STALE_FOCUS_HOURS))
+        if end <= start:
+            continue                     # nothing to draw
+        if end <= day_start or start >= day_end:
+            continue                     # an open session from a past day
+        kind, name = _label_for(db, current_user, s)
+        clipped_start = max(start, day_start)
+        clipped_end = min(end, day_end)
+        sessions.append({
+            "id": s.id,
+            "type": kind,
+            "name": name,
+            "start_minute": round((clipped_start - day_start).total_seconds() / 60),
+            "end_minute": round((clipped_end - day_start).total_seconds() / 60),
+            "minutes": s.duration_minutes or round((end - start).total_seconds() / 60),
+            "mode": s.mode,
+            "logged_manually": bool(s.logged_manually),
+            "running": s.end_time is None,
+        })
+
+    # Only meaningful on the day being lived; a line at "now" drawn on last
+    # Tuesday would be a line at nothing.
+    now_minute = None
+    if day_start <= now < day_end:
+        now_minute = round((now - day_start).total_seconds() / 60)
+
+    return {
+        "date": selected.isoformat(),
+        "now_minute": now_minute,
+        "total_minutes": sum(s["end_minute"] - s["start_minute"] for s in sessions),
+        "sessions": sessions,
+    }

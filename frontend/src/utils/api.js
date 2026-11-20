@@ -228,6 +228,9 @@ export const api = {
   updateHabit: (id, data) => request(`/habits/${id}`, { method: 'PUT', body: data }),
   deleteHabit: (id) => request(`/habits/${id}`, { method: 'DELETE' }),
   checkInHabit: (id) => request(`/habits/${id}/check-in`, { method: 'POST' }),
+  // One month of a habit's own record, day by day. Omit `month` for this one.
+  getHabitHistory: (id, month) =>
+    request(`/habits/${id}/history${month ? `?month=${encodeURIComponent(month)}` : ''}`),
   // A rest the person chose. It leaves the adherence denominator rather than
   // counting against them, and the run steps over it — so this is never a
   // "skip", and nothing in the interface should call it one.
@@ -260,6 +263,11 @@ export const api = {
   // Record focus that already happened. Until this existed, the only way to
   // say "I did two hours on that yesterday" was to ask Alfred.
   logPastFocus: (data) => request('/focus/log-past', { method: 'POST', body: data }),
+
+  // The day's focus blocks already placed on a 0-1440 scale by the server,
+  // because which local day a block belongs to is its arithmetic, not ours.
+  getFocusDay: (day) =>
+    request(`/focus/day${day ? `?day=${encodeURIComponent(day)}` : ''}`),
 
   // Focus Stats
   getFocusStats: (period = 'week') => request(`/stats/focus?period=${encodeURIComponent(period)}`),

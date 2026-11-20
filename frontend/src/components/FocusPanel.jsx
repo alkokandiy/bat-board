@@ -1,6 +1,7 @@
 import React from 'react';
 import { trackPresets } from './AudioPlayer';
 import BatFocusTimer from './BatFocusTimer';
+import FocusTimelineStrip from './FocusTimelineStrip';
 import { PageHeader, Panel, Picker } from './ui';
 
 export default function FocusPanel({
@@ -213,6 +214,12 @@ export default function FocusPanel({
 
         </div>
       </div>
+
+      {/* Full width, not in the right-hand column: twenty-four hours squeezed
+          into a third of the page is unreadable, and the gaps are the point.
+          Remounted when the timer stops so a finished session appears without
+          a reload — the strip reads the day once, it does not poll. */}
+      <FocusTimelineStrip key={focusRunning ? 'running' : 'idle'} />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Flag, Moon, Sunrise, Timer, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, Flag, Moon, Sunrise, Timer, Trash2 } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
+import HabitDetailPanel from './HabitDetailPanel';
 
 const FREQUENCY_LABEL = { daily: 'daily', weekly: 'weekly', monthly: 'monthly' };
 
@@ -67,7 +68,7 @@ function Adherence({ habit }) {
   );
 }
 
-function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, onFocusOn }) {
+function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, onFocusOn, onOpenDetail }) {
   const want = target(habit);
   const resting = habit.resting_today === true;
   return (
@@ -165,6 +166,13 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, o
                 onClick={() => onFocusOn(habit.id)}
               />
             )}
+            {onOpenDetail && (
+              <IconButton
+                label={`See the record for "${habit.name}"`}
+                icon={CalendarDays}
+                onClick={() => onOpenDetail(habit.id, habit.name)}
+              />
+            )}
             <IconButton
               label={resting ? `Back on "${habit.name}"` : `Take a rest day on "${habit.name}"`}
               icon={resting ? Sunrise : Moon}
@@ -222,6 +230,10 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
   const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [flash, setFlash] = useState(null);
+  // Which habit's record is open, if any. {id, name} rather than an id alone
+  // so the panel has a title before its first fetch returns.
+  const [detail, setDetail] = useState(null);
+  const openDetail = (id, name) => setDetail({ id, name });
 
   useEffect(() => {
     if (!flash) return;
@@ -526,6 +538,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                   onDelete={handleDelete}
                   onSetTargetDate={handleSetTargetDate}
                   onRest={handleRest} onFocusOn={onFocusOn}
+                  onOpenDetail={openDetail}
                 />
               ))
             )}
@@ -540,7 +553,8 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                 {notDueToday.map((habit) => (
                   <HabitRow key={habit.id} habit={habit} kept
                     onCheckIn={handleCheckIn} onDelete={handleDelete}
-                    onSetTargetDate={handleSetTargetDate} onRest={handleRest} onFocusOn={onFocusOn} />
+                    onSetTargetDate={handleSetTargetDate} onRest={handleRest} onFocusOn={onFocusOn}
+                    onOpenDetail={openDetail} />
                 ))}
               </div>
             </details>
@@ -563,6 +577,7 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
                     onDelete={handleDelete}
                     onSetTargetDate={handleSetTargetDate}
                     onRest={handleRest} onFocusOn={onFocusOn}
+                    onOpenDetail={openDetail}
                   />
                 ))}
               </div>
@@ -570,6 +585,14 @@ export default function HabitsPanel({ habits = [], onRefreshHabits, onRefreshAcc
           )}
         </div>
       </div>
+
+      {detail && (
+        <HabitDetailPanel
+          habitId={detail.id}
+          habitName={detail.name}
+          onClose={() => setDetail(null)}
+        />
+      )}
 
       {flash && (
         <div

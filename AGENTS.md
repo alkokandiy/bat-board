@@ -14,8 +14,8 @@ Merging to `main` therefore ships to real users — treat it that way.
 ## Commands
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/ -q      # 859 tests
-cd frontend && npx vitest run                           # 390 tests
+cd backend && .venv/bin/python -m pytest tests/ -q      # 893 tests
+cd frontend && npx vitest run                           # 412 tests
 cd frontend && npm run build
 ```
 
@@ -43,7 +43,7 @@ Never run a dev server to "check" something; run the tests.
   create a real list to stand in for it, and never let a `list_id` reach a
   mission without `list_service.resolve` — it is the only thing stopping a
   mission being filed into another user's list.
-- Migrations are numbered (`033` is current head). New migration = next number,
+- Migrations are numbered (`034` is current head). New migration = next number,
   additive where possible, and must be reversible.
 - Comments explain **why**, not what — especially the non-obvious decision behind a
   line. Match the surrounding density; don't narrate the code.
