@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CalendarDays, Check, Flag, Moon, Sunrise, Timer, Trash2 } from 'lucide-react';
+import { Check, Flag, Moon, Sunrise, Timer, Trash2 } from 'lucide-react';
 import { api } from '../utils/api';
 import { PageHeader, Panel, Button, EmptyState, Field, IconButton, Segmented, fieldClass } from './ui';
 import HabitDetailPanel from './HabitDetailPanel';
@@ -71,10 +71,26 @@ function Adherence({ habit }) {
 function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, onFocusOn, onOpenDetail }) {
   const want = target(habit);
   const resting = habit.resting_today === true;
+  // The card itself opens the record. It used to be a small calendar glyph
+  // among four other glyphs, which nobody read as "the whole history is in
+  // here" — the obvious thing to click is the habit.
+  const open = onOpenDetail ? () => onOpenDetail(habit.id, habit.name) : undefined;
+
   return (
     <div
+      {...(open ? {
+        role: 'button',
+        tabIndex: 0,
+        'aria-label': `Open the record for "${habit.name}"`,
+        onClick: open,
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        },
+      } : {})}
+      data-testid={`habit-card-${habit.id}`}
       className={`group rounded-tile bg-bat-raised ring-1 p-3.5
         transition-all duration-200 ease-soft
+        ${open ? 'cursor-pointer' : ''}
         ${kept ? 'ring-bat-line opacity-55' : 'ring-bat-line hover:ring-bat-line-strong hover:shadow-lift'}`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -138,7 +154,15 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, o
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Every control in here acts on the habit, so its click must stop at
+            the button. Without this, checking in or deleting would also open
+            the record behind it — and a delete that opens a dialog over the
+            thing it just removed is the worst of the four. */}
+        <div
+          className="flex items-center gap-1.5 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
           {kept ? (
             <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-widest text-signal-good">
               <Check size={12} strokeWidth={3} /> kept
@@ -166,13 +190,6 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, o
                 onClick={() => onFocusOn(habit.id)}
               />
             )}
-            {onOpenDetail && (
-              <IconButton
-                label={`See the record for "${habit.name}"`}
-                icon={CalendarDays}
-                onClick={() => onOpenDetail(habit.id, habit.name)}
-              />
-            )}
             <IconButton
               label={resting ? `Back on "${habit.name}"` : `Take a rest day on "${habit.name}"`}
               icon={resting ? Sunrise : Moon}
@@ -192,7 +209,11 @@ function HabitRow({ habit, kept, onCheckIn, onDelete, onSetTargetDate, onRest, o
           it was a bare date input labelled "Target end date:" on every single
           row, which made forty habits into forty date pickers. It opens only
           when there is one, or when you ask for one. */}
-      <details className="mt-2">
+      <details
+        className="mt-2"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         <summary className="text-[10px] font-mono uppercase tracking-[0.14em] text-ink-faint hover:text-ink-muted cursor-pointer transition-colors duration-200 inline-flex items-center gap-1">
           <Flag size={10} />
           {habit.target_date

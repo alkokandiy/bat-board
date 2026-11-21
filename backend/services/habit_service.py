@@ -670,7 +670,12 @@ def history(db: Session, current_user: models.BatAccount, habit_id: int,
     Every figure here already existed and none of it was shown: a habit row
     gave a number and a bar over a record going back to the day it started.
 
-    The four states are the point. `rested` is NOT `missed` — a planned rest
+    States are the point. `before` is the day-one honesty fix: a habit added
+    on the 21st had nothing to miss on the 1st, and colouring those days as
+    failures was both false and the worst possible first impression. They are
+    also kept out of the denominator, so a new habit does not open at 0%.
+
+    `rested` is NOT `missed` — a planned rest
     leaves the denominator rather than entering it as a miss, and a calendar
     that drew them the same colour would re-tell the person the exact thing
     the rest day exists to stop saying. `not_due` is likewise not a miss: a
@@ -707,6 +712,14 @@ def history(db: Session, current_user: models.BatAccount, habit_id: int,
                 models.BatHabitSkip.owner_id == current_user.id).all()
     }
 
+    # The day the habit came into existence, in the user's own timezone.
+    # `created_at.date()` would be the UTC day, which for anyone east of UTC
+    # is the day before — and that one day would then be reported as a miss
+    # on the habit's own first day.
+    started_on = (local_date(habit.created_at if habit.created_at.tzinfo
+                             else habit.created_at.replace(tzinfo=timezone.utc), tz)
+                  if habit.created_at else None)
+
     days = []
     due_count = done_in_month = rested_in_month = missed = 0
     # Kept on a day that ASKED for it. Separate from `done_in_month`, which
@@ -718,24 +731,35 @@ def history(db: Session, current_user: models.BatAccount, habit_id: int,
     while day <= last:
         count = done_counts.get(day, 0)
         is_due = habit_schedule.is_due_on(habit, day)
+        # Before the habit existed there was nothing to keep. Without this a
+        # habit added on the 21st reports the first twenty days of the month
+        # as failures — telling someone they missed something that had not
+        # been invented yet, which is both false and discouraging on day one.
+        existed = started_on is None or day >= started_on
         if count:
             state = "done"
             done_in_month += 1
             if is_due:
                 done_on_due += 1
+        elif not existed:
+            state = "before"
         elif day in rested:
             state = "rested"
             rested_in_month += 1
         elif not is_due:
             state = "not_due"
-        elif day > today:
+        elif day >= today:
             # Not yet missed. A month view of November on the 20th must not
-            # colour the rest of the month as failure.
+            # colour the rest of the month as failure — and TODAY belongs on
+            # this side of the line too: the day is still running, so calling
+            # it a miss at nine in the morning is a verdict on something that
+            # has not happened. A habit made today would otherwise open by
+            # telling its owner they had already failed it.
             state = "upcoming"
         else:
             state = "missed"
             missed += 1
-        if is_due and day <= today and state != "rested":
+        if is_due and day < today and existed and state != "rested":
             due_count += 1
         days.append({"date": day.isoformat(), "state": state, "count": count})
         day += timedelta(days=1)
