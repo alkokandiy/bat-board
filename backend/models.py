@@ -53,16 +53,10 @@ class BatAccount(Base):
     nudge_quiet_start = Column(String, nullable=True)   # default 22:00
     nudge_quiet_end = Column(String, nullable=True)     # default 08:00
     nudges_per_day = Column(Integer, nullable=True)     # default 3
-    # The corporate/work track, which can be switched off entirely.
-    # Tri-state on purpose: NULL means "never decided", and is resolved at read
-    # time to "on if they already have work data". That way the track stays on
-    # for anyone already using it (it shipped before this switch existed) and
-    # stays out of the way for everyone else, with no backfill and no guessing.
-    work_enabled = Column(Boolean, nullable=True)
-    # The finance track, switched off the same way the work track is: tri-state,
-    # NULL meaning "never decided" and resolved at read time to "on if they
-    # already have finance data". Money is the most sensitive thing on the
-    # board, so the default must not be "on" for somebody who never asked.
+    # The finance track, which can be switched off entirely. Tri-state on
+    # purpose: NULL means "never decided" and is resolved at read time to "on
+    # if they already have finance data", so nobody is backfilled into a money
+    # module they never asked for and nobody using one loses it.
     finance_enabled = Column(Boolean, nullable=True)
     # ISO 4217 code every report is converted into. NULL until they choose;
     # never defaulted in code, because rule 1 says no currency is the house one.
@@ -97,9 +91,6 @@ class BatAccount(Base):
     ai_provider_config = relationship("BatAIProviderConfig", back_populates="owner", cascade="all, delete-orphan", uselist=False)
     briefings = relationship("BatBriefing", back_populates="owner", cascade="all, delete-orphan")
     reminders = relationship("BatReminder", back_populates="owner", cascade="all, delete-orphan")
-    work_tasks = relationship("BatWorkTask", back_populates="owner", cascade="all, delete-orphan")
-    work_notes = relationship("BatWorkNote", back_populates="owner", cascade="all, delete-orphan")
-    work_profile = relationship("BatWorkProfile", back_populates="owner", cascade="all, delete-orphan", uselist=False)
 
     active_alfred_session_id = Column(Integer, ForeignKey("bat_alfred_sessions.id", ondelete="SET NULL"), nullable=True)
 
@@ -302,8 +293,6 @@ class BatFocus(Base):
     mission = relationship("BatMission")
     habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="SET NULL"), nullable=True)
     habit = relationship("BatHabit")
-    # Work-track link. A session on a work task logs time but awards NO points.
-    work_task_id = Column(Integer, ForeignKey("bat_work_tasks.id", ondelete="SET NULL"), nullable=True)
 
     owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False)
     owner = relationship("BatAccount", back_populates="focus_sessions")
@@ -587,7 +576,6 @@ class BatReminder(Base):
     # meaningful at a time.
     mission_id = Column(Integer, ForeignKey("bat_missions.id", ondelete="SET NULL"), nullable=True)
     habit_id = Column(Integer, ForeignKey("bat_habits.id", ondelete="SET NULL"), nullable=True)
-    work_task_id = Column(Integer, ForeignKey("bat_work_tasks.id", ondelete="SET NULL"), nullable=True)
 
     # A run of occurrences that went out and were never answered. Reset by
     # any answer at all, including "not today": the point is whether the
@@ -677,75 +665,10 @@ WORK_STATUSES = ("todo", "doing", "blocked", "done")
 WORK_NOTE_KINDS = ("note", "learning", "reflection")
 
 
-class BatWorkTask(Base):
-    __tablename__ = "bat_work_tasks"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    detail = Column(String, nullable=True)
-    status = Column(String, default="todo", nullable=False)   # see WORK_STATUSES
-    project = Column(String, nullable=True)                   # free-text grouping
-    due_date = Column(DateTime, nullable=True)
-    # Minutes of focus logged against this task. No points are awarded for it.
-    focus_minutes = Column(Integer, default=0, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-    completed_at = Column(DateTime, nullable=True)
-
-    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
-    owner = relationship("BatAccount", back_populates="work_tasks")
 
 
-class BatWorkNote(Base):
-    """The work journal: plain notes, things learned, and end-of-period
-    reflections. Kept apart from the user's personal notes and from Alfred's
-    private memory so corporate context never colours personal context."""
-
-    __tablename__ = "bat_work_notes"
-
-    id = Column(Integer, primary_key=True, index=True)
-    kind = Column(String, default="note", nullable=False)     # see WORK_NOTE_KINDS
-    content = Column(String, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-
-    work_task_id = Column(Integer, ForeignKey("bat_work_tasks.id", ondelete="SET NULL"), nullable=True)
-    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"), nullable=False, index=True)
-    owner = relationship("BatAccount", back_populates="work_notes")
 
 
-class BatWorkProfile(Base):
-    """What Alfred knows about the job itself: when it happens and what's
-    expected of it. One row per user.
-
-    Knowing the shape of someone's working week is what makes the corporate
-    track behave sensibly — he stops asking whether they're "drifting" at 3pm
-    on a Tuesday when they are plainly at the office, and a report can say
-    32h against an expected 40 rather than a bare number.
-    """
-
-    __tablename__ = "bat_work_profiles"
-
-    id = Column(Integer, primary_key=True, index=True)
-    employer = Column(String, nullable=True)
-    role = Column(String, nullable=True)
-    work_days = Column(String, nullable=True)        # CSV of weekday numbers, Mon=0
-    work_start = Column(String, nullable=True)       # "09:00" local
-    work_end = Column(String, nullable=True)         # "18:00" local
-    expected_weekly_hours = Column(Integer, nullable=True)
-    started_on = Column(String, nullable=True)       # "YYYY-MM-DD", for tenure
-    # Optional automatic reports. NULL report_time = reports only on request.
-    report_time = Column(String, nullable=True)      # "19:00" local
-    daily_report = Column(Boolean, default=False, server_default="0", nullable=False)
-    weekly_report_day = Column(Integer, nullable=True)   # 0-6, Mon=0; NULL = off
-    monthly_report = Column(Boolean, default=False, server_default="0", nullable=False)
-    notes = Column(String, nullable=True)            # anything else worth knowing
-
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
-
-    owner_id = Column(Integer, ForeignKey("bat_account.id", ondelete="CASCADE"),
-                      nullable=False, unique=True, index=True)
-    owner = relationship("BatAccount", back_populates="work_profile")
 
 
 # ---------------------------------------------------------------------------

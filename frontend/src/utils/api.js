@@ -344,27 +344,6 @@ export const api = {
   saveAlfredProvider: (provider, model_name, api_key) => request('/alfred/provider', { method: 'POST', body: { provider, model_name, api_key } }),
   deleteAlfredProvider: () => request('/alfred/provider', { method: 'DELETE' }),
 
-  // Work / corporate track.
-  // getWorkStatus is the only one that answers while the track is off (it is
-  // how the UI learns that); every other call 409s, so callers must check.
-  getWorkStatus: () => request('/work/status'),
-  setWorkEnabled: (enabled) => request('/work/status', { method: 'PUT', body: { enabled: !!enabled } }),
-  updateWorkProfile: (data) => request('/work/profile', { method: 'PUT', body: data }),
-  getWorkTasks: (includeDone = false) =>
-    request(`/work/tasks${includeDone ? '?include_done=true' : ''}`),
-  createWorkTask: (data) => request('/work/tasks', { method: 'POST', body: data }),
-  updateWorkTask: (id, data) => request(`/work/tasks/${id}`, { method: 'PUT', body: data }),
-  completeWorkTask: (id) => request(`/work/tasks/${id}/complete`, { method: 'POST' }),
-  deleteWorkTask: (id) => request(`/work/tasks/${id}`, { method: 'DELETE' }),
-  getWorkNotes: (kind = '') =>
-    request(`/work/notes${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
-  createWorkNote: (data) => request('/work/notes', { method: 'POST', body: data }),
-  // The journal was write-only, which stranded entries describing time
-  // the report had always counted as zero.
-  deleteWorkNote: (id) => request(`/work/notes/${id}`, { method: 'DELETE' }),
-  getWorkReport: (period = 'today') =>
-    request(`/work/report?period=${encodeURIComponent(period)}`),
-
   // Finance. Amounts cross the wire as integer minor units under *_minor
   // names — never a float, so nothing can round somebody's money in transit.
   getFinanceSettings: () => request('/finance/settings'),

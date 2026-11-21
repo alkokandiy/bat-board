@@ -32,7 +32,7 @@ document you had open. Its content is at the end of this file under
 | 16–18 | Completion rate headline, focus presets, habit archiving | **dropped by the owner, 2026-11-15** |
 | 19 | Per-mission activity | **dropped by the owner, 2026-11-20** |
 | 20 | Attachments, starting with receipts | open — unblocked 2026-11-20 |
-| 21 | Themes | open |
+| 21 | Themes — John Wick and Winter Soldier | open |
 | 22 | Overtime — the clock does not stop at zero | done (2026-11-13) |
 | 23 | The focus timeline strip | done (2026-11-20) |
 | 24 | Quantified habit goals | open |
@@ -48,8 +48,9 @@ document you had open. Its content is at the end of this file under
 | 34 | Cards, loans, and what you actually owe | open |
 | 35 | Before you commit to it | open |
 | 36 | Alfred's financial register | open |
+| 37 | Alfred reads a receipt | open |
 
-**17 done, 13 open, 8 dropped.**
+**17 done, 14 open, 8 dropped.**
 
 ---
 
@@ -274,9 +275,44 @@ fact about a mission worth seeing.
 ### Phase 20 · Attachments
 Alfred already handles images over Telegram; missions cannot hold one.
 
-### Phase 21 · Themes
-Cheap, last, and only once the tokens have settled. The palette was unified
-on 2026-11-04; a theme is now a swap of `:root` values rather than a hunt.
+### Phase 21 · Themes — John Wick and Winter Soldier
+Specified by the owner on 2026-11-21. The palette was unified on 2026-11-04,
+so the colour half is a swap of `:root` values rather than a hunt. The rest
+of it is not, and the scope line is what makes this buildable:
+
+**A theme changes the app's own voice and surface. It changes nothing the
+user made, and it does not touch Alfred.**
+
+In scope — colour, type, texture, motion, and **the app's own vocabulary**:
+the words bat-board uses for its own furniture. "Missions", "Bat Points",
+"The Recruit", the empty states, the section headings. Three complete
+atmospheres:
+
+- **Batman** — the present one. Near-black, signal yellow, utilitarian.
+- **John Wick** — noir. Wet black, neon bleed, gold and crimson, Continental
+  formality. Its vocabulary is contracts, markers, coins.
+- **Winter Soldier** — cold. Desaturated steel and blue-grey, a single red
+  accent, stencilled military type. Its vocabulary is objectives, directives,
+  protocols.
+
+Out of scope, and the reason this is safe to build:
+
+- **Nothing the user wrote.** Habit names, mission titles, notes, list names,
+  categories, transaction notes. A theme that rewrites somebody's own words is
+  not a theme, it is data loss with a colour scheme.
+- **Alfred.** He stays the butler in every theme. His persona is derived from
+  `reports/Human behaviour science for Alfred.md` and constrained by rule 4 and
+  by the dependence findings — re-skinning him as an assassin's concierge or a
+  handler would detach the voice from the evidence it came from, and the
+  overtrust research is specifically unkind to personas that perform. The
+  owner drew this line himself and it is the right one.
+- **Stored values.** `points` and `bat_level` keep their column names and
+  their numbers. A theme renames the *label* at the point of display and
+  nothing else, so switching themes can never alter a score or a level.
+
+Per-user, like every other preference. The vocabulary lives in one map keyed
+by theme, defaulting to the Batman words, so a missing term falls back rather
+than rendering blank.
 
 ---
 
@@ -470,6 +506,30 @@ footnote:
 project is replacing puts a camera on its expense form. A photo of the receipt
 attached to the transaction is the use with real pull; attachments on missions
 and notes follow the same machinery once it works.
+
+---
+
+## The work track, removed 2026-11-21
+
+The owner stopped using it and asked for it gone from bat-board and from
+Alfred both. Three tables, the routes, the panel, the twelve Alfred tools and
+the on/off switch are all deleted; migration 036 drops the rest.
+
+Two things were protected on the way out, and both are worth remembering
+because they are the general shape of removing a domain here:
+
+- **Focus hours survived.** `bat_focus` rows could carry a `work_task_id`, and
+  those sessions are real hours somebody sat through. Dropping the column
+  leaves every row intact with its minutes; nothing cascaded. The migration
+  was tested by seeding a 120-minute work session and checking it still
+  existed afterwards.
+- **`signal-work` is a colour, not the feature.** It is used by habits,
+  missions, countdowns, StatTile and Button. A find-and-delete on "work"
+  would have broken half the interface.
+
+One rule changed rather than disappearing: a focus session on a work task
+earned **no** points, deliberately. With no such thing as a work session, all
+sessions now earn in the ordinary way. Nothing was awarded retroactively.
 
 ---
 
@@ -673,13 +733,58 @@ hours, since the evidence says reminders work and then fade.
 
 ---
 
+## 37 — Alfred reads a receipt
+
+The owner's idea, 2026-11-21, and the best argument yet for attachments:
+photograph a cheque or a receipt, and Alfred reads it, works out what it was,
+and **asks before writing anything**.
+
+"Shall I put 120 000 down as Health, out of the card?" — then it is one word
+from him and the row exists, with the photograph attached to it.
+
+Depends on **20** for somewhere to keep the image and **27** for the tools
+that write a transaction. The image understanding already exists; it shipped
+before phase 0.
+
+Four things this must get right, because an agent that writes money rows off
+a photograph is the riskiest thing in the project:
+
+- **It proposes, it never posts.** Everything inferred from an image goes
+  through a confirmation gate, even though creating a transaction is not
+  destructive. The existing gate covers deletes because they cannot be undone;
+  this needs it for a different reason — the figure was *guessed from a
+  picture*, and the person is the only one who can say it is right. A wrong
+  row in a ledger is worse than no row, because every total after it is wrong
+  too and nobody knows why.
+- **It says what it could not read.** A blurred total, a cut-off line, two
+  plausible numbers — it names the uncertainty instead of picking. The
+  existing honesty floor already forbids confident guessing; this is that rule
+  applied to arithmetic.
+- **It goes through `resolve_posting` like everything else.** Rule 5. An
+  inferred row obeys the same invariant as a typed one.
+- **A cheque is the most sensitive image in the app.** It can carry an account
+  number, a name, a signature. The photograph is sent to an LLM provider that
+  may be a third party under the user's own key, so this needs saying plainly
+  in the interface before the first upload — not buried in a setting. The
+  default stays what phase 27 sets: Alfred sees aggregates, and a receipt is
+  shown to him only when the user hands him one.
+
+**Done when** a photographed receipt becomes a correct row that the owner
+approved, and a deliberately unreadable one produces a question rather than a
+number.
+
+---
+
 ### Order worth building it in
 
-Numeric order is dependency order here. **26 and 27 alone already beat a
-notebook**, and are the honest minimum: a correct ledger and a way to fill it
-without friction. 28 next, so everything after it is true rather than
-illustrative. The rest can be taken in any order the owner likes, except that 32
-must precede 33 and 35, which are both arithmetic on the projection.
+26 is done. The owner confirmed the order on 2026-11-21:
+**28 (import) → 31 (Stats) → 20 (receipts) → 29 (budgets)**, with 27 free to
+jump the queue if logging by chat is wanted before logging by form.
+
+28 goes first because nothing after it is *true* until the real months are
+loaded — the pie and the budget are demos until then. 37 waits for 20 and 27,
+since it needs both a place to keep the image and the tools to write the row.
+32 must precede 33 and 35, which are both arithmetic on the projection.
 
 ---
 

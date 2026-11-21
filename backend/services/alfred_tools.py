@@ -25,7 +25,6 @@ from services import (
     profile_service,
     stats_service,
     telegram_service,
-    work_service,
 )
 from services import habit_schedule, reminder_feedback
 from services.timezones import user_tz
@@ -265,14 +264,6 @@ def _session_dict(s):
     }
 
 
-def _work_task_dict(t):
-    return {
-        "id": t.id, "title": t.title, "detail": t.detail, "status": t.status,
-        "project": t.project, "due_date": _iso(t.due_date),
-        "focus_minutes": t.focus_minutes, "completed_at": _iso(t.completed_at),
-    }
-
-
 def _active_session_dict(s):
     from datetime import datetime, timezone
     start = s.start_time if s.start_time.tzinfo else s.start_time.replace(tzinfo=timezone.utc)
@@ -384,10 +375,10 @@ READ_TOOLS = [
      }}},
     {"name": "review_loose_ends", "description": "Everything on the board that is missing the one field that gives it traction: open missions with no date, habits with no cue, notes gone cold. Returns the items, why each gap matters and the question worth asking. Use it when they ask what needs attention, when a list feels stale, or before offering to tidy up. These are offers, never demands — one kind at a time, named items, and 'leave it' is a complete answer.",
      "parameters": {"type": "object", "properties": {}}},
-    {"name": "find_on_board", "description": "Find anything the user has, by whatever they called it — a mission, habit, note, work task, event or countdown. Matching is generous about wording, articles, typos and language, so use this whenever they refer to something by name instead of listing everything and matching by eye. Returns id, kind, exact stored title and a match score. ALWAYS use the returned exact title as expected_title when you then act on it. If nothing matches, list that kind of item and read the titles yourself before telling them it does not exist.",
+    {"name": "find_on_board", "description": "Find anything the user has, by whatever they called it — a mission, habit, note, event or countdown. Matching is generous about wording, articles, typos and language, so use this whenever they refer to something by name instead of listing everything and matching by eye. Returns id, kind, exact stored title and a match score. ALWAYS use the returned exact title as expected_title when you then act on it. If nothing matches, list that kind of item and read the titles yourself before telling them it does not exist.",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "What the user called it, in their words."},
-         "kinds": {"type": "array", "items": {"type": "string", "enum": ["mission", "habit", "note", "work_task", "event", "countdown"]},
+         "kinds": {"type": "array", "items": {"type": "string", "enum": ["mission", "habit", "note", "event", "countdown"]},
                    "description": "Optional filter. Omit to search everything."},
      }, "required": ["query"]}},
     {"name": "suggest_focus_length", "description": "How long to suggest this user focuses for, based on their OWN completed sessions. Returns {minutes, basis, sessions}: basis='history' means it is their real median, basis='default' means they have too little record yet and the number is only a starting point — say which it is. There is no universally correct session length, so never quote 25 minutes, 52/17, 90 minutes or any other stock figure as if it were established.",
@@ -417,22 +408,6 @@ READ_TOOLS = [
          "reminder_id": {"type": "integer"},
          "limit": {"type": "integer", "description": "How many recent occurrences. Default 30."},
      }, "required": ["reminder_id"]}},
-    {"name": "list_work_tasks", "description": "List CORPORATE/WORK tasks (the job track) — separate from personal missions. Use for 'what work tasks do we have', 'what's on at the office'. Optionally filter by status (todo/doing/blocked/done) or project.",
-     "parameters": {"type": "object", "properties": {
-         "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
-         "project": {"type": "string"},
-         "include_done": {"type": "boolean", "description": "Include finished tasks (default false)."},
-     }}},
-    {"name": "get_work_profile", "description": "Read what you know about their JOB — working days, hours, employer, role, expected weekly hours, report preferences — plus exactly which details are still unknown and the next question to ask. ALWAYS call this first when they say 'set up work' or ask about their work setup, and again between answers so you ask the right next question.",
-     "parameters": {"type": "object", "properties": {}}},
-    {"name": "work_report", "description": "Build the corporate/work report for a period and send it. Use when they ask what they did at work — 'what did I do today at work', a Sunday review, an end-of-month review. Covers finished work, what's in hand, what's BLOCKED, hours logged, working days, and things learned; it ends with a reflection question. Only ever on request — never volunteer it.",
-     "parameters": {"type": "object", "properties": {
-         "period": {"type": "string", "enum": ["today", "week", "month"], "description": "today = this day, week = last 7 days, month = this calendar month."},
-     }, "required": ["period"]}},
-    {"name": "list_work_notes", "description": "Read the work journal: plain notes, things LEARNED, and past REFLECTIONS. Kept separate from personal notes.",
-     "parameters": {"type": "object", "properties": {
-         "kind": {"type": "string", "enum": ["note", "learning", "reflection"]},
-     }}},
     {"name": "get_nudge_settings", "description": "Show how you check in on the user unprompted: whether it's on, their quiet hours, and the daily limit. Read before changing it.",
      "parameters": {"type": "object", "properties": {}}},
     {"name": "show_daily_brief", "description": "Send the user a daily brief card (image): missions due today, habits still to do, next calendar event and countdown, points and level. Use for 'my day', 'daily brief', 'what's on today', 'morning summary'.",
@@ -591,60 +566,6 @@ WRITE_TOOLS = [
          "include_news": {"type": "boolean"},
          "news_topics": {"type": "string", "description": "Comma-separated topics, e.g. 'AI, cybersecurity, defense'. Required if include_news."},
      }, "required": ["kind"]}},
-    {"name": "set_work_track", "description": "Turn the CORPORATE/WORK track on or off for this user. Call it with enabled=true when work is off and they ask for anything work-related — do that in the same turn and then carry on with what they actually asked, rather than making them set it up as a separate errand. Call it with enabled=false when they say they want work out of bat-board; nothing is deleted and it all returns if they switch it back on.",
-     "parameters": {"type": "object", "properties": {
-         "enabled": {"type": "boolean", "description": "True turns the work track on, false turns it off."},
-     }, "required": ["enabled"]}},
-    {"name": "set_work_profile", "description": "Record what they tell you about their job. Pass ONLY the fields they just answered — call it after each answer rather than waiting for everything. Then call get_work_profile again for the next question.",
-     "parameters": {"type": "object", "properties": {
-         "work_days": {"type": "string", "description": "Working days, e.g. 'Mon,Tue,Wed,Thu,Fri' or '0,1,2,3,4' (Mon=0)."},
-         "work_start": {"type": "string", "description": "HH:MM local, start of the working day."},
-         "work_end": {"type": "string", "description": "HH:MM local, end of the working day."},
-         "employer": {"type": "string"},
-         "role": {"type": "string"},
-         "expected_weekly_hours": {"type": "integer", "description": "1-100."},
-         "started_on": {"type": "string", "description": "YYYY-MM-DD, when they started the job."},
-         "report_time": {"type": "string", "description": "HH:MM local for automatic work reports."},
-         "daily_report": {"type": "boolean", "description": "Send the day's work report at report_time — only on days they actually worked."},
-         "weekly_report_day": {"type": "string", "description": "Weekday for the weekly review (e.g. 'Sun'), or 'none' to turn it off."},
-         "monthly_report": {"type": "boolean", "description": "Send a review on the last day of the month."},
-         "notes": {"type": "string", "description": "Anything else about the job worth remembering."},
-     }}},
-    {"name": "create_work_task", "description": "Add a CORPORATE/WORK task (the job track). Use whenever the task belongs to their employer rather than their own life. These never award Bat Points and never appear among personal missions. Don't interrogate — sensible defaults, then report what you added.",
-     "parameters": {"type": "object", "properties": {
-         "title": {"type": "string"},
-         "detail": {"type": "string"},
-         "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
-         "project": {"type": "string", "description": "Free-text grouping, e.g. a client or system name."},
-         "due_date": {"type": "string", "description": "ISO datetime."},
-     }, "required": ["title"]}},
-    {"name": "create_work_tasks", "description": "Add SEVERAL corporate/work tasks in one call. Always use this (not repeated create_work_task) when they list more than one. Duplicates of open titles are skipped.",
-     "parameters": {"type": "object", "properties": {
-         "tasks": {"type": "array", "items": {"type": "object", "properties": {
-             "title": {"type": "string"}, "detail": {"type": "string"},
-             "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
-             "project": {"type": "string"},
-             "due_date": {"type": "string", "description": "ISO datetime."},
-         }, "required": ["title"]}},
-     }, "required": ["tasks"]}},
-    {"name": "update_work_task", "description": "Change a work task — most often its status as it moves (todo → doing → blocked → done). Setting status 'done' completes it.",
-     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
-         "task_id": {"type": "integer"},
-         "title": {"type": "string"}, "detail": {"type": "string"},
-         "status": {"type": "string", "enum": ["todo", "doing", "blocked", "done"]},
-         "project": {"type": "string"},
-         "due_date": {"type": "string", "description": "ISO datetime."},
-     }, "required": ["task_id"]}},
-    {"name": "complete_work_task", "description": "Mark a work task finished. Awards NO Bat Points — deliberately, this is the job, not the person.",
-     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the record you believe this id refers to, copied from a list you have JUST read. The system compares it with the real record and refuses if they differ."}, 
-         "task_id": {"type": "integer"},
-     }, "required": ["task_id"]}},
-    {"name": "log_work_note", "description": "Write to the WORK journal, kept apart from personal notes. kind 'learning' for something learned at work, 'reflection' for an answer to a report's reflection question (save these whenever they answer one), 'note' for anything else worth recording about the job.",
-     "parameters": {"type": "object", "properties": {
-         "content": {"type": "string"},
-         "kind": {"type": "string", "enum": ["note", "learning", "reflection"]},
-         "task_id": {"type": "integer", "description": "Optional work task it belongs to."},
-     }, "required": ["content"]}},
     {"name": "set_nudge_settings", "description": "Change how you check in unprompted. Use when they say things like 'check in on me less', 'stop messaging me', 'don't message me after 9', 'you can nudge me more'. Only pass what they asked to change.",
      "parameters": {"type": "object", "properties": {
          "enabled": {"type": "boolean", "description": "False stops all unprompted check-ins."},
@@ -664,7 +585,6 @@ WRITE_TOOLS = [
          "ends_on": {"type": "string", "description": "Optional last day, YYYY-MM-DD, inclusive. Use whenever the user bounds it in time ('for one month', 'for two weeks', 'until 1 December') — work out the date from today. Omit for an open-ended reminder."},
          "mission_id": {"type": "integer", "description": "Point the reminder at a mission. A linked reminder gets a 'Start focus' button, so use this whenever the reminder is about doing a specific piece of work. Leave it out for anything that is not work — taking medicine is not a focus session."},
          "habit_id": {"type": "integer", "description": "Point the reminder at a habit. Tapping 'Done' then checks the habit in as well, so the reminder finishes the thing it exists to start."},
-         "work_task_id": {"type": "integer", "description": "Point the reminder at a work task."},
 }, "required": ["message", "recurrence", "send_time"]}},
     {"name": "update_reminder", "description": "Update an existing reminder (message, time, recurrence, enable/disable). Only pass fields to change.",
      "parameters": {"type": "object", "properties": {
@@ -678,15 +598,13 @@ WRITE_TOOLS = [
          "ends_on": {"type": "string", "description": "New last day (YYYY-MM-DD), or 'none' to make it open-ended again."},
               "mission_id": {"type": "integer", "description": "Point the reminder at a mission. A linked reminder gets a 'Start focus' button, so use this whenever the reminder is about doing a specific piece of work. Leave it out for anything that is not work — taking medicine is not a focus session."},
          "habit_id": {"type": "integer", "description": "Point the reminder at a habit. Tapping 'Done' then checks the habit in as well, so the reminder finishes the thing it exists to start."},
-         "work_task_id": {"type": "integer", "description": "Point the reminder at a work task."},
 }, "required": ["reminder_id"]}},
-    {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the SAME reply. Blocks may not overlap each other (nobody focuses on two things at once) and may not run into the future — if either happens the call is refused and tells you why, so place consecutive blocks end-to-end rather than all at the same hour. Attach it to a mission, a habit or a work task by id, one of the three. No Bat Points for backfilled time.",
+    {"name": "log_past_focus", "description": "Record focus time that ALREADY happened — 'I did two hours on this yesterday', 'log 10 hours across the 17th and 18th'. One call per block of time: for several days or several tasks, issue several calls in the SAME reply. Blocks may not overlap each other (nobody focuses on two things at once) and may not run into the future — if either happens the call is refused and tells you why, so place consecutive blocks end-to-end rather than all at the same hour. Attach it to a mission or a habit by id, one of the two. No Bat Points for backfilled time.",
      "parameters": {"type": "object", "properties": {
          "minutes": {"type": "integer", "description": "Length of that block in minutes."},
          "when": {"type": "string", "description": "ISO datetime when the block STARTED, in the user's own timezone, e.g. 2026-10-17T14:00. Omit it and the block is placed ending now, which is right for 'I just did two hours'. If they name only a day, place it inside their working hours and say which hours you assumed."},
          "mission_id": {"type": "integer"},
          "habit_id": {"type": "integer"},
-         "work_task_id": {"type": "integer"},
      }, "required": ["minutes", "when"]}},
     {"name": "start_focus_session", "description": "Start a focus session, optionally timed. Set `planned_minutes` (5-180) for a timer that auto-ends after that long and pings the user on Telegram when complete — prefer this. If the user names no duration, call suggest_focus_length first and use what it returns — never assume 25 minutes or any other stock figure. Optionally link a mission or habit. Only one session runs at a time.",
      "parameters": {"type": "object", "properties": {
@@ -726,10 +644,6 @@ DESTRUCTIVE_TOOLS = [
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "kind": {"type": "string", "enum": ["morning", "night"]},
      }, "required": ["kind", "expected_title"]}},
-    {"name": "delete_work_task", "description": "Delete a corporate/work task. Requires user confirmation — never call directly.",
-     "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
-         "task_id": {"type": "integer"},
-     }, "required": ["task_id", "expected_title"]}},
     {"name": "delete_reminder", "description": "Delete a reminder. Requires user confirmation — never call directly.",
      "parameters": {"type": "object", "properties": {"expected_title": {"type": "string", "description": "The exact title of the item you believe you are deleting, copied from a list you have JUST read. The system compares it with the real record and REFUSES if they differ, so never guess an id from memory."}, 
          "reminder_id": {"type": "integer"},
@@ -769,11 +683,6 @@ CAPABILITY_GROUPS = [
         "list_reminders", "create_reminder", "update_reminder", "delete_reminder",
         "reminder_history", "resume_reminder",
         "show_daily_brief"]),
-    ("The corporate/work track", [
-        "list_work_tasks", "create_work_task", "create_work_tasks",
-        "update_work_task", "complete_work_task", "delete_work_task",
-        "list_work_notes", "log_work_note", "work_report",
-        "get_work_profile", "set_work_profile", "set_work_track"]),
     ("Himself and the board at large", [
         "find_on_board", "alfred_remember", "alfred_recall", "alfred_list_memory_topics",
         "get_profile", "list_recent_logs", "review_loose_ends",
@@ -788,8 +697,8 @@ assert _GROUPED == TOOL_NAMES, (
 def capability_summary(available: Optional[set] = None) -> str:
     """A compact, always-accurate inventory for the system prompt.
 
-    `available` filters to the tools this user actually has, so someone with
-    the work track switched off is never told he can do work things.
+    `available` filters to the tools this user actually has, so a filtered
+    tool set is never advertised as something he can do.
     """
     names = available if available is not None else TOOL_NAMES
     lines = []
@@ -800,40 +709,20 @@ def capability_summary(available: Optional[set] = None) -> str:
     return "\n".join(lines)
 
 
-# Tools that only make sense when the corporate track is switched on. Listed
-# by hand rather than matched on the name "work", so adding a tool can never
-# silently opt it in or out — and `set_work_track` itself is deliberately
-# absent: it stays available so the track can always be switched back on.
-WORK_TOOL_NAMES = {
-    "list_work_tasks", "get_work_profile", "work_report", "list_work_notes",
-    "set_work_profile", "create_work_task", "create_work_tasks",
-    "update_work_task", "complete_work_task", "log_work_note",
-    "delete_work_task",
-}
-assert WORK_TOOL_NAMES <= TOOL_NAMES, WORK_TOOL_NAMES - TOOL_NAMES
-
-WORK_OFF_RESULT = {
-    "error": "The corporate/work track is switched off for this user.",
-    "next_step": ("If they are asking for something work-related, call "
-                  "set_work_track(enabled=true) and then do what they asked. "
-                  "Otherwise say the work track is off and leave it off."),
-}
-
-
 # The tools carried when the provider has already refused a full-sized
 # request. EVERY READ stays in: a read is what people ask for most, its schema
-# is small, and a missing read is the worst possible saving — asked to "list
-# all work tasks" with no work tool available, Alfred invented eight generic
-# office tasks rather than admitting he could not look. Only the rarer WRITES
+# is small, and a missing read is the worst possible saving — asked to list
+# something with no tool available, Alfred once invented eight plausible rows
+# rather than admitting he could not look. Only the rarer WRITES
 # are dropped, and losing one of those for a single retry costs a follow-up
 # message, not the truth.
 _LEAN_DROPPED = {
     # Configuration and setup — never urgent, and wordy schemas.
-    "set_briefing", "delete_briefing", "set_work_profile", "set_work_track",
+    "set_briefing", "delete_briefing",
     "set_nudge_settings", "create_reminder", "update_reminder", "delete_reminder",
     # Alfred's own bookkeeping, which can wait for the next turn.
     "alfred_remember", "show_daily_brief", "show_focus_chart", "toggle_pin",
-    "update_countdown", "delete_countdown", "log_work_note",
+    "update_countdown", "delete_countdown",
 }
 LEAN_TOOL_NAMES = TOOL_NAMES - _LEAN_DROPPED
 
@@ -846,20 +735,13 @@ def lean_tools(db: Session, current_user: models.BatAccount) -> list:
 
 
 def tools_for(db: Session, current_user: models.BatAccount) -> list:
-    """The tool list this user should see — work tools only when work is on.
+    """The tool list this user should see.
 
-    Filtering the schema (rather than only refusing at execution) is what stops
-    a disabled track leaking into the conversation: Alfred cannot offer, or
-    quietly use, a tool he was never shown.
+    Kept as a function rather than exposing ALL_TOOLS directly: it is the one
+    place a per-user filter belongs, and the work track proved such a filter
+    is eventually wanted.
     """
-    if work_service.is_enabled(db, current_user):
-        return ALL_TOOLS
-    return [t for t in ALL_TOOLS if t["name"] not in WORK_TOOL_NAMES]
-
-
-def work_blocked(db: Session, current_user: models.BatAccount, name: str) -> bool:
-    """True when this call must be refused because work is switched off."""
-    return name in WORK_TOOL_NAMES and not work_service.is_enabled(db, current_user)
+    return ALL_TOOLS
 
 
 def describe_tool_target(
@@ -903,9 +785,6 @@ def _describe_tool_target(
     if name == "delete_reminder":
         r = briefing_service.get_reminder(db, current_user, int(args.get("reminder_id")))
         return r.message if r else None
-    if name == "delete_work_task":
-        t = work_service.get_task(db, current_user, int(args.get("task_id")))
-        return t.title if t else None
 
     # Mutations that are not deletions but still act on ONE record. Completing
     # or rewriting the wrong row is quieter than deleting it and just as wrong:
@@ -918,9 +797,6 @@ def _describe_tool_target(
         h = habit_service.list_habits(db, current_user)
         match = next((x for x in h if x.id == int(args.get("habit_id"))), None)
         return match.name if match else None
-    if name in ("complete_work_task", "update_work_task"):
-        t = work_service.get_task(db, current_user, int(args.get("task_id")))
-        return t.title if t else None
     if name == "update_note":
         note = notes_service.get_note(db, current_user, int(args.get("note_id")))
         return note.title if note else None
@@ -932,7 +808,6 @@ def _describe_tool_target(
 TARGETED_TOOL_NAMES = {
     "complete_mission", "update_mission",
     "check_in_habit", "update_habit", "rest_habit", "unrest_habit",
-    "complete_work_task", "update_work_task",
     "update_note",
 }
 
@@ -949,19 +824,6 @@ def execute_tool(
     if name in DESTRUCTIVE_TOOL_NAMES:
         raise RuntimeError(f"Tool {name} requires confirmation and cannot execute directly")
 
-    # Belt and braces: the schema already hides these when work is off.
-    if work_blocked(db, current_user, name):
-        return dict(WORK_OFF_RESULT)
-
-    if name == "set_work_track":
-        enabled = bool(args.get("enabled"))
-        was = work_service.is_enabled(db, current_user)
-        now = work_service.set_enabled(db, current_user, enabled)
-        return {"work_enabled": now, "changed": was != now,
-                "note": ("The work track is on; tasks, journal and reports are available again."
-                         if now else
-                         "The work track is off. Nothing was deleted — it all returns if "
-                         "they switch it back on.")}
 
     if name == "list_missions":
         due = _parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None
@@ -1318,7 +1180,7 @@ def execute_tool(
                 day_of_month=args.get("day_of_month"), run_date=args.get("run_date"),
                 ends_on=args.get("ends_on"),
             mission_id=args.get("mission_id"), habit_id=args.get("habit_id"),
-            work_task_id=args.get("work_task_id"))
+            )
         except ValueError as exc:
             return {"error": str(exc)}
         result = {"reminder": _reminder_dict(r)}
@@ -1336,41 +1198,12 @@ def execute_tool(
                 weekdays=args.get("weekdays"), day_of_month=args.get("day_of_month"),
                 run_date=args.get("run_date"), ends_on=args.get("ends_on"),
             mission_id=args.get("mission_id"), habit_id=args.get("habit_id"),
-            work_task_id=args.get("work_task_id"))
+            )
         except ValueError as exc:
             return {"error": str(exc)}
         if r is None:
             return {"error": "Reminder not found"}
         return {"reminder": _reminder_dict(r)}
-    if name == "get_work_profile":
-        return work_service.profile_status(db, current_user)
-    if name == "list_work_tasks":
-        tasks = work_service.list_tasks(
-            db, current_user, status=args.get("status"), project=args.get("project"),
-            include_done=bool(args.get("include_done")))
-        all_open = work_service.list_tasks(db, current_user)
-        return {"work_tasks": [_work_task_dict(t) for t in tasks],
-                "counts": {s_: len([t for t in all_open if t.status == s_])
-                           for s_ in work_service.OPEN_STATUSES},
-                "open_total": len(all_open),
-                "note": "Corporate track — separate from personal missions and Bat Points."}
-    if name == "list_work_notes":
-        notes = work_service.list_notes(db, current_user, kind=args.get("kind"))
-        return {"work_notes": [{"id": n.id, "kind": n.kind, "content": n.content,
-                                "created_at": _iso(n.created_at)} for n in notes]}
-    if name == "work_report":
-        period = (args.get("period") or "today").lower()
-        if period not in work_service.PERIODS:
-            return {"error": f"period must be one of {work_service.PERIODS}."}
-        data = work_service.build_report(db, current_user, period)
-        text = work_service.render_report(current_user, data)
-        if media_sink is not None:
-            # Delivered as the turn's reply text by the caller; nothing to attach.
-            pass
-        return {"report": text,
-                "next_step": ("Send this report as your reply, essentially as written. If they "
-                              "answer the reflection question afterwards, save their answer with "
-                              "log_work_note(kind='reflection').")}
     if name == "get_nudge_settings":
         from services import nudges
         return {"nudges": {
@@ -1379,83 +1212,6 @@ def execute_tool(
             "quiet_end": getattr(current_user, "nudge_quiet_end", None) or nudges.DEFAULT_QUIET_END,
             "per_day": getattr(current_user, "nudges_per_day", None) or nudges.DEFAULT_PER_DAY,
         }}
-    if name == "set_work_profile":
-        try:
-            work_service.upsert_profile(db, current_user, **{
-                k: v for k, v in args.items() if v is not None})
-        except ValueError as exc:
-            return {"error": str(exc)}
-        status = work_service.profile_status(db, current_user)
-        status["next_step"] = ("Confirm what you recorded, then ask next_question if there is one. "
-                               "When next_question is null the setup is finished — say so plainly.")
-        return status
-    if name == "create_work_task":
-        existing = work_service.find_open_by_title(db, current_user, args.get("title") or "")
-        if existing is not None:
-            return {"created": False,
-                    "reason": "An open work task with this title already exists — not duplicated.",
-                    "existing_task": _work_task_dict(existing),
-                    "next_step": ("If what they just said adds anything new, call update_work_task "
-                                  "and say what you changed; otherwise name the existing task.")}
-        try:
-            t = work_service.create_task(
-                db, current_user, title=args["title"], detail=args.get("detail"),
-                status=args.get("status") or "todo", project=args.get("project"),
-                due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None)
-        except ValueError as exc:
-            return {"error": str(exc)}
-        return {"work_task": _work_task_dict(t)}
-    if name == "create_work_tasks":
-        items = args.get("tasks") or []
-        if not isinstance(items, list) or not items:
-            return {"error": "Provide a non-empty 'tasks' array."}
-        created, skipped, seen = [], [], set()
-        for spec in items:
-            if not isinstance(spec, dict):
-                continue
-            title = (spec.get("title") or "").strip()
-            if not title:
-                continue
-            key = " ".join(title.split()).casefold()
-            if key in seen or work_service.find_open_by_title(db, current_user, title):
-                skipped.append(title)
-                continue
-            seen.add(key)
-            try:
-                t = work_service.create_task(
-                    db, current_user, title=title, detail=spec.get("detail"),
-                    status=spec.get("status") or "todo", project=spec.get("project"),
-                    due_date=_parse_dt(spec.get("due_date"), "due_date") if spec.get("due_date") else None)
-            except ValueError:
-                continue
-            created.append(_work_task_dict(t))
-        return {"created": created, "created_count": len(created), "skipped_duplicates": skipped}
-    if name == "update_work_task":
-        try:
-            t = work_service.update_task(
-                db, current_user, int(args["task_id"]),
-                title=args.get("title"), detail=args.get("detail"),
-                status=args.get("status"), project=args.get("project"),
-                due_date=_parse_dt(args.get("due_date"), "due_date") if args.get("due_date") else None)
-        except ValueError as exc:
-            return {"error": str(exc)}
-        if t is None:
-            return {"error": "Work task not found"}
-        return {"work_task": _work_task_dict(t)}
-    if name == "complete_work_task":
-        t = work_service.complete_task(db, current_user, int(args["task_id"]))
-        if t is None:
-            return {"error": "Work task not found"}
-        return {"work_task": _work_task_dict(t), "points_awarded": 0,
-                "note": "No Bat Points — corporate work is deliberately not scored."}
-    if name == "log_work_note":
-        try:
-            n = work_service.add_note(
-                db, current_user, content=args["content"], kind=args.get("kind") or "note",
-                work_task_id=int(args["task_id"]) if args.get("task_id") else None)
-        except ValueError as exc:
-            return {"error": str(exc)}
-        return {"work_note": {"id": n.id, "kind": n.kind, "content": n.content}}
     if name == "set_nudge_settings":
         import re as _re
         hhmm = _re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -1501,7 +1257,7 @@ def execute_tool(
                       else None),
                 mission_id=args.get("mission_id"),
                 habit_id=args.get("habit_id"),
-                work_task_id=args.get("work_task_id"))
+                )
         except ValueError as exc:
             return {"error": str(exc), "logged": False}
         return {"logged": True, "minutes": session.duration_minutes,

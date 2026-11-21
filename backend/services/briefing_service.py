@@ -204,15 +204,14 @@ def get_reminder(db: Session, user: models.BatAccount, reminder_id: int) -> Opti
 
 
 def _valid_link(db: Session, user: models.BatAccount, *, mission_id=None,
-                habit_id=None, work_task_id=None) -> dict:
+                habit_id=None) -> dict:
     """Resolve an optional link, refusing ids that are not the user's.
 
     A reminder that points at someone else's mission would be both a leak and
     a focus session attached to a stranger's work.
     """
     pairs = (("mission_id", mission_id, models.BatMission),
-             ("habit_id", habit_id, models.BatHabit),
-             ("work_task_id", work_task_id, models.BatWorkTask))
+             ("habit_id", habit_id, models.BatHabit))
     given = [(f, v, m) for f, v, m in pairs if v is not None]
     if not given:
         return {}
@@ -232,7 +231,7 @@ def create_reminder(db: Session, user: models.BatAccount, *, message: str, recur
                     run_date: Optional[str] = None,
                     ends_on: Optional[str] = None, offset_days: Optional[int] = None,
                     mission_id: Optional[int] = None, habit_id: Optional[int] = None,
-                    work_task_id: Optional[int] = None) -> models.BatReminder:
+                    ) -> models.BatReminder:
     message = (message or "").strip()
     if not message:
         raise ValueError("A reminder needs a message.")
@@ -264,8 +263,7 @@ def create_reminder(db: Session, user: models.BatAccount, *, message: str, recur
     if end and recurrence == "once":
         end = None   # a one-off already has its date
 
-    link = _valid_link(db, user, mission_id=mission_id, habit_id=habit_id,
-                       work_task_id=work_task_id)
+    link = _valid_link(db, user, mission_id=mission_id, habit_id=habit_id)
 
     r = models.BatReminder(owner_id=user.id, message=message, recurrence=recurrence,
                            send_time=send_time, weekdays=wk, day_of_month=dom, run_date=rd,
@@ -283,7 +281,7 @@ def update_reminder(db: Session, user: models.BatAccount, reminder_id: int, *,
                     run_date: Optional[str] = None,
                     ends_on: Optional[str] = None, offset_days: Optional[int] = None,
                     mission_id: Optional[int] = None, habit_id: Optional[int] = None,
-                    work_task_id: Optional[int] = None) -> Optional[models.BatReminder]:
+                    ) -> Optional[models.BatReminder]:
     r = get_reminder(db, user, reminder_id)
     if r is None:
         return None
@@ -300,8 +298,7 @@ def update_reminder(db: Session, user: models.BatAccount, reminder_id: int, *,
     if send_time is not None:
         updates["send_time"] = _valid_time(send_time)
     # Validated with everything else, before anything is written.
-    updates.update(_valid_link(db, user, mission_id=mission_id, habit_id=habit_id,
-                               work_task_id=work_task_id))
+    updates.update(_valid_link(db, user, mission_id=mission_id, habit_id=habit_id))
 
     new_rec = recurrence or r.recurrence
     if recurrence is not None:

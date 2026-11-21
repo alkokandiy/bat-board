@@ -29,7 +29,7 @@ from services.notes_service import delete_note
 from services.mission_service import delete_mission
 from services.habit_service import delete_habit
 from services.calendar_service import delete_event
-from services import alfred_principles, briefing_service, work_service
+from services import alfred_principles, briefing_service
 from services.llm_providers.base import LLMProviderAdapter, extract_system_instruction
 from services.timezones import local_now, local_today
 
@@ -150,7 +150,6 @@ something you did not.
 does or does not exist, read it, and name the exact item. If they push back on something \
 you claimed, check again before answering — and if you were wrong, correct the record \
 itself, not merely your sentence.
-{work_block}
 - A SHORT REPLY ANSWERS THE LAST THING SAID, not your agenda. "ok", "yes", \
 "done", "thanks" refer to the message immediately before them — usually a \
 reminder you just sent. Acknowledge THAT. Do not treat it as consent to \
@@ -244,7 +243,7 @@ show these — never imply a live on-screen timer; for a timed one, reassure the
 when it's up, so there's no screen to watch.
 - You are a companion, not a reporter. Beyond answering what you are asked, you \
 NOTICE things and say so: a date approaching with no plan behind it, a day with nothing \
-logged, a streak about to break, work that quietly stalled, a good day that deserves \
+logged, a streak about to break, something that quietly stalled, a good day that deserves \
 acknowledging. The system raises these with you and sends them on your behalf; your part \
 is the manner. When you reach out, do it as someone who cares would — one short remark, \
 grounded in what is actually on the board, ending in an offer or a question ("Shall I…?", \
@@ -316,7 +315,7 @@ everything else is yours.
 
 WHAT YOU ARE REPLYING TO. The conversation is not only the messages {address} \
 began. You also send things unprompted — reminders at their hour, the morning \
-brief, a nudge, the work report — and those appear in the history as your own \
+brief, a nudge — and those appear in the history as your own \
 messages, because you said them. Read back before you answer. "Change it" \
 after a reminder means the reminder.
 - A REPLY CONTEXT BLOCK IS THE ANSWER, NOT A HINT. When a message arrives \
@@ -365,61 +364,23 @@ of your own answer, and never apologise for brevity.
 Keep replies short. This is a quiet word in the study, not a speech in the hall."""
 
 
-WORK_TRACK_ON = """- TWO TRACKS, kept apart. Missions, habits and focus are {address}'s OWN life, and they \
-earn Bat Points — that ledger is a measure of the person. The CORPORATE track \
-(create_work_task / list_work_tasks / update_work_task / complete_work_task) is the job: \
-what an employer asks of them. Work never earns points, never appears among missions, and \
-never shows up in briefings or your check-ins. When something plainly belongs to the \
-employer — a ticket, a client, a meeting action, a deliverable for someone else — put it \
-on the work track; when it is theirs — study, health, their own projects — it is a \
-mission. If a request could honestly be either, ask once, briefly, and remember the answer.
-- "Set up work" (or any question about their working life) begins with \
-get_work_profile — it returns what is known, what is missing, and the exact \
-next_question. Ask that question, record the answer at once with set_work_profile, then \
-call get_work_profile again for the next one. One question at a time, in your own words, \
-never a form and never a wall of questions. When next_question is null, say the setup is \
-done and summarise it back. Knowing their days and hours is what lets you tell working \
-from drifting, so get those two first; the rest is enrichment you can offer but never press.
-- The work report (work_report) is given ONLY when asked — "what did I do at work today", \
-a Sunday review, an end-of-month look. Send it essentially as written; it deliberately \
-ends with a question, and when they answer it, record that answer with \
-log_work_note(kind="reflection") so it stands in the month's report. Anything they say \
-they learned at work goes in with kind="learning". Work days are never declared or \
-scheduled: a day counts as worked because something moved on it."""
-
-# What he is told when the user has switched the corporate track off. The work
-# tools are not in his list at all in that case, so this is only here to stop
-# him inventing a track he cannot see — and to let him switch it back on in the
-# same breath if work is what they are asking about.
-WORK_TRACK_OFF = """- The CORPORATE/WORK track is switched OFF for {address}. You have no work \
-tools, there are no work tasks, reports or work journal, and you must not \
-pretend otherwise. Missions, habits and focus are their own life, as always.
-- If they ask for anything work-related — a task for their employer, their \
-working hours, "what did I do at work" — call set_work_track(enabled=true) and \
-then simply do what they asked in the same turn. Say in one line that you have \
-switched the work side on; do not make them set it up first. Nothing of theirs \
-was lost while it was off."""
-
-
 def form_of_address(user: models.BatAccount) -> str:
     """What Alfred calls this user: their chosen form of address, else the username."""
     return (getattr(user, "alfred_address", None) or "").strip() or user.username
 
 
-def _build_system_prompt(user: models.BatAccount, work_enabled: bool = True,
+def _build_system_prompt(user: models.BatAccount,
                          db: Optional[Session] = None) -> str:
-    """Per-user prompt: their form of address, current local time and whether the
-    corporate track is on, fresh every call."""
+    """Per-user prompt: their form of address and current local time, fresh
+    every call."""
     address = form_of_address(user)
-    work_block = (WORK_TRACK_ON if work_enabled else WORK_TRACK_OFF).format(address=address)
-    # Generated from the tools this user actually has, so the work track being
-    # off never leaves him describing abilities he does not have.
+    # Generated from the tools this user actually has, so a filtered tool set
+    # never leaves him describing abilities he does not have.
     available = {t["name"] for t in alfred_tools.tools_for(db, user)} if db is not None \
         else alfred_tools.TOOL_NAMES
     return IDENTITY_CORE.format(
         address=address,
         current_time=_format_local(local_now(user)),
-        work_block=work_block,
         principles=alfred_principles.charter(),
         capabilities=alfred_tools.capability_summary(available),
     )
@@ -791,9 +752,6 @@ def _apply_delete(db: Session, user: models.BatAccount, action_type: str, args: 
         briefing_service.delete_briefing(db, user, str(args.get("kind", "")))
     elif action_type == "delete_reminder":
         briefing_service.delete_reminder(db, user, int(args.get("reminder_id", -1)))
-    elif action_type == "delete_work_task":
-        from services import work_service
-        work_service.delete_task(db, user, int(args.get("task_id", -1)))
 
 
 def _execute_pending(
@@ -839,9 +797,6 @@ def _execute_pending(
         briefing_service.delete_briefing(db, user, str(args.get("kind", "")))
     elif row.action_type == "delete_reminder":
         briefing_service.delete_reminder(db, user, int(args.get("reminder_id", -1)))
-    elif row.action_type == "delete_work_task":
-        from services import work_service
-        work_service.delete_task(db, user, int(args.get("task_id", -1)))
     db.delete(row)
     db.commit()
     return f"Deleted '{title}'."
@@ -1318,9 +1273,8 @@ async def run_turn(
         )
     if images:
         live_user["images"] = images
-    work_enabled = work_service.is_enabled(db, user)
     messages = (
-        [{"role": "system", "content": _build_system_prompt(user, work_enabled=work_enabled, db=db)}]
+        [{"role": "system", "content": _build_system_prompt(user, db=db)}]
         + get_history(db, user, session_id)
         + [live_user]
     )
@@ -1415,8 +1369,6 @@ async def _tool_loop(
         for call in calls:
             if call.name not in TOOL_NAMES:
                 result = {"error": f"Unknown tool: {call.name}"}
-            elif alfred_tools.work_blocked(db, user, call.name):
-                result = dict(alfred_tools.WORK_OFF_RESULT)
             elif call.name in DESTRUCTIVE_TOOL_NAMES:
                 mismatch = wrong_target(db, user, call.name, call.arguments or {})
                 if mismatch is not None:

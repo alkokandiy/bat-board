@@ -107,7 +107,7 @@ def log_past_session(db: Session, current_user: models.BatAccount, *,
                      minutes: int, when: Optional[datetime] = None,
                      mission_id: Optional[int] = None,
                      habit_id: Optional[int] = None,
-                     work_task_id: Optional[int] = None) -> models.BatFocus:
+                     ) -> models.BatFocus:
     """Record focus that already happened.
 
     Someone who worked for two hours yesterday has a real fact about their
@@ -147,15 +147,13 @@ def log_past_session(db: Session, current_user: models.BatAccount, *,
     if when < now - timedelta(days=MAX_BACKFILL_AGE_DAYS):
         raise ValueError(f"That is further back than {MAX_BACKFILL_AGE_DAYS} days.")
 
-    targets = [t for t in (mission_id, habit_id, work_task_id) if t]
+    targets = [t for t in (mission_id, habit_id) if t]
     if len(targets) > 1:
-        raise ValueError("A session belongs to one thing: a mission, a habit, or a work task.")
+        raise ValueError("A session belongs to one thing: a mission or a habit.")
     if mission_id and not _owns(db, models.BatMission, mission_id, current_user):
         raise ValueError("Mission not found.")
     if habit_id and not _owns(db, models.BatHabit, habit_id, current_user):
         raise ValueError("Habit not found.")
-    if work_task_id and not _owns(db, models.BatWorkTask, work_task_id, current_user):
-        raise ValueError("Work task not found.")
 
     # Nobody focuses on two things at once, so an overlap means one of the two
     # entries is wrong. Accepting both silently inflated the total — logging
@@ -179,7 +177,6 @@ def log_past_session(db: Session, current_user: models.BatAccount, *,
         logged_manually=True,
         mission_id=mission_id or None,
         habit_id=habit_id or None,
-        work_task_id=work_task_id or None,
     )
     db.add(session)
 
@@ -249,7 +246,6 @@ def active_session_state(db: Session, current_user: models.BatAccount) -> dict:
         "remaining_seconds": max(0, planned * 60 - elapsed) if planned else None,
         "mission_id": session.mission_id,
         "habit_id": session.habit_id,
-        "work_task_id": session.work_task_id,
         "mode": session.mode,
     }
 
@@ -261,7 +257,6 @@ def start_focus_session(
     habit_id: Optional[int] = None,
     mode: Optional[str] = None,
     planned_minutes: Optional[int] = None,
-    work_task_id: Optional[int] = None,
 ) -> models.BatFocus:
     """Raises ValueError("Mission not found") / ValueError("Habit not found")
     for invalid links (route translates to 404); never returns None.
@@ -285,15 +280,6 @@ def start_focus_session(
         ).first()
         if not habit:
             raise ValueError("Habit not found")
-    if work_task_id:
-        # A work task is not addressable while the corporate track is off; the
-        # row may still exist, but as far as the rest of the system is
-        # concerned it isn't there.
-        from services import work_service
-        if not work_service.is_enabled(db, current_user):
-            raise ValueError("Work task not found")
-        if not _owns(db, models.BatWorkTask, work_task_id, current_user):
-            raise ValueError("Work task not found")
 
     session = models.BatFocus(
         start_time=datetime.now(timezone.utc),
@@ -302,7 +288,6 @@ def start_focus_session(
         habit_id=habit_id,
         mode=mode,
         planned_minutes=planned_minutes,
-        work_task_id=work_task_id,
     )
     db.add(session)
     db.flush()
@@ -406,17 +391,8 @@ def end_focus_session(
             ).first()
             if habit:
                 habit.focus_minutes = (habit.focus_minutes or 0) + session.duration_minutes
-        if session.work_task_id:
-            task = db.query(models.BatWorkTask).filter(
-                models.BatWorkTask.id == session.work_task_id,
-                models.BatWorkTask.owner_id == current_user.id
-            ).first()
-            if task:
-                task.focus_minutes = (task.focus_minutes or 0) + session.duration_minutes
 
-    # Work time is logged but NEVER rewarded: Bat Points measure the person,
-    # not the job. A session attached to a work task earns nothing.
-    reward = 0 if session.work_task_id else (session.duration_minutes or 0)
+    reward = session.duration_minutes or 0
     current_user.points += reward
     old_level = current_user.bat_level
     current_user.bat_level = calculate_bat_level(current_user.points)
@@ -455,14 +431,11 @@ def _label_for(db: Session, current_user: models.BatAccount,
                session: models.BatFocus) -> tuple:
     """(type, name) for what a session was spent on.
 
-    Work is named rather than folded into "unassigned": the strip is a
-    picture of where the hours went, and an unlabelled block is exactly the
-    hole it is meant to make visible. Naming it does not score it — the work
-    track earns no points, and nothing here touches points.
+    An unlabelled block is exactly the hole the strip is meant to make
+    visible, so anything with a target is named.
     """
     pairs = (("mission", session.mission_id, models.BatMission, "title"),
-             ("habit", session.habit_id, models.BatHabit, "name"),
-             ("work", session.work_task_id, models.BatWorkTask, "title"))
+             ("habit", session.habit_id, models.BatHabit, "name"))
     for kind, row_id, model, field in pairs:
         if row_id is None:
             continue

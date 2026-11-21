@@ -46,14 +46,13 @@ MAX_QUOTE_CHARS = 400
 # Message origins. "chat" is a turn the user began; the rest are Alfred
 # speaking first.
 CHAT = "chat"
-PROACTIVE_ORIGINS = ("reminder", "briefing", "nudge", "work_report", "focus")
+PROACTIVE_ORIGINS = ("reminder", "briefing", "nudge", "focus")
 
 # What an `about` link may point at, and how to read the thing it names.
 _ABOUT_MODELS = {
     "reminder": (models.BatReminder, "message"),
     "mission": (models.BatMission, "title"),
     "habit": (models.BatHabit, "name"),
-    "work_task": (models.BatWorkTask, "title"),
     "event": (models.CalendarEvent, "title"),
 }
 

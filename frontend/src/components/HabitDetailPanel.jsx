@@ -66,7 +66,11 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setData(null);
+    // The previous month deliberately STAYS on screen while the next one
+    // loads. Clearing it collapsed the dialog to the height of one line of
+    // text and then snapped it back, which read as the thing breaking every
+    // time you pressed an arrow. A month grid is always about the same size,
+    // so holding the old one keeps the box still.
     api.getHabitHistory(habitId, month)
       .then((result) => {
         if (!cancelled) setData(result);
@@ -137,7 +141,10 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
           </button>
         </div>
 
-        <div className="p-4 space-y-4">
+        {/* A floor under the body. A month grid plus its legend and figures is
+            always about this tall, so reserving it stops the dialog jumping
+            between the first paint and the data arriving. */}
+        <div className="p-4 space-y-4 min-h-[26rem]">
       <div className="flex items-center justify-between gap-3">
         <Button
           tone="ghost"
@@ -168,7 +175,7 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
       )}
 
       {!error && loading && !data && (
-        <div className="py-10 text-center text-ink-faint font-mono text-xs">GATHERING THE RECORD...</div>
+        <div className="py-20 text-center text-ink-faint font-mono text-xs">GATHERING THE RECORD...</div>
       )}
 
       {!error && data && data.days.length === 0 && (
@@ -176,7 +183,11 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
       )}
 
       {!error && data && data.days.length > 0 && (
-        <>
+        <div
+          data-testid="habit-month"
+          aria-busy={loading || undefined}
+          className={`space-y-4 transition-opacity duration-150 ${loading ? 'opacity-40' : ''}`}
+        >
           <div>
             <div className="grid grid-cols-7 gap-1 mb-1">
               {WEEKDAY_HEADERS.map((label, i) => (
@@ -225,7 +236,7 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
             <StatTile label="Best streak" value={data.best_streak} />
             <StatTile label="Total check-ins" value={data.total_check_ins} />
           </div>
-        </>
+        </div>
       )}
         </div>
       </div>

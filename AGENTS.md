@@ -14,8 +14,8 @@ Merging to `main` therefore ships to real users — treat it that way.
 ## Commands
 
 ```bash
-cd backend && .venv/bin/python -m pytest tests/ -q      # 893 tests
-cd frontend && npx vitest run                           # 412 tests
+cd backend && .venv/bin/python -m pytest tests/ -q      # 884 tests
+cd frontend && npx vitest run                           # 440 tests
 cd frontend && npm run build
 ```
 
@@ -43,7 +43,7 @@ Never run a dev server to "check" something; run the tests.
   create a real list to stand in for it, and never let a `list_id` reach a
   mission without `list_service.resolve` — it is the only thing stopping a
   mission being filed into another user's list.
-- Migrations are numbered (`035` is current head). New migration = next number,
+- Migrations are numbered (`036` is current head). New migration = next number,
   additive where possible, and must be reversible.
 - Comments explain **why**, not what — especially the non-obvious decision behind a
   line. Match the surrounding density; don't narrate the code.
@@ -52,10 +52,11 @@ Never run a dev server to "check" something; run the tests.
 
 1. **Multi-user.** Never hard-code the owner's name, timezone, gender or data.
    Every query is scoped by `owner_id`.
-2. **Work earns no Bat Points.** The corporate track (`services/work_service.py`)
-   is the job; points measure the person. Nothing in it touches `points` or
-   `bat_level`. Work can also be switched off per user — `work_service.is_enabled`
-   is the single source of truth, and "off" must mean off everywhere.
+2. **The corporate/work track was removed on 2026-11-21** at the owner's
+   request — tables, routes, Alfred's tools and the UI. Do not reintroduce it,
+   and do not read old references to it as a feature that still exists. What it
+   established survives as rule 5: a track can be switched off per user, and a
+   track that is not the person earns no Bat Points.
 3. **Don't break existing users.** Columns are added nullable or with a default;
    no destructive migration without being told.
 4. **Evidence, not folklore.** `services/alfred_principles.py` is the single

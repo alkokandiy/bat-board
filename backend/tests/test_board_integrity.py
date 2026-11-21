@@ -1,6 +1,7 @@
 """The board must mean what it says.
 
-Three failures from one afternoon on the work track:
+Three failures from one afternoon, found on the (since removed) work track
+but all of them general:
 
 - "add work task, priclist button creation" drew "I have added... you now have
   four new items", naming three things that had never been created. The next
@@ -19,7 +20,7 @@ import pytest
 
 import models
 from database import SessionLocal
-from services import alfred_agent, alfred_tools, focus_service, work_service
+from services import alfred_agent, alfred_tools, focus_service
 
 _n = [990000]
 
@@ -30,7 +31,7 @@ def _mk_user():
     try:
         u = models.BatAccount(username=f"bi{_n[0]}", hashed_password="x",
                               timezone="UTC", alfred_address="Master Wayne",
-                              work_enabled=True)
+                              )
         db.add(u)
         db.commit()
         db.refresh(u)
@@ -47,17 +48,21 @@ def test_completing_the_wrong_task_is_refused():
     db = SessionLocal()
     try:
         user = db.get(models.BatAccount, uid)
-        right = work_service.create_task(db, user, title="intercompany produkt sonlar")
-        wrong = work_service.create_task(db, user, title="takliflarni pastga o'tkazib qo'yish POS")
+        right = models.BatMission(owner_id=uid, title="intercompany produkt sonlar",
+                                  status="pending")
+        wrong = models.BatMission(owner_id=uid, title="takliflarni pastga o'tkazib qo'yish POS",
+                                  status="pending")
+        db.add_all([right, wrong])
+        db.commit()
 
-        out = alfred_agent.wrong_target(db, user, "complete_work_task", {
-            "task_id": wrong.id,
+        out = alfred_agent.wrong_target(db, user, "complete_mission", {
+            "mission_id": wrong.id,
             "expected_title": "intercompany produkt sonlar"})
         assert out is not None and "WRONG TARGET" in out["error"]
 
         # The right one passes untouched.
-        assert alfred_agent.wrong_target(db, user, "complete_work_task", {
-            "task_id": right.id,
+        assert alfred_agent.wrong_target(db, user, "complete_mission", {
+            "mission_id": right.id,
             "expected_title": "intercompany produkt sonlar"}) is None
     finally:
         db.close()
@@ -83,7 +88,6 @@ def test_the_resolver_knows_every_targeted_tool():
         note = models.BatNote(owner_id=uid, title="A note")
         db.add_all([m, h, note])
         db.flush()
-        t = work_service.create_task(db, user, title="A work task")
         db.commit()
 
         cases = {
@@ -94,8 +98,6 @@ def test_the_resolver_knows_every_targeted_tool():
             "rest_habit": ({"habit_id": h.id}, "A habit"),
             "unrest_habit": ({"habit_id": h.id}, "A habit"),
             "update_note": ({"note_id": note.id}, "A note"),
-            "complete_work_task": ({"task_id": t.id}, "A work task"),
-            "update_work_task": ({"task_id": t.id}, "A work task"),
         }
         assert set(cases) == alfred_tools.TARGETED_TOOL_NAMES
         for name, (args, title) in cases.items():
@@ -122,29 +124,15 @@ def test_focus_can_be_logged_after_the_fact():
     db = SessionLocal()
     try:
         user = db.get(models.BatAccount, uid)
-        task = work_service.create_task(db, user, title="fix discrepency")
+        m = models.BatMission(owner_id=uid, title="fix discrepency", status="pending")
+        db.add(m)
+        db.commit()
         s = focus_service.log_past_session(db, user, minutes=120,
                                            when=_hours_ago(26),
-                                           work_task_id=task.id)
+                                           mission_id=m.id)
         assert s.duration_minutes == 120
         assert s.logged_manually is True
         assert s.end_time > s.start_time
-    finally:
-        db.close()
-
-
-def test_backfilled_work_hours_reach_the_work_report():
-    """Every work report read zero hours however much was actually done."""
-    uid = _mk_user()
-    db = SessionLocal()
-    try:
-        user = db.get(models.BatAccount, uid)
-        task = work_service.create_task(db, user, title="create stock guard")
-        focus_service.log_past_session(db, user, minutes=120,
-                                       when=datetime.now(timezone.utc) - timedelta(hours=3),
-                                       work_task_id=task.id)
-        report = work_service.build_report(db, user, "today")
-        assert report["minutes"] >= 120
     finally:
         db.close()
 
@@ -346,31 +334,27 @@ def _tz_where_local_hour_is(hour: int) -> str:
 
 def test_the_web_can_log_hours_that_already_happened(client, auth_headers):
     """It existed only as an Alfred tool, so somebody at the keyboard had no
-    way to say "I did two hours on this yesterday" — and asking Alfred before
-    that tool existed produced a work NOTE claiming hours the report read as
-    zero."""
+    way to say "I did two hours on this yesterday"."""
     h = auth_headers("logpast_web")
-    # Pinned to a zone where it is currently the middle of the day, because
-    # the report is for TODAY in the user's timezone and the block has to
-    # land inside it. Read against the real clock this test failed every
-    # night between midnight and 05:00 UTC, when "five hours ago" was
-    # yesterday and today's report was correctly reporting zero.
+    # Pinned to a zone where it is currently the middle of the day, so the
+    # block lands inside the user's own today. Read against the real clock
+    # this failed every night between midnight and 05:00 UTC.
     midday = _tz_where_local_hour_is(12)
     assert client.put("/api/account", headers=h,
                       json={"timezone": midday}).status_code == 200
-    client.put("/api/work/status", headers=h, json={"enabled": True})
-    task = client.post("/api/work/tasks", headers=h, json={"title": "fix discrepency"}).json()
+    mission = client.post("/api/missions", headers=h,
+                          json={"title": "fix discrepency"}).json()
 
     when = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
     r = client.post("/api/focus/log-past", headers=h,
-                    json={"minutes": 120, "when": when, "work_task_id": task["id"]})
+                    json={"minutes": 120, "when": when, "mission_id": mission["id"]})
     assert r.status_code == 201, r.text
     assert r.json()["minutes"] == 120
     assert r.json()["logged_manually"] is True
 
-    # And it reaches the report, which is the whole point.
-    report = client.get("/api/work/report?period=today", headers=h).json()
-    assert report["minutes"] >= 120
+    # And it reaches the day's record, which is the whole point.
+    day = client.get("/api/focus/day", headers=h).json()
+    assert sum(s["minutes"] for s in day["sessions"]) >= 120
 
 
 def test_the_web_refuses_an_overlapping_block_with_a_readable_reason(client, auth_headers):
@@ -401,13 +385,12 @@ def test_logging_without_a_time_places_the_block_ending_now(client, auth_headers
     assert r.status_code == 201 and r.json()["minutes"] == 45
 
 
-def test_another_users_task_cannot_be_logged_against(client, auth_headers):
+def test_another_users_record_cannot_be_logged_against(client, auth_headers):
     owner = auth_headers("logpast_owner")
-    client.put("/api/work/status", headers=owner, json={"enabled": True})
-    task = client.post("/api/work/tasks", headers=owner, json={"title": "theirs"}).json()
+    mission = client.post("/api/missions", headers=owner, json={"title": "theirs"}).json()
 
     intruder = auth_headers("logpast_intruder")
     r = client.post("/api/focus/log-past", headers=intruder,
-                    json={"minutes": 30, "work_task_id": task["id"]})
+                    json={"minutes": 30, "mission_id": mission["id"]})
     assert r.status_code == 400
     assert "not found" in r.json()["detail"].lower()

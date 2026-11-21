@@ -90,10 +90,6 @@ def search(db: Session, user: models.BatAccount, query: str,
         for n in db.query(models.BatNote).filter(
                 models.BatNote.owner_id == user.id).all():
             rows.append(("note", n.id, n.title or "", {"tags": n.tags or ""}))
-    if want("work_task"):
-        for t in db.query(models.BatWorkTask).filter(
-                models.BatWorkTask.owner_id == user.id).all():
-            rows.append(("work_task", t.id, t.title, {"status": t.status}))
     if want("event"):
         for e in db.query(models.CalendarEvent).filter(
                 models.CalendarEvent.owner_id == user.id).all():
