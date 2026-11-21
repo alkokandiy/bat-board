@@ -4,6 +4,7 @@ import MissionsPanel from './components/MissionsPanel';
 import ListRail from './components/ListRail';
 import HabitsPanel from './components/HabitsPanel';
 import FocusPanel from './components/FocusPanel';
+import FinancePanel from './components/FinancePanel';
 import CountdownSection from './components/CountdownSection';
 import CalendarPanel from './components/CalendarPanel';
 import NotesPanel from './components/NotesPanel';
@@ -116,6 +117,7 @@ export default function App() {
   // dashboard tile. Defaults to off, so a failed/absent status never shows a
   // work side that cannot work.
   const [workEnabled, setWorkEnabled] = useState(false);
+  const [financeEnabled, setFinanceEnabled] = useState(false);
 
   // Lists (Phase 8). `selectedList` is null (All), 'inbox', or a list id —
   // the same shapes the rail and the API speak. Counts come from their own
@@ -267,6 +269,13 @@ export default function App() {
         .then((st) => setWorkEnabled(!!st.enabled))
         .catch(() => setWorkEnabled(false));
 
+      // Finance is optional in exactly the same way, and for a stronger
+      // reason: it is the most sensitive thing on the board, so its entry
+      // appears only once the person has actually started using it.
+      api.getFinanceSettings()
+        .then((st) => setFinanceEnabled(!!st.finance_enabled))
+        .catch(() => setFinanceEnabled(false));
+
       // Lists ride alongside the boot data, never in front of it.
       fetchLists();
       fetchSections();
@@ -314,6 +323,7 @@ export default function App() {
       setSections([]);
       setSelectedList(null);
       setWorkEnabled(false);
+      setFinanceEnabled(false);
     };
     window.addEventListener('auth:logout', handleLogout);
 
@@ -785,6 +795,12 @@ export default function App() {
             onFocusOn={(id) => handleFocusOn('habit', id)}
           />
         );
+      case 'finance':
+        return (
+          <FinancePanel
+            onRefreshAccount={handleRefreshAccount}
+          />
+        );
       case 'focus':
         return (
           <div className="space-y-6">
@@ -929,6 +945,7 @@ export default function App() {
       onTrackChange={handleTrackChange}
       focusMode={focusMode}
       workEnabled={workEnabled}
+      financeEnabled={financeEnabled}
     >
       {renderView()}
       <AudioPlayer

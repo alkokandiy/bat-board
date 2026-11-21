@@ -481,7 +481,7 @@ describe('Time spent on a habit', () => {
 // here is that there is a way to REACH it, and a way back. A component
 // nothing renders is just a file.
 
-describe('opening a habit record from its row', () => {
+describe('opening a habit record from its card', () => {
   const history = {
     habit_id: 1, name: 'Fifty press-ups', month: '2026-11',
     days: [{ date: '2026-11-01', state: 'done', count: 1 }],
@@ -494,7 +494,7 @@ describe('opening a habit record from its row', () => {
     api.getHabitHistory.mockResolvedValue(history);
     render(<HabitsPanel habits={[habit()]} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
 
-    fireEvent.click(screen.getByLabelText('See the record for "Fifty press-ups"'));
+    fireEvent.click(screen.getByLabelText('Open the record for "Fifty press-ups"'));
 
     await waitFor(() => expect(api.getHabitHistory).toHaveBeenCalledWith(1, expect.any(String)));
     const close = await screen.findByLabelText(/close/i);
@@ -502,12 +502,56 @@ describe('opening a habit record from its row', () => {
     await waitFor(() => expect(screen.queryByText(/check-in rate/i)).toBeNull());
   });
 
-  it('asks for the record of the habit whose button was pressed', async () => {
+  it('asks for the record of the habit whose card was clicked', async () => {
     api.getHabitHistory.mockResolvedValue(history);
     const two = [habit(), { ...habit(), id: 2, name: 'Read a page' }];
     render(<HabitsPanel habits={two} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
 
-    fireEvent.click(screen.getByLabelText('See the record for "Read a page"'));
+    fireEvent.click(screen.getByLabelText('Open the record for "Read a page"'));
     await waitFor(() => expect(api.getHabitHistory).toHaveBeenCalledWith(2, expect.any(String)));
+  });
+
+  it('opens from the keyboard, since the card is not a real button', async () => {
+    api.getHabitHistory.mockResolvedValue(history);
+    render(<HabitsPanel habits={[habit()]} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
+
+    fireEvent.keyDown(screen.getByTestId('habit-card-1'), { key: 'Enter' });
+    await waitFor(() => expect(api.getHabitHistory).toHaveBeenCalledWith(1, expect.any(String)));
+  });
+
+  it('opens as a dialog over the page, not a panel below it', async () => {
+    // It used to render underneath everything, so the click looked like it
+    // had done nothing and the record was only found by scrolling.
+    api.getHabitHistory.mockResolvedValue(history);
+    render(<HabitsPanel habits={[habit()]} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Open the record for "Fifty press-ups"'));
+    const dialog = await screen.findByTestId('habit-detail-dialog');
+    expect(dialog.getAttribute('role')).toBe('dialog');
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('closes on Escape', async () => {
+    api.getHabitHistory.mockResolvedValue(history);
+    render(<HabitsPanel habits={[habit()]} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Open the record for "Fifty press-ups"'));
+    await screen.findByTestId('habit-detail-dialog');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('habit-detail-dialog')).toBeNull());
+  });
+
+  it('does not open the record when a control on the card is used', async () => {
+    // Checking in, resting or deleting must stop at the button. A delete
+    // that also opens a dialog over the thing it just removed is the worst
+    // version of this.
+    api.getHabitHistory.mockResolvedValue(history);
+    api.checkInHabit.mockResolvedValue({});
+    render(<HabitsPanel habits={[habit()]} onRefreshHabits={vi.fn()} onRefreshAccount={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /check in/i }));
+    await waitFor(() => expect(api.checkInHabit).toHaveBeenCalled());
+    expect(api.getHabitHistory).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('habit-detail-dialog')).toBeNull();
   });
 });

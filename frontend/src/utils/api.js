@@ -365,6 +365,22 @@ export const api = {
   getWorkReport: (period = 'today') =>
     request(`/work/report?period=${encodeURIComponent(period)}`),
 
+  // Finance. Amounts cross the wire as integer minor units under *_minor
+  // names — never a float, so nothing can round somebody's money in transit.
+  getFinanceSettings: () => request('/finance/settings'),
+  updateFinanceSettings: (data) => request('/finance/settings', { method: 'PUT', body: data }),
+  getFinanceAccounts: () => request('/finance/accounts'),
+  createFinanceAccount: (data) => request('/finance/accounts', { method: 'POST', body: data }),
+  getFinanceCategories: (kind) =>
+    request(`/finance/categories${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
+  createFinanceCategory: (data) => request('/finance/categories', { method: 'POST', body: data }),
+  // One window's rows and its three header figures in a single call, because
+  // the transactions screen needs both and two round trips can disagree.
+  getLedger: (start, end) =>
+    request(`/finance/ledger?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  createTransaction: (data) => request('/finance/transactions', { method: 'POST', body: data }),
+  deleteTransaction: (id) => request(`/finance/transactions/${id}`, { method: 'DELETE' }),
+
   // Admin (gated server-side by ADMIN_USERNAMES; getAdminMe returns is_admin:false
   // for everyone else, so the UI stays hidden rather than erroring)
   getAdminMe: () => request('/admin/me'),

@@ -12,6 +12,7 @@ vi.mock('../utils/api', () => ({
     refreshToken: vi.fn(),
     logout: vi.fn(),
     getWorkStatus: vi.fn(),
+    getFinanceSettings: vi.fn(),
     getSuggestedFocusMinutes: vi.fn(),
     getActiveFocusSession: vi.fn(),
     getWorkTasks: vi.fn(),
@@ -62,6 +63,7 @@ describe('the work side appears only when it is switched on', () => {
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
     api.getWorkStatus.mockResolvedValue({ ...ON, enabled: false });
+    api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     await boot();
     expect(workNav()).toHaveLength(0);
     expect(screen.queryByText(/Corporate Track/i)).toBeNull();
@@ -69,6 +71,7 @@ describe('the work side appears only when it is switched on', () => {
 
   it('still boots the dashboard when the work status call fails', async () => {
     api.getWorkStatus.mockRejectedValue(new Error('boom'));
+    api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     await boot();
     expect(screen.getByText('BATCAVE COMMAND CENTER')).toBeTruthy();
     expect(workNav()).toHaveLength(0);
@@ -76,6 +79,7 @@ describe('the work side appears only when it is switched on', () => {
 
   it('shows the entry and opens the panel when the track is on', async () => {
     api.getWorkStatus.mockResolvedValue(ON);
+    api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     await boot();
     expect(workNav().length).toBeGreaterThan(0);
     await act(async () => { fireEvent.click(workNav()[0]); });
@@ -85,6 +89,7 @@ describe('the work side appears only when it is switched on', () => {
   it('leaves the work view cleanly if the track is switched off elsewhere', async () => {
     // On at boot, off by the time the panel reads its own status — what happens
     // when the user turns it off from Telegram, or in another tab.
+    api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getWorkStatus.mockResolvedValueOnce(ON)
                      .mockResolvedValue({ ...ON, enabled: false });
     await boot();

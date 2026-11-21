@@ -105,12 +105,28 @@ describe('the five day states', () => {
     expect(missed.className).toMatch(/signal-late/);
   });
 
-  it('names all five states in the legend', async () => {
+  it('names every state in the legend', async () => {
     renderPanel();
     const legend = await screen.findByTestId('habit-legend');
-    for (const label of ['Done', 'Rested', 'Missed', 'Not due', 'Upcoming']) {
+    for (const label of ['Done', 'Rested', 'Missed', 'Not due', 'Upcoming', 'Not started yet']) {
       expect(legend.textContent).toContain(label);
     }
+  });
+
+  it('draws a day before the habit existed as nothing, never as a miss', async () => {
+    // A habit added on the 21st used to paint the first twenty days red.
+    renderPanel({
+      days: buildDays('2026-11', {
+        '2026-11-03': 'before',
+        '2026-11-25': 'missed',
+      }),
+    });
+
+    const before = await screen.findByTestId('habit-day-2026-11-03');
+    const missed = screen.getByTestId('habit-day-2026-11-25');
+    expect(before.getAttribute('data-state')).toBe('before');
+    expect(before.className).not.toMatch(/signal-late/);
+    expect(before.className).not.toBe(missed.className);
   });
 });
 

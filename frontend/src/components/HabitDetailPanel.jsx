@@ -1,11 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import { api } from '../utils/api';
-import { Panel, StatTile, Button, EmptyState } from './ui';
+import { StatTile, Button, EmptyState } from './ui';
 
 const WEEKDAY_HEADERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 const STATE_STYLES = {
   done: 'bg-signal-self text-bat-bg ring-1 ring-signal-self',
+  // Before the habit existed. Nearly invisible on purpose: these days are
+  // not a record of anything, and giving them weight would invite the same
+  // misreading the red squares did.
+  before: 'bg-transparent text-ink-faint/25',
   // A rest is a decision, not a gap. It has to look like the neutral thing
   // it is, or the calendar tells the person off for taking one.
   rested: 'bg-bat-raised text-ink-muted ring-1 ring-bat-line-strong',
@@ -16,6 +21,7 @@ const STATE_STYLES = {
 
 const STATE_LABELS = {
   done: 'Done',
+  before: 'Not started yet',
   rested: 'Rested',
   missed: 'Missed',
   not_due: 'Not due',
@@ -24,13 +30,14 @@ const STATE_LABELS = {
 
 const LEGEND_SWATCHES = {
   done: 'bg-signal-self',
+  before: 'bg-bat-surface/50 ring-1 ring-bat-line/30',
   rested: 'bg-bat-raised ring-1 ring-bat-line-strong',
   missed: 'bg-signal-late/30 ring-1 ring-signal-late/50',
   not_due: 'bg-bat-surface ring-1 ring-bat-line/50',
   upcoming: 'bg-transparent ring-1 ring-bat-line-strong',
 };
 
-const LEGEND_ORDER = ['done', 'rested', 'missed', 'not_due', 'upcoming'];
+const LEGEND_ORDER = ['done', 'rested', 'missed', 'not_due', 'upcoming', 'before'];
 
 const toMonthString = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -75,6 +82,14 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
     };
   }, [habitId, month]);
 
+  // Escape closes it; every other dialog on the web does, and this one is
+  // read-only so there is nothing to lose by leaving.
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   const currentMonth = toMonthString(new Date());
   const canGoForward = month < currentMonth;
 
@@ -89,15 +104,40 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
   const leadingBlanks = data && data.days.length ? weekdayIndex(data.days[0].date) : 0;
 
   return (
-    <Panel
-      title={data?.name || habitName || 'HABIT'}
-      action={(
-        <Button tone="ghost" size="sm" onClick={onClose} aria-label="Close habit history">
-          Close
-        </Button>
-      )}
-      bodyClassName="p-4 space-y-4"
+    // A dialog, not a panel below the list. It used to render underneath
+    // everything, so it looked like the button had done nothing and was only
+    // found by scrolling. A record you have to hunt for is a record nobody
+    // reads.
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+      onClick={onClose}
     >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Record for ${data?.name || habitName || 'this habit'}`}
+        data-testid="habit-detail-dialog"
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-card
+          bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line-strong shadow-lift
+          animate-rise-in"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5
+          border-b border-white/[0.04] sticky top-0 bg-bat-surface/95 backdrop-blur z-10">
+          <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted truncate">
+            {data?.name || habitName || 'HABIT'}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close habit history"
+            className="text-ink-faint hover:text-ink transition-colors duration-200 shrink-0"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <Button
           tone="ghost"
@@ -187,6 +227,8 @@ export default function HabitDetailPanel({ habitId, habitName, onClose }) {
           </div>
         </>
       )}
-    </Panel>
+        </div>
+      </div>
+    </div>
   );
 }

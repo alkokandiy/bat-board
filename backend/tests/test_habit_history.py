@@ -35,7 +35,15 @@ def _mk_user(tz="UTC"):
         db.close()
 
 
+# Long before any month these tests look at. A habit cannot miss a day that
+# predates it, so without an explicit birth date every fixture month would
+# come back as `before` and the state machine under test would never run.
+# Tests about that boundary pass their own `created_at`.
+_LONG_AGO = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+
 def _habit(db, owner_id, name="Press-ups", frequency="daily", **kw):
+    kw.setdefault("created_at", _LONG_AGO)
     h = models.BatHabit(owner_id=owner_id, name=name, frequency=frequency, **kw)
     db.add(h)
     db.commit()
@@ -311,5 +319,131 @@ def test_keeping_it_on_a_day_it_was_not_due_cannot_push_the_rate_past_100():
         out = habit_service.history(db, user, h.id, month="2026-02")
         assert out["done_this_month"] == 7        # every day it was kept
         assert out["check_in_rate"] == 100        # of the days that asked
+    finally:
+        db.close()
+
+
+# --- a habit cannot have missed what did not exist -------------------------
+
+def test_days_before_the_habit_existed_are_not_misses():
+    """Reported from the real board: a habit added on the 21st painted the
+    first twenty days of the month red. Nothing was missed — there was
+    nothing there to keep."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        today = date.today()
+        made_on = today - timedelta(days=3)
+        h = _habit(db, uid, created_at=datetime.combine(
+            made_on, datetime.min.time(), tzinfo=timezone.utc))
+        out = habit_service.history(db, user, h.id, today.strftime("%Y-%m"))
+    finally:
+        db.close()
+
+    before = [d for d in out["days"] if date.fromisoformat(d["date"]) < made_on]
+    assert before, "this test needs a habit made after the 1st to mean anything"
+    assert all(d["state"] == "before" for d in before)
+    assert not any(d["state"] == "missed" for d in before)
+
+
+def test_a_brand_new_habit_does_not_open_at_zero_percent():
+    """The days before it existed must stay out of the denominator too, or
+    the first thing a new habit tells its owner is that they are failing."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        today = date.today()
+        h = _habit(db, uid, created_at=datetime.now(timezone.utc))
+        out = habit_service.history(db, user, h.id, today.strftime("%Y-%m"))
+    finally:
+        db.close()
+
+    assert out["missed_this_month"] == 0
+    # Due today and not yet kept, so one occasion has been asked for at most.
+    assert out["due_so_far"] <= 1
+
+
+def test_the_habits_own_first_day_still_counts():
+    """The boundary belongs to the habit: the day it was made is a day it
+    could be kept, and excluding it would hide a real miss."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        today = date.today()
+        made_on = today - timedelta(days=2)
+        h = _habit(db, uid, created_at=datetime.combine(
+            made_on, datetime.min.time(), tzinfo=timezone.utc))
+        out = habit_service.history(db, user, h.id, today.strftime("%Y-%m"))
+    finally:
+        db.close()
+
+    assert _state_on(out, made_on.isoformat()) == "missed"
+
+
+def test_the_first_day_is_the_users_day_not_utcs():
+    """Created at 02:00 in Tashkent is 21:00 the previous day in UTC. Taking
+    the UTC date would report the habit's own first day as a miss."""
+    uid = _mk_user(tz="Asia/Tashkent")
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        # 2026-11-21 02:00 +05:00 is 2026-11-20 21:00 UTC.
+        h = _habit(db, uid, created_at=datetime(2026, 11, 20, 21, 0, tzinfo=timezone.utc))
+        out = habit_service.history(db, user, h.id, "2026-11")
+    finally:
+        db.close()
+
+    assert _state_on(out, "2026-11-20") == "before"
+
+
+def test_today_is_not_a_miss_while_the_day_is_still_running():
+    """A verdict at nine in the morning on something with all day left.
+    Found by the test above: a habit made today opened as a failure."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        today = date.today()
+        h = _habit(db, uid)
+        out = habit_service.history(db, user, h.id, today.strftime("%Y-%m"))
+    finally:
+        db.close()
+
+    assert _state_on(out, today.isoformat()) == "upcoming"
+
+
+def test_today_becomes_done_the_moment_it_is_kept():
+    """Still-open must not outrank a real check-in."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        today = date.today()
+        h = _habit(db, uid)
+        _log_at(db, h.id, datetime.now(timezone.utc))
+        out = habit_service.history(db, user, h.id, today.strftime("%Y-%m"))
+    finally:
+        db.close()
+
+    assert _state_on(out, today.isoformat()) == "done"
+
+
+def test_yesterday_is_still_a_miss():
+    """The softening stops at today. A day that finished unkept is a miss,
+    and hiding that would make the whole calendar useless."""
+    uid = _mk_user()
+    db = SessionLocal()
+    try:
+        user = db.query(models.BatAccount).get(uid)
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+        h = _habit(db, uid)
+        out = habit_service.history(db, user, h.id, today.strftime("%Y-%m"))
+        # Only meaningful when yesterday is in the same month.
+        if yesterday.month == today.month:
+            assert _state_on(out, yesterday.isoformat()) == "missed"
     finally:
         db.close()
