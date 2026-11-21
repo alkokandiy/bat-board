@@ -10,7 +10,6 @@ vi.mock('../../utils/api', () => ({
     resetAlfred: vi.fn(),
     updateAccount: vi.fn(),
     getAdminMe: vi.fn(),
-    getWorkStatus: vi.fn(),
   },
   browserTimezone: () => 'Asia/Tashkent',
 }));
@@ -23,7 +22,6 @@ describe('Reset Alfred confirmation', () => {
     api.getTelegramLinkStatus.mockResolvedValue({ linked: false });
     api.resetAlfred.mockResolvedValue({ sessions: 2, messages: 6, memory_notes: 0 });
     api.getAdminMe.mockResolvedValue({ is_admin: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
   });
 
   async function openConfirm() {

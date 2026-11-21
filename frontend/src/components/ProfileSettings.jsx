@@ -183,7 +183,7 @@ function AdminPanel() {
   );
 }
 
-export default function ProfileSettings({ account, onRefreshAccount, workEnabled = false, onWorkEnabledChange = () => {} }) {
+export default function ProfileSettings({ account, onRefreshAccount }) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -200,37 +200,10 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
   const [showLogs, setShowLogs] = useState(false);
   const [ledger, setLedger] = useState([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [workBusy, setWorkBusy] = useState(false);
-  const [workError, setWorkError] = useState(null);
-  const [workHasData, setWorkHasData] = useState(false);
   const [addressDraft, setAddressDraft] = useState(account?.alfred_address || '');
   const [addressMsg, setAddressMsg] = useState(null);
   const [addressError, setAddressError] = useState(null);
   useEffect(() => { setAddressDraft(account?.alfred_address || ''); }, [account?.alfred_address]);
-
-  // Whether they have work data decides the wording below ("nothing is
-  // deleted" only means something if there is something to keep).
-  useEffect(() => {
-    let cancelled = false;
-    api.getWorkStatus()
-      .then((st) => { if (!cancelled) setWorkHasData(!!st.has_data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [workEnabled]);
-
-  const toggleWork = async (enabled) => {
-    setWorkBusy(true);
-    setWorkError(null);
-    try {
-      const st = await api.setWorkEnabled(enabled);
-      setWorkHasData(!!st.has_data);
-      onWorkEnabledChange(!!st.enabled);
-    } catch (err) {
-      setWorkError(err.message);
-    } finally {
-      setWorkBusy(false);
-    }
-  };
 
   const saveAddress = async (e) => {
     e.preventDefault();
@@ -577,37 +550,6 @@ export default function ProfileSettings({ account, onRefreshAccount, workEnabled
               </button>
             )}
             {tzError && <div className="text-xs text-signal-late mt-2">{tzError}</div>}
-          </div>
-
-          {/* Work track */}
-          <div className="rounded-card bg-gradient-to-b from-bat-surface to-bat-bg ring-1 ring-bat-line shadow-tile p-5">
-            <h2 className="text-[11px] font-mono uppercase tracking-[0.14em] text-ink-muted border-b border-white/[0.04] pb-2.5 mb-4">
-              Work Track
-            </h2>
-            <p className="text-xs text-ink-muted mb-4">
-              The corporate side: tasks for your employer, a work journal and work
-              reports, kept entirely apart from your missions and earning no Bat
-              Points. With it off, the Work tab disappears, Alfred stops offering
-              anything work-related, and automatic work reports stop.
-              {workHasData && ' Your work data is kept either way and returns exactly as it was.'}
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => toggleWork(!workEnabled)}
-                disabled={workBusy}
-                className={`px-5 py-2 font-bold rounded text-xs font-mono tracking-widest transition disabled:opacity-50 border ${
-                  workEnabled
-                    ? 'bg-bat-raised ring-1 ring-bat-line text-ink-muted hover:text-ink hover:ring-bat-line-strong'
-                    : 'bg-signal-work/10 border-signal-work/40 text-signal-work hover:bg-signal-work/20'
-                }`}
-              >
-                {workBusy ? 'SAVING...' : workEnabled ? 'TURN WORK OFF' : 'TURN WORK ON'}
-              </button>
-              <span className="text-[10px] font-mono tracking-wider text-ink-faint">
-                {workEnabled ? 'CURRENTLY ON' : 'CURRENTLY OFF'}
-              </span>
-            </div>
-            {workError && <div className="text-xs text-signal-late mt-2">{workError}</div>}
           </div>
 
           {/* Reset Points */}

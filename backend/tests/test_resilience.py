@@ -135,18 +135,18 @@ def test_the_lean_retry_keeps_every_way_of_LOOKING_at_the_board():
 
     With the work tools dropped from the lean set, "list all work tasks"
     reached a retry that had no way to look — and Alfred answered with eight
-    invented office tasks instead of saying he could not. A read is what
+    invented plausible rows instead of saying he could not. A read is what
     people ask for most and costs the least, so every read stays.
     """
     assert alfred_tools.LEAN_TOOL_NAMES <= alfred_tools.TOOL_NAMES
     assert alfred_tools.LEAN_TOOL_NAMES < alfred_tools.TOOL_NAMES   # still a subset
     reads = {t for t in alfred_tools.TOOL_NAMES
              if t.startswith(("list_", "get_"))
-             or t in ("work_report", "review_loose_ends", "alfred_recall",
+             or t in ("review_loose_ends", "alfred_recall",
                       "suggest_focus_length")}
     assert reads <= alfred_tools.LEAN_TOOL_NAMES, reads - alfred_tools.LEAN_TOOL_NAMES
-    for essential in ("list_work_tasks", "list_missions", "list_habits",
-                      "list_notes", "complete_work_task", "delete_mission"):
+    for essential in ("list_missions", "list_habits",
+                      "list_notes", "complete_mission", "delete_mission"):
         assert essential in alfred_tools.LEAN_TOOL_NAMES, essential
 
 

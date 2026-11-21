@@ -16,7 +16,6 @@ vi.mock('../utils/api', () => ({
     login: vi.fn(),
     startFocusSession: vi.fn(),
     endFocusSession: vi.fn(),
-    getWorkStatus: vi.fn(),
     getFinanceSettings: vi.fn(),
     getSuggestedFocusMinutes: vi.fn(),
     getActiveFocusSession: vi.fn(),
@@ -75,7 +74,6 @@ describe('App focus session state machine', () => {
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
@@ -237,7 +235,6 @@ describe('Focus on this, from the mission list', () => {
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
@@ -348,7 +345,6 @@ describe('Focus on this, from the habit list', () => {
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
@@ -432,7 +428,6 @@ describe('Picking the clock back up after a reload or a re-login', () => {
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
@@ -574,7 +569,6 @@ describe('Staying signed in', () => {
     api.refreshToken.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
@@ -650,7 +644,6 @@ describe('Working past the bell', () => {
     api.endFocusSession.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: null, total_minutes: 0, sessions: [],
@@ -767,7 +760,6 @@ describe('the day strip under the timer', () => {
     api.refreshToken.mockResolvedValue({});
     api.getSuggestedFocusMinutes.mockResolvedValue({ minutes: 30, basis: 'default', sessions: 0 });
     api.getActiveFocusSession.mockResolvedValue({ active: false });
-    api.getWorkStatus.mockResolvedValue({ enabled: false, has_data: false });
     api.getFinanceSettings.mockResolvedValue({ finance_enabled: false, main_currency: null, period_start_day: 1 });
     api.getFocusDay.mockResolvedValue({
       date: '2026-11-20', now_minute: 600, total_minutes: 45,

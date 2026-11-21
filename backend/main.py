@@ -37,7 +37,6 @@ from routers.telegram import router as telegram_router
 from routers.alfred import router as alfred_router
 from routers.cron import router as cron_router
 from routers.admin import router as admin_router
-from routers.work import router as work_router
 from routers.lists import router as lists_router
 from routers.finance import router as finance_router
 from routers.sections import router as sections_router
@@ -176,7 +175,6 @@ app.include_router(telegram_router)
 app.include_router(alfred_router)
 app.include_router(cron_router)
 app.include_router(admin_router)
-app.include_router(work_router)
 app.include_router(lists_router)
 app.include_router(sections_router)
 app.include_router(finance_router)
@@ -1022,7 +1020,6 @@ class LogPastFocusRequest(BaseModel):
     when: Optional[datetime] = None
     mission_id: Optional[int] = None
     habit_id: Optional[int] = None
-    work_task_id: Optional[int] = None
 
 
 @app.post("/api/focus/log-past", status_code=status.HTTP_201_CREATED)
@@ -1048,7 +1045,6 @@ def log_past_focus(
             when=payload.when,
             mission_id=payload.mission_id,
             habit_id=payload.habit_id,
-            work_task_id=payload.work_task_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))

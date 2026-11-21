@@ -10,7 +10,6 @@ observation rather than an inference about someone's body:
 
   - a message the user sent Alfred       — they were awake and reachable
   - a focus session they ran             — they were working
-  - a work journal entry                 — they were working
   - a habit check-in                     — they were up and doing something
   - a mission they completed             — same
 
@@ -112,11 +111,6 @@ def observed_day(db: Session, user: models.BatAccount, day: date) -> ActiveWindo
         if en:
             stamps.append(en)
         tracked += int(mins or 0)
-
-    stamps += [r[0] for r in db.query(models.BatWorkNote.created_at).filter(
-        models.BatWorkNote.owner_id == user.id,
-        models.BatWorkNote.created_at >= s,
-        models.BatWorkNote.created_at < e).all() if r[0]]
 
     stamps += [r[0] for r in db.query(models.HabitCompletionLog.completed_at).join(
         models.BatHabit, models.HabitCompletionLog.habit_id == models.BatHabit.id).filter(

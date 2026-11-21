@@ -156,18 +156,6 @@ class TestWhatTheRecordShows:
         finally:
             db.close()
 
-    def test_a_work_note_counts_too(self):
-        uid = _mk_user()
-        db = SessionLocal()
-        try:
-            db.add(models.BatWorkNote(owner_id=uid, content="shipped it",
-                                      created_at=_at(16, 5)))
-            db.commit()
-            w = activity.observed_day(db, db.get(models.BatAccount, uid), TODAY)
-            assert w.signals == 1
-        finally:
-            db.close()
-
     def test_another_persons_day_is_not_mine(self):
         mine, theirs = _mk_user(), _mk_user()
         db = SessionLocal()

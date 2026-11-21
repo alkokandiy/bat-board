@@ -192,3 +192,35 @@ describe('closing the panel', () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+
+describe('changing month without the box collapsing', () => {
+  it('keeps the month on screen while the next one loads', async () => {
+    // It used to clear the data first, so the dialog shrank to the height of
+    // one line of text and snapped back — which read as the thing breaking
+    // every time an arrow was pressed.
+    renderPanel();
+    await screen.findByTestId('habit-day-2026-11-01');
+
+    let release;
+    api.getHabitHistory.mockReturnValue(new Promise((r) => { release = r; }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+
+    // Mid-flight: the old grid is still there, and the empty state is not.
+    expect(screen.getByTestId('habit-month')).toBeTruthy();
+    expect(screen.queryByText(/GATHERING THE RECORD/i)).toBeNull();
+
+    release(history());
+    await waitFor(() => expect(screen.getByTestId('habit-month').className).not.toMatch(/opacity-40/));
+  });
+
+  it('marks the month busy while it is being replaced', async () => {
+    renderPanel();
+    await screen.findByTestId('habit-month');
+
+    api.getHabitHistory.mockReturnValue(new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+
+    expect(screen.getByTestId('habit-month').getAttribute('aria-busy')).toBe('true');
+  });
+});

@@ -8,7 +8,6 @@ import FinancePanel from './components/FinancePanel';
 import CountdownSection from './components/CountdownSection';
 import CalendarPanel from './components/CalendarPanel';
 import NotesPanel from './components/NotesPanel';
-import WorkPanel from './components/WorkPanel';
 import ProfileSettings from './components/ProfileSettings';
 import StatsPanel from './components/StatsPanel';
 import { PageHeader, StatTile, EmptyState, Panel } from './components/ui';
@@ -113,10 +112,6 @@ export default function App() {
   const [activeTrack, setActiveTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  // Is the corporate track switched on? Drives the sidebar entry and the
-  // dashboard tile. Defaults to off, so a failed/absent status never shows a
-  // work side that cannot work.
-  const [workEnabled, setWorkEnabled] = useState(false);
   const [financeEnabled, setFinanceEnabled] = useState(false);
 
   // Lists (Phase 8). `selectedList` is null (All), 'inbox', or a list id —
@@ -262,16 +257,11 @@ export default function App() {
         })
         .catch(() => {});
 
-      // Deliberately after the boot data and never awaited into it: work is
-      // optional, so if this call fails the dashboard still comes up and the
-      // work entry simply stays hidden.
-      api.getWorkStatus()
-        .then((st) => setWorkEnabled(!!st.enabled))
-        .catch(() => setWorkEnabled(false));
-
-      // Finance is optional in exactly the same way, and for a stronger
-      // reason: it is the most sensitive thing on the board, so its entry
-      // appears only once the person has actually started using it.
+      // Deliberately after the boot data and never awaited into it: finance
+      // is optional, so if this call fails the dashboard still comes up and
+      // the entry simply stays hidden. It appears only once the person has
+      // actually started using it, because money is the most sensitive thing
+      // on the board.
       api.getFinanceSettings()
         .then((st) => setFinanceEnabled(!!st.finance_enabled))
         .catch(() => setFinanceEnabled(false));
@@ -322,7 +312,6 @@ export default function App() {
       setListCounts({});
       setSections([]);
       setSelectedList(null);
-      setWorkEnabled(false);
       setFinanceEnabled(false);
     };
     window.addEventListener('auth:logout', handleLogout);
@@ -374,19 +363,6 @@ export default function App() {
       console.error(err);
     }
   };
-
-  // One place decides what "work is off" means for the UI: hide the entry and
-  // leave the work view if that is where the user happens to be standing.
-  const handleWorkEnabledChange = useCallback((enabled) => {
-    setWorkEnabled(!!enabled);
-    if (!enabled) {
-      setCurrentView((view) => (view === 'work' ? 'dashboard' : view));
-    }
-  }, []);
-
-  const handleWorkStatus = useCallback((st) => {
-    handleWorkEnabledChange(!!st?.enabled);
-  }, [handleWorkEnabledChange]);
 
   const handleRefreshMissions = async () => {
     try {
@@ -846,15 +822,11 @@ export default function App() {
         );
       case 'notes':
         return <NotesPanel />;
-      case 'work':
-        return <WorkPanel onStatusChange={handleWorkStatus} />;
       case 'profile':
         return (
           <ProfileSettings
             account={account}
             onRefreshAccount={handleRefreshAccount}
-            workEnabled={workEnabled}
-            onWorkEnabledChange={handleWorkEnabledChange}
           />
         );
       default:
@@ -869,7 +841,7 @@ export default function App() {
                 stats={dashboardStats}
               />
             </div>
-            <div className={`grid grid-cols-1 gap-4 ${workEnabled ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
+            <div className={`grid grid-cols-1 gap-4 md:grid-cols-3`}>
               {/* Only the tile that needs a decision is emphasised. Four
                   identical tiles told the eye nothing about where to look. */}
               <StatTile
@@ -901,15 +873,6 @@ export default function App() {
                 tone="self"
                 onClick={() => setCurrentView('focus')}
               />
-              {workEnabled && (
-                <StatTile
-                  label="Corporate Track"
-                  value="THE JOB"
-                  hint="earns no Bat Points, by design"
-                  tone="work"
-                  onClick={() => setCurrentView('work')}
-                />
-              )}
             </div>
             <CountdownSection />
             {/* Was a welcome blurb that never changed. It now reports the
@@ -944,7 +907,6 @@ export default function App() {
       onTogglePlay={handleTogglePlay}
       onTrackChange={handleTrackChange}
       focusMode={focusMode}
-      workEnabled={workEnabled}
       financeEnabled={financeEnabled}
     >
       {renderView()}

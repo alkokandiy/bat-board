@@ -205,10 +205,9 @@ def _reminder_keyboard(reminder) -> dict:
     so the system kept firing a dead cue for a month. "Not today" matters as
     much as "done": it says the message arrived and was considered.
 
-    "Start focus" appears only when the reminder points at a mission, habit
-    or work task. Putting it on every reminder would be wrong twice over —
-    most reminders are not work, and a reminder to take a tablet is a minute
-    long, under the floor that makes a session count at all.
+    "Start focus" appears only when the reminder points at a mission or a
+    habit. Putting it on every reminder would be wrong: a reminder to take a
+    tablet is a minute long, under the floor that makes a session count.
     """
     rows = [[
         {"text": "Done", "callback_data": f"rem:done:{reminder.id}"},
@@ -403,60 +402,6 @@ def _fire_due_focus(db: Session, now_utc: datetime, summary: dict) -> None:
         summary["focus_stale_closed"] += 1
 
 
-def _fire_work_reports(db: Session, user: models.BatAccount, chat_id: str,
-                       local_now: datetime, summary: dict) -> None:
-    """Automatic work reports, if they asked for them in their work profile.
-
-    The daily one only goes out on days they ACTUALLY worked — a day counts
-    because something moved on it, never because the calendar says so.
-    """
-    from services import work_service
-
-    # Switched off → no work reports at all, even if a profile still says 19:00.
-    if not work_service.is_enabled(db, user):
-        return
-    profile = work_service.get_profile(db, user)
-    if profile is None or not profile.report_time:
-        return
-    scheduled = _parse_hhmm(profile.report_time)
-    if not scheduled or not _within_window(local_now, scheduled, _effective_since(profile)):
-        return
-
-    today = local_now.date()
-    last_of_month = (today + timedelta(days=1)).day == 1
-    wanted = []
-    if profile.monthly_report and last_of_month:
-        wanted.append("month")
-    elif profile.weekly_report_day is not None and today.weekday() == profile.weekly_report_day:
-        wanted.append("week")
-    elif profile.daily_report:
-        wanted.append("today")
-    if not wanted:
-        return
-    period = wanted[0]
-
-    data = work_service.build_report(db, user, period, today=today)
-    # Nothing moved today → it wasn't a working day → stay quiet.
-    if period == "today" and not data["work_days"] and not data["completed"]:
-        return
-
-    kind = f"work_{period}"
-    logrow = models.BatBriefingLog(owner_id=user.id, kind=kind, local_date=today.isoformat())
-    db.add(logrow)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        return      # already sent today
-
-    text = work_service.render_report(user, data)
-    if _send(db, user, chat_id, text, origin="work_report"):
-        summary["work_reports_sent"] += 1
-    else:
-        db.delete(logrow)
-        db.commit()
-
-
 async def _fire_nudges(db: Session, user: models.BatAccount, chat_id: str,
                        local_now: datetime, adapter, summary: dict) -> None:
     """One proactive check-in, if anything genuinely deserves a word."""
@@ -504,7 +449,7 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
                "reminders_sent": 0, "reminders_failed": 0, "reminders_suspended": 0,
                "focus_autoended": 0, "focus_pings_sent": 0,
                "focus_stale_closed": 0, "nudges_sent": 0, "nudges_declined": 0,
-               "work_reports_sent": 0}
+              }
 
     # Timed focus sessions auto-end on their own clock, for everyone.
     _fire_due_focus(db, datetime.now(timezone.utc), summary)
@@ -543,7 +488,6 @@ async def run_tick(db: Session, adapter_for=None) -> dict:
         adapter = adapter_for(db, user)
         await _fire_briefings(db, user, chat_id, local_now, adapter, summary)
         _fire_reminders(db, user, chat_id, local_now, summary)
-        _fire_work_reports(db, user, chat_id, local_now, summary)
         await _fire_nudges(db, user, chat_id, local_now, adapter, summary)
 
     return summary

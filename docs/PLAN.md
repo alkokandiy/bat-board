@@ -509,6 +509,30 @@ and notes follow the same machinery once it works.
 
 ---
 
+## The work track, removed 2026-11-21
+
+The owner stopped using it and asked for it gone from bat-board and from
+Alfred both. Three tables, the routes, the panel, the twelve Alfred tools and
+the on/off switch are all deleted; migration 036 drops the rest.
+
+Two things were protected on the way out, and both are worth remembering
+because they are the general shape of removing a domain here:
+
+- **Focus hours survived.** `bat_focus` rows could carry a `work_task_id`, and
+  those sessions are real hours somebody sat through. Dropping the column
+  leaves every row intact with its minutes; nothing cascaded. The migration
+  was tested by seeding a 120-minute work session and checking it still
+  existed afterwards.
+- **`signal-work` is a colour, not the feature.** It is used by habits,
+  missions, countdowns, StatTile and Button. A find-and-delete on "work"
+  would have broken half the interface.
+
+One rule changed rather than disappearing: a focus session on a work task
+earned **no** points, deliberately. With no such thing as a work session, all
+sessions now earn in the ordinary way. Nothing was awarded retroactively.
+
+---
+
 # The finance track — phases 26 to 36
 
 Added 2026-11-20 on the owner's brief: log income and outgoings with mechanics

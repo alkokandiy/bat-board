@@ -23,7 +23,7 @@ from services.timezones import local_date, user_tz
 OUTCOMES = ("done", "skipped", "snoozed")
 
 # The three things a reminder may point at, in the order the link is read.
-LINK_FIELDS = ("mission_id", "habit_id", "work_task_id")
+LINK_FIELDS = ("mission_id", "habit_id")
 
 
 def link_of(reminder) -> Optional[tuple]:

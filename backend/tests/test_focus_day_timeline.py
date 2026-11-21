@@ -190,21 +190,20 @@ def test_a_block_is_named_by_what_it_was_spent_on():
         db.close()
 
 
-def test_work_time_is_named_rather_than_left_anonymous():
-    """Work is a separate track and earns no points — but it is still time
-    that went somewhere, and an unlabelled block is the hole this strip
-    exists to make visible."""
+def test_a_session_with_a_target_is_named_rather_than_left_anonymous():
+    """An unlabelled block is the hole this strip exists to make visible, so
+    anything with a target carries its name."""
     uid = _mk_user()
     db = SessionLocal()
     try:
         user = db.get(models.BatAccount, uid)
-        t = models.BatWorkTask(owner_id=uid, title="Quarterly report")
-        db.add(t)
+        m = models.BatMission(owner_id=uid, title="Quarterly report", status="pending")
+        db.add(m)
         db.commit()
         _session(db, uid, datetime(2026, 2, 10, 9, 0, tzinfo=timezone.utc),
-                 datetime(2026, 2, 10, 10, 0, tzinfo=timezone.utc), work_task_id=t.id)
+                 datetime(2026, 2, 10, 10, 0, tzinfo=timezone.utc), mission_id=m.id)
         block = focus_service.day_timeline(db, user, date(2026, 2, 10))["sessions"][0]
-        assert block["type"] == "work"
+        assert block["type"] == "mission"
         assert block["name"] == "Quarterly report"
     finally:
         db.close()

@@ -109,8 +109,6 @@ class Ctx:
     habits_pending: list
     focus_today_minutes: int
     last_focus_at: Optional[datetime]
-    at_work: bool = False
-    work_activity_today: bool = False
     # --- the noticing surface -------------------------------------------
     # The fields above are what Alfred CHASES. These are what he can OFFER:
     # the difference between an overseer and a companion.
@@ -202,28 +200,6 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
                 models.BatFocus.end_time.isnot(None))
         .order_by(models.BatFocus.end_time.desc())
         .first()
-    )
-
-    from services import work_service
-    # With the corporate track off, work facts are simply not consulted: the
-    # drift nudge then speaks in purely personal terms, which is exactly what it
-    # did before work existed. It is never silenced — only worded differently.
-    work_on = work_service.is_enabled(db, user)
-    at_work = work_on and work_service.is_working_now(
-        work_service.get_profile(db, user), local_now)
-    # Did the job move at all today? Completing work tasks or writing work notes
-    # is working, even when the timer wasn't running.
-    work_touched = work_on and (
-        db.query(models.BatWorkTask)
-        .filter(models.BatWorkTask.owner_id == user.id,
-                models.BatWorkTask.updated_at >= _naive(d_start),
-                models.BatWorkTask.updated_at < _naive(d_end))
-        .first() is not None
-        or db.query(models.BatWorkNote)
-        .filter(models.BatWorkNote.owner_id == user.id,
-                models.BatWorkNote.created_at >= _naive(d_start),
-                models.BatWorkNote.created_at < _naive(d_end))
-        .first() is not None
     )
 
     # --- the noticing surface -----------------------------------------
@@ -326,8 +302,6 @@ def build_context(db, user: models.BatAccount, local_now: datetime) -> Ctx:
         events_soon=events_soon, habits_pending=habits_pending,
         focus_today_minutes=focus_today,
         last_focus_at=_aware(last_done.end_time) if last_done else None,
-        at_work=at_work,
-        work_activity_today=work_touched,
         notes=notes,
         themes=_theme_labels(open_missions, notes),
         events_this_week=events_this_week,
@@ -450,8 +424,6 @@ def sig_drift(ctx: Ctx) -> Optional[Nudge]:
     Telling someone at their desk that they are "drifting" is the failure; going
     silent on them is the opposite failure. So: ask, but ask correctly.
 
-    Focus on a WORK task counts as focus. Once the timer is running on the job,
-    this stays quiet of its own accord.
     """
     if ctx.focus_today_minutes > 0:
         return None
@@ -459,28 +431,6 @@ def sig_drift(ctx: Ctx) -> Optional[Nudge]:
         return None
 
     key = f"drift:{ctx.today.isoformat()}"
-
-    # At their desk by their own schedule — offer to time it, don't accuse.
-    if ctx.at_work:
-        return Nudge(
-            key=key, kind="drift", priority=45,
-            draft=(f"You're at work by your own schedule, {ctx.address}, but nothing's "
-                   f"timed yet today. Shall I start a session on one of your work tasks?"),
-            facts="No focus time logged today; currently within their working hours.",
-        
-            warrant=("They are inside their own stated working hours with no timer running. This is an offer, never an accusation — an untimed day is not a wasted one, and the record is theirs, not a report card. Offer to start the clock on something specific, and let declining be easy."),
-        )
-
-    # The job moved today, it just wasn't timed.
-    if ctx.work_activity_today:
-        return Nudge(
-            key=key, kind="drift", priority=45,
-            draft=(f"You've moved work along today, {ctx.address}, but timed none of it. "
-                   f"Worth running the clock on it — shall I start one?"),
-            facts="Work tasks or notes changed today, but no focus time was logged.",
-        
-            warrant=("The job moved but nothing was timed. The only thing missing is the record, so treat it as such: light, optional, and genuinely droppable. Never suggest the work did not count because it was not measured."),
-        )
 
     if not ctx.open_missions:
         return None

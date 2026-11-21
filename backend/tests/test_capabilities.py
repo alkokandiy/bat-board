@@ -12,7 +12,7 @@ import time refuses to let a tool go unlisted.
 
 import models
 from database import SessionLocal
-from services import alfred_agent, alfred_tools, work_service
+from services import alfred_agent, alfred_tools
 
 _n = [1010000]
 
@@ -62,30 +62,24 @@ def test_the_summary_is_small_enough_to_send_every_turn():
 
 
 def test_it_only_claims_what_this_user_actually_has():
-    """Someone with the work track off must not be told he can do work things."""
-    available = alfred_tools.TOOL_NAMES - alfred_tools.WORK_TOOL_NAMES
+    """A filtered tool set must not be advertised back as a full one. The work
+    track proved this matters; the filter outlived it."""
+    available = alfred_tools.TOOL_NAMES - {"delete_mission", "delete_habit"}
     summary = alfred_tools.capability_summary(available)
-    assert "complete_work_task" not in summary
+    assert "delete_mission" not in summary
     assert "list_missions" in summary
 
 
 # --- what reaches the prompt ----------------------------------------------
 
-def test_the_prompt_lists_his_abilities_and_follows_the_work_switch():
+def test_the_prompt_lists_his_abilities():
     uid = _mk_user()
     db = SessionLocal()
     try:
         user = db.get(models.BatAccount, uid)
-
-        work_service.set_enabled(db, user, True)
-        on = alfred_agent._build_system_prompt(user, work_enabled=True, db=db)
-        assert "complete_work_task" in on
-
-        work_service.set_enabled(db, user, False)
-        off = alfred_agent._build_system_prompt(user, work_enabled=False, db=db)
-        assert "complete_work_task" not in off
-        # The everyday board survives either way.
-        assert "delete_mission" in on and "delete_mission" in off
+        prompt = alfred_agent._build_system_prompt(user, db=db)
+        assert "delete_mission" in prompt
+        assert "check_in_habit" in prompt
     finally:
         db.close()
 
@@ -115,5 +109,5 @@ def test_building_the_prompt_without_a_session_still_works():
         user = db.get(models.BatAccount, uid)
     finally:
         db.close()
-    out = alfred_agent._build_system_prompt(user, work_enabled=True)
+    out = alfred_agent._build_system_prompt(user)
     assert "delete_mission" in out

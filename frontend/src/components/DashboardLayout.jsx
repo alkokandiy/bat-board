@@ -5,7 +5,6 @@ import {
   Timer,
   CalendarDays,
   NotebookText,
-  Briefcase,
   Wallet,
   CircleUserRound,
   ChevronLeft,
@@ -17,7 +16,6 @@ const ICON_MAP = {
   focus: Timer,
   calendar: CalendarDays,
   notes: NotebookText,
-  work: Briefcase,
   finance: Wallet,
   profile: CircleUserRound,
 };
@@ -28,7 +26,7 @@ const SIDEBAR_COLLAPSED_WIDTH = 72;
 // Stamped at build time by the Dockerfile (ARG BUILD_SHA). "dev" locally.
 const BUILD_SHA = (import.meta.env.VITE_BUILD_SHA || 'dev').slice(0, 7);
 
-export default function DashboardLayout({ account, currentView, onViewChange = () => {}, onLogout = () => {}, activeTrack, isPlaying, onTogglePlay, onTrackChange, focusMode, workEnabled = false, financeEnabled = false, children }) {
+export default function DashboardLayout({ account, currentView, onViewChange = () => {}, onLogout = () => {}, activeTrack, isPlaying, onTogglePlay, onTrackChange, focusMode, financeEnabled = false, children }) {
   const { username = "Loading...", points = 0, bat_level = "Loading..." } = account || {};
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -39,18 +37,14 @@ export default function DashboardLayout({ account, currentView, onViewChange = (
 
   const glowTimeoutRef = useRef(null);
 
-  // Work appears only when the user has the corporate track switched on. With
-  // it off the entry is simply absent — not greyed out, not a dead end.
+  // Money appears only when the user has started using it. With it off the
+  // entry is simply absent — not greyed out, not a dead end.
   const navItems = [
     { id: 'missions', label: 'Missions' },
     { id: 'habits', label: 'Habits' },
     { id: 'focus', label: 'Focus' },
     { id: 'calendar', label: 'Calendar' },
     { id: 'notes', label: 'Notes' },
-    ...(workEnabled ? [{ id: 'work', label: 'Work' }] : []),
-    // Money appears only once there is money on the board, for the same
-    // reason work does — and a stronger one: nobody gets a finance module
-    // they never asked for.
     ...(financeEnabled ? [{ id: 'finance', label: 'Money' }] : []),
     { id: 'profile', label: 'Profile' },
   ];
